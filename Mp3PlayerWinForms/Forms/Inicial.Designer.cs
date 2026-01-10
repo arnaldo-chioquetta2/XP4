@@ -14,6 +14,7 @@
 
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Inicial));
             this.lvTracks = new System.Windows.Forms.ListView();
             this.colMusica = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.colBanda = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -101,7 +102,6 @@
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Size = new System.Drawing.Size(428, 27);
             this.lblStatus.TabIndex = 4;
-            this.lblStatus.Text = "Aguardando...";
             // 
             // btnNext
             // 
@@ -181,20 +181,14 @@
             this.Controls.Add(this.lvTracks);
             this.Controls.Add(this.pnlHeader);
             this.Controls.Add(this.pnlControls);
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "Inicial";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "XP3 Player";
             this.pnlControls.ResumeLayout(false);
             this.pnlHeader.ResumeLayout(false);
             this.pnlHeader.PerformLayout();
-
-            this.Controls.Add(this.lvTracks);     // Ocupa o centro
-            this.Controls.Add(this.pnlHeader);    // No topo
-            this.Controls.Add(this.pnlControls);  // No rodapé
-
             this.ResumeLayout(false);
-
-
 
         }
 

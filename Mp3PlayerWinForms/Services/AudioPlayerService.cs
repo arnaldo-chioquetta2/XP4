@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using NAudio.Wave; // Essencial
-//using Mp3PlayerWinForms.Models;
+using System.Windows.Media;
 using Mp3PlayerWinForms.Services;
 using XP3.Models;
 
@@ -14,13 +14,15 @@ namespace XP3.Services
         // ALTERAÇÃO 1: Mudamos de 'AudioFileReader' para 'WaveStream'
         // 'WaveStream' é o pai genérico que aceita tanto MP3 puro quanto arquivos do MediaFoundation
         private WaveStream _audioFile;
+        private MediaPlayer _mediaPlayer;
 
         private List<Track> _playlist;
         private int _currentIndex = -1;
 
         public event EventHandler<Track> TrackChanged;
-        public event EventHandler PlaybackStopped;
+        //public event EventHandler PlaybackStopped;
         public event EventHandler<float[]> FftDataReceived;
+        public event EventHandler<string> PlaybackError;
         private SampleAggregator _aggregator;
 
         // NOVO EVENTO: Esse é o segredo para o Spectrum funcionar!
@@ -32,7 +34,14 @@ namespace XP3.Services
 
         public AudioPlayerService()
         {
+            _mediaPlayer = new MediaPlayer();
             _playlist = new List<Track>();
+            _mediaPlayer.MediaEnded += _mediaPlayer_MediaEnded;
+        }
+
+        private void _mediaPlayer_MediaEnded(object sender, EventArgs e)
+        {
+            Next();
         }
 
         public void SetPlaylist(List<Track> tracks)
@@ -98,39 +107,63 @@ namespace XP3.Services
 
         public void Stop()
         {
-            _waveOut?.Stop();
+            if (_waveOut != null)
+            {
+                // IMPORTANTE: Removemos o evento para ele não achar que a música acabou sozinha
+                _waveOut.PlaybackStopped -= OnPlaybackStopped;
 
-            // É importante desvincular o evento para não causar vazamento de memória ou chamadas duplas
-            if (_waveOut != null) _waveOut.PlaybackStopped -= OnPlaybackStopped;
+                _waveOut.Stop();
+                _waveOut.Dispose();
+                _waveOut = null;
+            }
 
-            _audioFile?.Dispose();
-            _waveOut?.Dispose();
-            _audioFile = null;
-            _waveOut = null;
+            if (_audioFile != null)
+            {
+                _audioFile.Dispose();
+                _audioFile = null;
+            }
         }
 
         public void Next()
         {
             if (_playlist.Count == 0) return;
-            int nextIndex = (_currentIndex + 1) % _playlist.Count;
-            Play(nextIndex);
-        }
 
-        // ALTERAÇÃO 4: Corrigido o tipo do evento (StoppedEventArgs é do NAudio, não do System.Management)
+            // Verifica se não é a última
+            if (_currentIndex < _playlist.Count - 1)
+            {
+                Play(_currentIndex + 1);
+            }
+            else
+            {
+                // Se for a última, volta para a primeira (Loop da lista)
+                // Se não quiser loop, basta remover esta linha
+                Play(0);
+            }
+        }
         private void OnPlaybackStopped(object sender, StoppedEventArgs e)
         {
-            // Se parou porque a música acabou (e não porque o usuário clicou em Stop)
-            if (_audioFile != null && _audioFile.Position >= _audioFile.Length)
+            // Se houver exceção, paramos por erro
+            if (e.Exception != null)
             {
-                Next();
-            }
-            else if (e.Exception != null)
-            {
-                // Se parou por erro
-                System.Windows.Forms.MessageBox.Show("Erro na reprodução: " + e.Exception.Message);
+                PlaybackError?.Invoke(this, $"Erro na reprodução: {e.Exception.Message}");
+                return;
             }
 
-            PlaybackStopped?.Invoke(this, EventArgs.Empty);
+            // LÓGICA DE AUTO-PRÓXIMA:
+            // Se o WaveOut parou e não foi porque nós chamamos o Stop() manualmente para trocar de música,
+            // então significa que a música chegou ao fim.
+
+            // Verificamos se ainda temos playlist
+            if (_playlist != null && _currentIndex < _playlist.Count - 1)
+            {
+                // Toca a próxima
+                Next();
+            }
+            else if (_playlist != null && _currentIndex >= _playlist.Count - 1)
+            {
+                // Se era a última, volta para a primeira (Loop)
+                Play(0);
+            }
         }
 
         public void Dispose()

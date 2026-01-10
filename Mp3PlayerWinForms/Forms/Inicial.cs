@@ -124,6 +124,14 @@ namespace XP3.Forms
                     _visualizerWindow.BeginInvoke(new Action(() => _visualizerWindow.UpdateData(data)));
             };
 
+            _player.PlaybackError += (s, msg) =>
+            {
+                this.BeginInvoke(new Action(() => {
+                    lblStatus.ForeColor = Color.Salmon;
+                    lblStatus.Text = msg;
+                }));
+            };
+
             _hotkeyService = new GlobalHotkeyService(this.Handle);
             _hotkeyService.Register(Keys.F10);
             _hotkeyService.HotkeyPressed += () => _player.TogglePlayPause();

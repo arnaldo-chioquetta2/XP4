@@ -5,7 +5,6 @@ using System.Windows.Forms;
 
 namespace XP3.Forms
 {
-    // IMPORTANTE: Adicione 'partial' aqui
     public partial class VisualizerForm : Form
     {
         private float[] _fftData;
@@ -14,12 +13,11 @@ namespace XP3.Forms
 
         public VisualizerForm()
         {
-            // 1. Chama o inicializador do Designer (que vamos criar abaixo)
             InitializeComponent();
 
-            // 2. Configurações extras de Tela Cheia (feitas via código)
+            // Configurações visuais
             this.FormBorderStyle = FormBorderStyle.None;
-            this.WindowState = FormWindowState.Maximized;
+            // REMOVIDO: this.WindowState = FormWindowState.Maximized; (Faremos no OnLoad)
             this.BackColor = Color.Black;
             this.DoubleBuffered = true;
             this.TopMost = true;
@@ -28,6 +26,25 @@ namespace XP3.Forms
             this.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) this.Close(); };
             this.MouseDoubleClick += (s, e) => this.Close();
         }
+
+        // --- NOVO: Lógica para detectar o monitor correto ao carregar ---
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+
+            // 1. Identifica em qual monitor o mouse está (já que você clicou para abrir)
+            Screen screen = Screen.FromPoint(Cursor.Position);
+
+            // 2. Define que vamos posicionar manualmente
+            this.StartPosition = FormStartPosition.Manual;
+
+            // 3. Move o form para o canto superior esquerdo do monitor correto
+            this.Location = screen.Bounds.Location;
+
+            // 4. Agora sim, maximizamos para preencher AQUELE monitor
+            this.WindowState = FormWindowState.Maximized;
+        }
+        // ---------------------------------------------------------------
 
         public void UpdateData(float[] data)
         {
