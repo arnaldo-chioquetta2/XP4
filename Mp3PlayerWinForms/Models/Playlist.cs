@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Mp3PlayerWinForms.Models
+namespace XP3.Models
 {
     public class Playlist
     {

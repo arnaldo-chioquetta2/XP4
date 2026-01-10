@@ -1,6 +1,6 @@
 using System;
 
-namespace Mp3PlayerWinForms.Models
+namespace XP3.Models
 {
     public class Track
     {

@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-namespace Mp3PlayerWinForms.Forms
+namespace XP3.Forms
 {
     // IMPORTANTE: Adicione 'partial' aqui
     public partial class VisualizerForm : Form

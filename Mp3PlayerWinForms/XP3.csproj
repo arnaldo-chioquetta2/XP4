@@ -91,6 +91,9 @@
       <HintPath>..\packages\System.Buffers.4.4.0\lib\netstandard2.0\System.Buffers.dll</HintPath>
     </Reference>
     <Reference Include="System.Data" />
+    <Reference Include="System.Data.OleDb, Version=10.0.0.1, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Data.OleDb.10.0.1\lib\net462\System.Data.OleDb.dll</HintPath>
+    </Reference>
     <Reference Include="System.Data.SQLite, Version=2.0.2.0, Culture=neutral, PublicKeyToken=db937bc2d44ff139, processorArchitecture=MSIL">
       <HintPath>..\packages\System.Data.SQLite.2.0.2\lib\net471\System.Data.SQLite.dll</HintPath>
     </Reference>
@@ -121,16 +124,26 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Forms\Inicial.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\Inicial.Designer.cs">
+      <DependentUpon>Inicial.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Forms\ScannerForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\ScannerForm.Designer.cs">
+      <DependentUpon>ScannerForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="Forms\VisualizerForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Forms\VisualizerForm.Designer.cs">
       <DependentUpon>VisualizerForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="Models\AppConfig.cs" />
     <Compile Include="Program.cs" />
-    <Compile Include="Forms\MainForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
     <Compile Include="Controls\SpectrumControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -140,12 +153,18 @@
     <Compile Include="Data\Database.cs" />
     <Compile Include="Data\TrackRepository.cs" />
     <Compile Include="Services\AudioPlayerService.cs" />
+    <Compile Include="Services\FolderScannerService.cs.cs" />
     <Compile Include="Services\IniFileService.cs" />
     <Compile Include="Services\GlobalHotkeyService.cs" />
     <Compile Include="Services\SampleAggregator.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Forms\Inicial.resx">
+      <DependentUpon>Inicial.cs</DependentUpon>
+    </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

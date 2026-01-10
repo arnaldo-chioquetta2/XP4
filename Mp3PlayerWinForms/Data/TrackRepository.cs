@@ -1,26 +1,48 @@
 using System;
 using System.Collections.Generic;
-using System.Data.SQLite;
-using Mp3PlayerWinForms.Models;
+using System.Data.SQLite; // Biblioteca correta
+using XP3.Models;
 
-namespace Mp3PlayerWinForms.Data
+namespace XP3.Data
 {
     public class TrackRepository
     {
-        public int GetOrInsertBand(string bandName)
+        // --- MÉTODO NOVO QUE ESTAVA FALTANDO ---
+        public string GetPlaylistName(int playlistId)
         {
-            using (var conn = new SQLiteConnection(Database.ConnectionString))
+            using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand("SELECT Id FROM Bands WHERE Name = @name", conn))
+                using (var cmd = conn.CreateCommand())
                 {
+                    cmd.CommandText = "SELECT Nome FROM Lista WHERE ID = @id";
+                    cmd.Parameters.AddWithValue("@id", playlistId);
+
+                    var result = cmd.ExecuteScalar();
+                    return result != null ? result.ToString() : "Lista Desconhecida";
+                }
+            }
+        }
+        // ----------------------------------------
+
+        public int GetOrInsertBand(string bandName)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT ID FROM Banda WHERE Nome = @name";
                     cmd.Parameters.AddWithValue("@name", bandName);
                     var result = cmd.ExecuteScalar();
                     if (result != null) return Convert.ToInt32(result);
                 }
 
-                using (var cmd = new SQLiteCommand("INSERT INTO Bands (Name) VALUES (@name); SELECT last_insert_rowid();", conn))
+                using (var cmd = conn.CreateCommand())
                 {
+                    cmd.CommandText = @"INSERT INTO Banda (Nome, Lugar) VALUES (@name, ''); 
+                                        SELECT last_insert_rowid();";
                     cmd.Parameters.AddWithValue("@name", bandName);
                     return Convert.ToInt32(cmd.ExecuteScalar());
                 }
@@ -29,16 +51,23 @@ namespace Mp3PlayerWinForms.Data
 
         public int AddTrack(Track track)
         {
-            using (var conn = new SQLiteConnection(Database.ConnectionString))
+            using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand(
-                    "INSERT INTO Tracks (Title, BandId, FilePath, Duration) VALUES (@title, @bandId, @path, @duration); SELECT last_insert_rowid();", conn))
+                using (var cmd = conn.CreateCommand())
                 {
-                    cmd.Parameters.AddWithValue("@title", track.Title);
-                    cmd.Parameters.AddWithValue("@bandId", track.BandId);
-                    cmd.Parameters.AddWithValue("@path", track.FilePath);
-                    cmd.Parameters.AddWithValue("@duration", (int)track.Duration.TotalSeconds);
+                    cmd.CommandText = @"
+                        INSERT INTO Musica 
+                        (Nome, Lugar, Banda, Tempo, Tamanho, BitRate, VezErro, MaxVol, Equalizacao, Album, Unid, Pular, Pulado, NaoAchou, CutIni, CutFim) 
+                        VALUES 
+                        (@nome, @lugar, @banda, @tempo, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0); 
+                        SELECT last_insert_rowid();";
+
+                    cmd.Parameters.AddWithValue("@nome", track.Title);
+                    cmd.Parameters.AddWithValue("@lugar", track.FilePath);
+                    cmd.Parameters.AddWithValue("@banda", track.BandId);
+                    cmd.Parameters.AddWithValue("@tempo", track.Duration.ToString());
+
                     return Convert.ToInt32(cmd.ExecuteScalar());
                 }
             }
@@ -46,15 +75,18 @@ namespace Mp3PlayerWinForms.Data
 
         public void AddTrackToPlaylist(int playlistId, int trackId)
         {
-            using (var conn = new SQLiteConnection(Database.ConnectionString))
+            using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand(
-                    "INSERT OR IGNORE INTO PlaylistTracks (PlaylistId, TrackId) VALUES (@pId, @tId)", conn))
+                using (var cmd = conn.CreateCommand())
                 {
-                    cmd.Parameters.AddWithValue("@pId", playlistId);
-                    cmd.Parameters.AddWithValue("@tId", trackId);
-                    cmd.ExecuteNonQuery();
+                    cmd.CommandText = @"INSERT INTO LisMus (Lista, Musica, JaTocou, PosLista) 
+                                        VALUES (@lista, @musica, 0, 0)";
+
+                    cmd.Parameters.AddWithValue("@lista", playlistId);
+                    cmd.Parameters.AddWithValue("@musica", trackId);
+
+                    try { cmd.ExecuteNonQuery(); } catch { }
                 }
             }
         }
@@ -62,37 +94,98 @@ namespace Mp3PlayerWinForms.Data
         public List<Track> GetTracksByPlaylist(int playlistId)
         {
             var tracks = new List<Track>();
-            using (var conn = new SQLiteConnection(Database.ConnectionString))
+            using (var conn = Database.GetConnection())
             {
                 conn.Open();
+
                 string sql = @"
-                    SELECT t.Id, t.Title, t.FilePath, t.Duration, b.Id as BandId, b.Name as BandName
-                    FROM Tracks t
-                    JOIN Bands b ON t.BandId = b.Id
-                    JOIN PlaylistTracks pt ON t.Id = pt.TrackId
-                    WHERE pt.PlaylistId = @pId";
-                
-                using (var cmd = new SQLiteCommand(sql, conn))
+                    SELECT 
+                        m.ID, 
+                        m.Nome, 
+                        m.Lugar, 
+                        m.Tempo, 
+                        b.ID as BandId, 
+                        b.Nome as BandName
+                    FROM Musica m
+                    LEFT JOIN Banda b ON m.Banda = b.ID
+                    JOIN LisMus lm ON m.ID = lm.Musica
+                    WHERE lm.Lista = @listaId";
+
+                using (var cmd = conn.CreateCommand())
                 {
-                    cmd.Parameters.AddWithValue("@pId", playlistId);
+                    cmd.CommandText = sql;
+                    cmd.Parameters.AddWithValue("@listaId", playlistId);
+
                     using (var reader = cmd.ExecuteReader())
                     {
                         while (reader.Read())
                         {
-                            tracks.Add(new Track
-                            {
-                                Id = reader.GetInt32(0),
-                                Title = reader.GetString(1),
-                                FilePath = reader.GetString(2),
-                                Duration = TimeSpan.FromSeconds(reader.GetInt32(3)),
-                                BandId = reader.GetInt32(4),
-                                BandName = reader.GetString(5)
-                            });
+                            var t = new Track();
+                            t.Id = reader.GetInt32(0);
+                            t.Title = reader.IsDBNull(1) ? "Sem Título" : reader.GetString(1);
+                            t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
+
+                            string tempoStr = reader.IsDBNull(3) ? "00:00:00" : reader.GetString(3);
+                            TimeSpan ts;
+                            if (TimeSpan.TryParse(tempoStr, out ts))
+                                t.Duration = ts;
+                            else
+                                t.Duration = TimeSpan.Zero;
+
+                            t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+                            t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
+
+                            tracks.Add(t);
                         }
                     }
                 }
             }
             return tracks;
         }
+
+        public int GetOrCreatePlaylist(string nomeLista)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT ID FROM Lista WHERE Nome = @nome";
+                    cmd.Parameters.AddWithValue("@nome", nomeLista);
+                    var result = cmd.ExecuteScalar();
+                    if (result != null) return Convert.ToInt32(result);
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"INSERT INTO Lista (Nome, AutoDel, SempreRandom, NaoRepetir, MaxVol, ProxLista, Usu, MenosTocadasPrimeiro, DesabProg) 
+                                        VALUES (@nome, 0, 0, 0, 100, 0, 0, 0, 0);
+                                        SELECT last_insert_rowid();";
+                    cmd.Parameters.AddWithValue("@nome", nomeLista);
+                    return Convert.ToInt32(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public void ResetarBancoDeDados()
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var transaction = conn.BeginTransaction())
+                {
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        // Deleta as associações e as músicas. 
+                        // As bandas podem ficar ou ser deletadas também.
+                        cmd.CommandText = "DELETE FROM LisMus; DELETE FROM Musica; DELETE FROM Banda;";
+                        cmd.ExecuteNonQuery();
+                    }
+                    transaction.Commit();
+                }
+            }
+        }
+
     }
 }

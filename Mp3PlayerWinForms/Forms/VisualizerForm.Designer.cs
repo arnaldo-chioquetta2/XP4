@@ -1,4 +1,4 @@
-namespace Mp3PlayerWinForms.Forms
+namespace XP3.Forms
 {
     partial class VisualizerForm
     {

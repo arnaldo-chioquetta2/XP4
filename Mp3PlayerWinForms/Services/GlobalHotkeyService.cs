@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace Mp3PlayerWinForms.Services
+namespace XP3.Services
 {
     public class GlobalHotkeyService : IMessageFilter
     {

@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
 using NAudio.Wave; // Essencial
-using Mp3PlayerWinForms.Models;
+//using Mp3PlayerWinForms.Models;
 using Mp3PlayerWinForms.Services;
+using XP3.Models;
 
-namespace Mp3PlayerWinForms.Services
+namespace XP3.Services
 {
     public class AudioPlayerService : IDisposable
     {

@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using NAudio.Wave;
 
-namespace Mp3PlayerWinForms.Controls
+namespace XP3.Controls
 {
     public class SpectrumControl : UserControl
     {

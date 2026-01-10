@@ -1,9 +1,10 @@
 using System;
 using System.Windows.Forms;
-using Mp3PlayerWinForms.Forms;
-using Mp3PlayerWinForms.Data;
+//using Mp3PlayerWinForms.Forms;
+using XP3.Data;
+//using XP3.Forms;
 
-namespace Mp3PlayerWinForms
+namespace XP3.Forms
 {
     static class Program
     {
@@ -14,9 +15,9 @@ namespace Mp3PlayerWinForms
             Application.SetCompatibleTextRenderingDefault(false);
             
             // Initialize Database
-            Database.Initialize();
+            //Database.Initialize();
             
-            Application.Run(new MainForm());
+            Application.Run(new Inicial());
         }
     }
 }

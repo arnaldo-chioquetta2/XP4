@@ -1,0 +1,340 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using XP3.Models;
+using XP3.Services;
+using XP3.Data;
+using XP3.Controls; // Para achar o SpectrumControl
+using XP3.Forms;    // Para achar o VisualizerForm
+using System.IO;
+using SQLitePCL;
+
+namespace XP3.Forms
+{
+    public partial class Inicial : Form
+    {
+        private AudioPlayerService _player;
+        private TrackRepository _trackRepo;
+        private IniFileService _iniService;
+        private GlobalHotkeyService _hotkeyService;
+        private int _currentPlaylistId = 1;
+
+        // Mantenha apenas UMA declaração aqui.
+        private SpectrumControl spectrum;
+        private VisualizerForm _visualizerWindow;
+
+        public Inicial()
+        {
+            // 1. PRIMEIRO: Cria todos os componentes da tela (Labels, Painéis, etc)
+            InitializeComponent();
+
+            // 2. DEPOIS: Carrega as configurações do INI
+            CarregarConfiguracoes();
+
+            // 3. Inicializa bibliotecas extras
+            Batteries.Init();
+
+            // 4. Configura os serviços (Player, Repository)
+            SetupServices();
+            ConfigurarEventosDeTela();
+
+            // 5. POR ÚLTIMO: Carrega os dados na tela
+            LoadPlaylist();
+        }
+
+        private void CarregarConfiguracoes()
+        {
+            try
+            {
+                // 1. Define o caminho do arquivo config.ini na pasta do executável
+                string caminhoIni = Path.Combine(Application.StartupPath, "config.ini");
+
+                // 2. Instancia o serviço de INI apontando para o arquivo correto
+                var ini = new IniFileService(caminhoIni);
+
+                // 3. Lê os caminhos do arquivo [Setup]
+                // O terceiro parâmetro é o valor padrão caso a chave não exista no arquivo
+                string dbPath = ini.Read("Setup", "DatabasePath", @"D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\player.db");
+                string pastaBase = ini.Read("Setup", "PastaBase", "D:\\Mp3");
+
+                // 4. Atribui à classe global AppConfig para que o Database.cs consiga ler
+                AppConfig.DatabasePath = dbPath;
+                AppConfig.PastaBase = pastaBase;
+
+                // Opcional: Log para o console de saída do Visual Studio para conferência
+                System.Diagnostics.Debug.WriteLine($"[CONFIG] Banco: {AppConfig.DatabasePath}");
+                System.Diagnostics.Debug.WriteLine($"[CONFIG] Pasta Base: {AppConfig.PastaBase}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Erro ao carregar configurações do arquivo INI: " + ex.Message,
+                                "Erro de Configuração", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void SetupServices()
+        {
+            _player = new AudioPlayerService();
+            _trackRepo = new TrackRepository();
+            _iniService = new IniFileService();
+
+            // QUANDO A MÚSICA MUDA/COMEÇA
+            _player.TrackChanged += (s, track) => {
+                this.BeginInvoke(new Action(() => {
+                    lblStatus.Text = $"Tocando: {track.Title} - {track.BandName}";
+                    this.Text = $"XP3 Player - {track.Title}";
+
+                    // --- AQUI ESTÁ O TRUQUE ---
+                    // Se o spectrum não existe, criamos agora!
+                    InicializarSpectrumSeNecessario();
+                }));
+            };
+
+            // Recebimento de dados do áudio
+            _player.FftDataReceived += (s, data) => {
+                // Só atualiza se o spectrum já tiver sido criado
+                if (spectrum != null && !spectrum.IsDisposed)
+                    spectrum.BeginInvoke(new Action(() => spectrum.UpdateData(data)));
+
+                if (_visualizerWindow != null && !_visualizerWindow.IsDisposed)
+                    _visualizerWindow.BeginInvoke(new Action(() => _visualizerWindow.UpdateData(data)));
+            };
+
+            _hotkeyService = new GlobalHotkeyService(this.Handle);
+            _hotkeyService.Register(Keys.F10);
+            _hotkeyService.HotkeyPressed += () => _player.TogglePlayPause();
+        }
+
+        private void InicializarSpectrumSeNecessario()
+        {
+            if (spectrum == null)
+            {
+                spectrum = new XP3.Controls.SpectrumControl();
+                spectrum.BackColor = Color.Black;
+                // Mudamos para Bottom para ele "empurrar" o lvTracks para cima
+                spectrum.Dock = DockStyle.Bottom;
+                spectrum.Height = 120; // Altura fixa para o gráfico
+
+                spectrum.DoubleClicked += (s, e) =>
+                {
+                    if (_visualizerWindow == null || _visualizerWindow.IsDisposed)
+                    {
+                        _visualizerWindow = new VisualizerForm();
+                        _visualizerWindow.Show();
+                    }
+                };
+
+                // Adiciona o controle
+                this.Controls.Add(spectrum);
+
+                // --- TRUQUE DE ORGANIZAÇÃO ---
+                // A ordem de 'SendToBack' e 'BringToFront' define quem empurra quem no Dock
+                pnlControls.SendToBack(); // Fica no fundo (embaixo de tudo)
+                spectrum.SendToBack();    // Fica acima do pnlControls
+                lvTracks.BringToFront();  // Preenche o que sobrou no topo
+            }
+        }
+
+        private void ConfigurarEventosDeTela()
+        {
+            // Botões de controle
+            btnPlay.Click += (s, e) => _player.TogglePlayPause();
+            btnPause.Click += (s, e) => _player.TogglePlayPause();
+            btnNext.Click += (s, e) => _player.Next();
+
+            // Botão SCAN
+            btnScan.Click += (s, e) =>
+            {
+                var frm = new XP3.Forms.ScannerForm();
+                if (frm.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        // Limpa e recarrega após o scan
+                        int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
+                        _currentPlaylistId = idAEscolher;
+                        _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
+
+                        LoadPlaylist();
+
+                        // Toca a primeira se houver algo novo
+                        if (lvTracks.Items.Count > 0)
+                            _player.Play(0);
+                    }
+                    catch { }
+                }
+            };
+
+            // Duplo clique na lista para tocar
+            lvTracks.DoubleClick += (s, e) =>
+            {
+                if (lvTracks.SelectedIndices.Count > 0)
+                {
+                    int index = lvTracks.SelectedIndices[0];
+                    try
+                    {
+                        _player.Play(index);
+                    }
+                    catch (Exception)
+                    {
+                        // Mostra o erro no status em vez de MessageBox
+                        if (lblStatus != null)
+                        {
+                            lblStatus.ForeColor = Color.Salmon;
+                            lblStatus.Text = "Erro: Arquivo não suportado ou corrompido.";
+                        }
+
+                        // Marca a música com erro em cinza escuro
+                        lvTracks.Items[index].ForeColor = Color.DimGray;
+                    }
+                }
+            };
+
+            // Drag and Drop
+            lvTracks.DragEnter += (s, e) => {
+                if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy;
+            };
+            lvTracks.DragDrop += LvTracks_DragDrop;
+        }
+
+        private void LoadPlaylist()
+        {
+            try
+            {
+                // Recupera o ID da última lista tocada do arquivo INI
+                _currentPlaylistId = _iniService.ReadInt("Player", "LastPlaylistId", 1);
+
+                // 1. Busca o nome da lista no banco de dados
+                string nomeLista = _trackRepo.GetPlaylistName(_currentPlaylistId);
+
+                // Atualiza o Título no Header (Verifica se o label existe)
+                if (lblPlaylistTitle != null)
+                {
+                    lblPlaylistTitle.Text = nomeLista.ToUpper();
+                }
+
+                // 2. Busca as músicas da lista no banco de dados
+                var tracks = _trackRepo.GetTracksByPlaylist(_currentPlaylistId);
+
+                // Informa ao serviço de áudio qual é a nova playlist
+                if (_player != null)
+                {
+                    _player.SetPlaylist(tracks);
+                }
+
+                // Atualiza o contador de músicas (Verifica se o label existe)
+                if (lblTrackCount != null)
+                {
+                    lblTrackCount.Text = $"{tracks.Count} músicas encontradas";
+                }
+
+                // 3. Popula o ListView (Grid)
+                if (lvTracks != null)
+                {
+                    lvTracks.Items.Clear();
+
+                    // BeginUpdate evita que a tela "pisque" enquanto adicionamos muitos itens
+                    lvTracks.BeginUpdate();
+
+                    foreach (var t in tracks)
+                    {
+                        // Cria a linha com o título da música
+                        ListViewItem item = new ListViewItem(t.Title);
+
+                        // Adiciona as colunas de Banda e Duração
+                        item.SubItems.Add(t.BandName);
+                        item.SubItems.Add(t.DurationFormatted);
+
+                        // Adiciona a linha completa à lista
+                        lvTracks.Items.Add(item);
+                    }
+
+                    lvTracks.EndUpdate();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Caso ocorra erro de SQL ou de conversão, exibe o alerta
+                MessageBox.Show("Erro ao carregar lista: " + ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void LvTracks_DragDrop(object sender, DragEventArgs e)
+        {
+            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            foreach (string file in files)
+            {
+                if (Path.GetExtension(file).ToLower() == ".mp3")
+                {
+                    AddTrack(file);
+                }
+            }
+            LoadPlaylist();
+        }
+
+        private void AddTrack(string filePath)
+        {
+            try
+            {
+                var file = TagLib.File.Create(filePath);
+                string title = !string.IsNullOrEmpty(file.Tag.Title) ? file.Tag.Title : Path.GetFileNameWithoutExtension(filePath);
+                string band = !string.IsNullOrEmpty(file.Tag.FirstAlbumArtist) ? file.Tag.FirstAlbumArtist : "Desconhecido";
+                TimeSpan duration = file.Properties.Duration;
+
+                int bandId = _trackRepo.GetOrInsertBand(band);
+                int trackId = _trackRepo.AddTrack(new Track
+                {
+                    Title = title,
+                    BandId = bandId,
+                    FilePath = filePath,
+                    Duration = duration
+                });
+
+                _trackRepo.AddTrackToPlaylist(_currentPlaylistId, trackId);
+            }
+            catch (Exception ex)
+            {
+                // Ignora erros silenciosamente
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
+            _player.Dispose();
+            base.OnFormClosing(e);
+        }
+
+        private void btnScan_Click(object sender, EventArgs e)
+        {
+            var frm = new XP3.Forms.ScannerForm();
+
+            // Se o scanner terminar com sucesso (DialogResult.OK)
+            if (frm.ShowDialog() == DialogResult.OK)
+            {
+                // Carrega a playlist "AEscolher"
+                try
+                {
+                    int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
+
+                    // Salva no INI como a última tocada
+                    _currentPlaylistId = idAEscolher;
+                    _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
+
+                    // Recarrega a lista na tela
+                    LoadPlaylist();
+
+                    // Toca a primeira música automaticamente
+                    if (lvTracks.Items.Count > 0)
+                    {
+                        _player.Play(0);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Erro ao carregar lista AEscolher: " + ex.Message);
+                }
+            }
+        }
+    }
+}
