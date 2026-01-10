@@ -10,6 +10,8 @@ using System.IO;
 using SQLitePCL;
 using System.Collections.Generic;
 
+//Erro: Não há suporte para o tipo de fluxo de bytes da URL especificada. (Exceção de HRESULT: 0xC00D36C4)
+
 namespace XP3.Forms
 {
     public partial class Inicial : Form
@@ -18,6 +20,8 @@ namespace XP3.Forms
         private TrackRepository _trackRepo;
         private IniFileService _iniService;
         private GlobalHotkeyService _hotkeyService;
+        private KeyPollingService _pollingService;
+
         private int _currentPlaylistId = 1;
 
         // Mantenha apenas UMA declaração aqui.
@@ -153,8 +157,46 @@ namespace XP3.Forms
             };
 
             _hotkeyService = new GlobalHotkeyService(this.Handle);
-            _hotkeyService.Register(Keys.F10);
-            _hotkeyService.HotkeyPressed += () => _player.TogglePlayPause();
+
+            // TENTATIVA 1: Tecla "Pause/Break" (Canto superior direito, antiga)
+            bool reg1 = _hotkeyService.Register(Keys.Pause);
+
+            // TENTATIVA 2: Tecla Multimídia (Play/Pause de teclados modernos)
+            bool reg2 = _hotkeyService.Register(Keys.MediaPlayPause);
+
+            // Se ambos falharem, avisa para debugarmos
+            if (!reg1 && !reg2)
+            {
+                System.Diagnostics.Debug.WriteLine("AVISO: O Windows bloqueou o registro das teclas de atalho.");
+                // MessageBox.Show("Não foi possível registrar as teclas globais (Pause). Feche outras instâncias.");
+            }
+
+            //_hotkeyService.HotkeyPressed += (s, id) =>
+            //{
+            //    // Debug para garantir que o evento chegou
+            //    System.Diagnostics.Debug.WriteLine($"Tecla Global Pressionada! ID: {id}");
+            //    _player.TogglePlayPause();
+            //};
+            _pollingService = new KeyPollingService();
+
+            // O que fazer quando detectar o Pause?
+            _pollingService.KeyPausePressed += () =>
+            {
+                // O evento vem de outra thread, então precisamos usar Invoke para mexer na tela/player
+                this.BeginInvoke(new Action(() =>
+                {
+                    // Simplesmente alterna
+                    _player.TogglePlayPause();
+
+                    // Opcional: Efeito visual ou log
+                    // System.Diagnostics.Debug.WriteLine("Pause detectado via Polling!");
+                }));
+            };
+
+            // Inicia o loop infinito em background
+            _pollingService.Start();
+
+            this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
         }
 
         private void TimerProgresso_Tick(object sender, EventArgs e)

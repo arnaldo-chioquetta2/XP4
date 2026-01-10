@@ -18,14 +18,17 @@ namespace XP3.Services
             _repo = new TrackRepository();
         }
 
+        // =========================================================================
+        // MÉTODO 1: ESCANEAMENTO SIMPLES (Quando a pasta JÁ É a pasta base)
+        // =========================================================================
         public void ScanFolder(string folderPath, IProgress<int> progress, IProgress<string> log)
         {
             _arquivosProcessados = 0;
             _logFull.Clear();
 
-            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log_importacao_completa.txt");
+            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log_scan_local.txt");
 
-            RegistrarLog(log, "=== INICIANDO CATALOGAÇÃO COMPLETA ===");
+            RegistrarLog(log, "=== INICIANDO CATALOGAÇÃO LOCAL (SEM MOVER ARQUIVOS) ===");
             RegistrarLog(log, $"Pasta selecionada: {folderPath}");
 
             int playlistId = _repo.GetOrCreatePlaylist("AEscolher");
@@ -37,7 +40,7 @@ namespace XP3.Services
                 return;
             }
 
-            // 1. Processar arquivos na RAIZ (Banda: Desconhecida)
+            // 1. Processar arquivos na RAIZ
             var rootFiles = dirInfo.GetFiles("*.mp3", SearchOption.TopDirectoryOnly);
             RegistrarLog(log, $"Encontrados {rootFiles.Length} arquivos na raiz.");
 
@@ -45,33 +48,15 @@ namespace XP3.Services
             {
                 string bandName = "Desconhecida";
                 string songTitle = Path.GetFileNameWithoutExtension(file.Name);
-
-                // Tenta separar "Banda - Musica" se houver hífen
-                if (songTitle.Contains(" - "))
-                {
-                    var parts = songTitle.Split(new[] { " - " }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2)
-                    {
-                        bandName = parts[0].Trim();
-                        songTitle = parts[1].Trim();
-                    }
-                }
-
-                // Se o título começa exatamente com o nome da banda, removemos a repetição
-                if (songTitle.StartsWith(bandName, StringComparison.OrdinalIgnoreCase))
-                {
-                    songTitle = songTitle.Substring(bandName.Length).Trim();
-                }
+                TratarNomeBandaMusica(ref bandName, ref songTitle);
 
                 ProcessFile(file, bandName, songTitle, playlistId, log);
-
-                // Atualiza progresso proporcional à raiz (baseado em 30% do total estimado de pastas + arquivos)
                 progress.Report(5);
             }
 
-            // 2. Processar SUB-PASTAS (Banda: Nome da Pasta)
+            // 2. Processar SUB-PASTAS
             var subDirs = dirInfo.GetDirectories();
-            RegistrarLog(log, $"Escaneando {subDirs.Length} sub-pastas de bandas...");
+            RegistrarLog(log, $"Escaneando {subDirs.Length} sub-pastas...");
 
             int dirIdx = 0;
             foreach (var dir in subDirs)
@@ -86,21 +71,131 @@ namespace XP3.Services
                     ProcessFile(file, bandName, songTitle, playlistId, log);
                 }
 
-                // Progresso dinâmico para as subpastas
                 int pct = 10 + (int)((double)dirIdx / subDirs.Length * 90);
                 progress.Report(pct);
             }
 
             RegistrarLog(log, $"=== CATALOGAÇÃO FINALIZADA. Total: {_arquivosProcessados} músicas. ===");
+            SalvarLogEmDisco("log_scan_local.txt");
+        }
 
-            try
+        // =========================================================================
+        // MÉTODO 2: IMPORTAÇÃO (Quando vem de PENDRIVE/DOWNLOADS -> PASTA BASE)
+        // =========================================================================
+        public void ImportarEscanear(string pastaOrigem, string pastaBase, IProgress<int> progress, IProgress<string> log)
+        {
+            _arquivosProcessados = 0;
+            _logFull.Clear();
+
+            RegistrarLog(log, "==========================================");
+            RegistrarLog(log, "=== INICIANDO IMPORTAÇÃO E MOVIMENTAÇÃO ===");
+            RegistrarLog(log, "==========================================");
+
+            // 1. Validação
+            var dirOrigem = new DirectoryInfo(pastaOrigem);
+            if (!dirOrigem.Exists) { RegistrarLog(log, "ERRO CRÍTICO: Pasta origem sumiu."); return; }
+
+            RegistrarLog(log, $"ORIGEM: {dirOrigem.FullName}");
+
+            // 2. Define o Destino (Nome da pasta vira nome da Banda)
+            string nomeBandaSujo = dirOrigem.Name;
+            string nomeBandaLimpo = NormalizarNome(nomeBandaSujo);
+
+            // Segurança para nome vazio
+            if (string.IsNullOrWhiteSpace(nomeBandaLimpo) || nomeBandaLimpo.Length < 2)
+                nomeBandaLimpo = "Importados_" + DateTime.Now.ToString("yyyyMMdd");
+
+            string caminhoDestinoBanda = Path.Combine(pastaBase, nomeBandaLimpo);
+            RegistrarLog(log, $"DESTINO (Banda): {caminhoDestinoBanda}");
+
+            // Cria pasta da banda se não existir
+            if (!Directory.Exists(caminhoDestinoBanda))
             {
-                File.WriteAllText(logPath, _logFull.ToString(), Encoding.UTF8);
-                RegistrarLog(log, $"Arquivo de log gerado com sucesso em: {logPath}");
+                Directory.CreateDirectory(caminhoDestinoBanda);
+                RegistrarLog(log, "STATUS: Pasta da banda criada.");
             }
-            catch (Exception ex)
+            else
             {
-                RegistrarLog(log, $"Erro ao gravar log no disco: {ex.Message}");
+                RegistrarLog(log, "STATUS: Pasta da banda já existe. Mesclando...");
+            }
+
+            RegistrarLog(log, "------------------------------------------");
+
+            // 3. Move arquivos
+            var arquivos = dirOrigem.GetFiles("*.mp3");
+            int total = arquivos.Length;
+            int contadorNomeRuim = 1;
+            int playlistId = _repo.GetOrCreatePlaylist("AEscolher");
+
+            for (int i = 0; i < total; i++)
+            {
+                var arquivo = arquivos[i];
+                try
+                {
+                    // A) Normaliza nome do arquivo
+                    string nomeOriginal = Path.GetFileNameWithoutExtension(arquivo.Name);
+                    string nomeNormalizado = NormalizarNome(nomeOriginal);
+
+                    if (string.IsNullOrWhiteSpace(nomeNormalizado) || nomeNormalizado.Replace("_", "").Length == 0)
+                        nomeNormalizado = $"Faixa_{contadorNomeRuim++}";
+
+                    string novoNomeComExtensao = nomeNormalizado + ".mp3";
+                    string caminhoFinal = Path.Combine(caminhoDestinoBanda, novoNomeComExtensao);
+
+                    // B) Trata duplicidade (Arquivo já existe no destino?)
+                    if (File.Exists(caminhoFinal))
+                    {
+                        int dup = 1;
+                        string tempNome = nomeNormalizado;
+                        while (File.Exists(caminhoFinal))
+                        {
+                            nomeNormalizado = $"{tempNome}_{dup++}";
+                            caminhoFinal = Path.Combine(caminhoDestinoBanda, nomeNormalizado + ".mp3");
+                        }
+                        RegistrarLog(log, $"AVISO: Duplicata detectada. Renomeando para {nomeNormalizado}.mp3");
+                    }
+
+                    // C) LOG VISUAL DA MOVIMENTAÇÃO (O que você pediu)
+                    RegistrarLog(log, $"[MOVER] '{arquivo.Name}'");
+                    RegistrarLog(log, $"   --> '{Path.GetFileName(caminhoFinal)}'");
+
+                    // D) Move fisicamente
+                    File.Move(arquivo.FullName, caminhoFinal);
+
+                    // E) Cataloga no banco (usando o arquivo no NOVO local)
+                    var novoFile = new FileInfo(caminhoFinal);
+                    string tituloMusica = Path.GetFileNameWithoutExtension(novoFile.Name);
+
+                    // Como a pasta JÁ É a banda, passamos o nome da banda limpo
+                    ProcessFile(novoFile, nomeBandaLimpo, tituloMusica, playlistId, log);
+
+                    progress.Report((int)((double)(i + 1) / total * 100));
+                }
+                catch (Exception ex)
+                {
+                    RegistrarLog(log, $"!!! ERRO AO MOVER '{arquivo.Name}': {ex.Message}");
+                }
+            }
+
+            RegistrarLog(log, "==========================================");
+            RegistrarLog(log, "IMPORTAÇÃO CONCLUÍDA.");
+            SalvarLogEmDisco("log_importacao.txt");
+        }
+
+        // =========================================================================
+        // AUXILIARES
+        // =========================================================================
+
+        private void TratarNomeBandaMusica(ref string bandName, ref string songTitle)
+        {
+            if (songTitle.Contains(" - "))
+            {
+                var parts = songTitle.Split(new[] { " - " }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
+                {
+                    bandName = parts[0].Trim();
+                    songTitle = parts[1].Trim();
+                }
             }
         }
 
@@ -111,20 +206,19 @@ namespace XP3.Services
                 _arquivosProcessados++;
                 fileInfo.Refresh();
 
-                // 1. Normalização inspirada no seu código VB6
                 bandName = NormalizarNome(bandName);
                 songTitle = NormalizarNome(songTitle);
 
-                // 2. Limpeza de nomes grudados
+                // Se o título começa com a banda, limpa
                 if (songTitle.StartsWith(bandName, StringComparison.OrdinalIgnoreCase))
                 {
                     songTitle = songTitle.Substring(bandName.Length).Trim();
+                    songTitle = songTitle.TrimStart(new[] { '-', '_', ' ' });
                 }
 
                 if (string.IsNullOrEmpty(songTitle))
                     songTitle = Path.GetFileNameWithoutExtension(fileInfo.Name);
 
-                // 3. Obter Duração
                 TimeSpan duration = TimeSpan.Zero;
                 try
                 {
@@ -133,9 +227,7 @@ namespace XP3.Services
                 }
                 catch { }
 
-                // 4. Salvar no Banco (O segredo está em capturar o retorno de AddTrack)
                 int bandId = _repo.GetOrInsertBand(bandName);
-
                 var track = new Track
                 {
                     Title = songTitle,
@@ -144,54 +236,50 @@ namespace XP3.Services
                     Duration = duration
                 };
 
-                // CORREÇÃO AQUI: AddTrack já devolve o ID gerado pelo banco
                 int newTrackId = _repo.AddTrack(track);
-
-                // Agora usamos o ID que acabamos de receber
                 _repo.AddTrackToPlaylist(playlistId, newTrackId);
 
-                _logFull.AppendLine($"OK: {bandName} - {songTitle} | Tempo: {duration:mm\\:ss}");
+                // Log simplificado para o banco, já que o log de mover é detalhado
+                _logFull.AppendLine($"DB OK: {bandName} | {songTitle}");
             }
             catch (Exception ex)
             {
-                RegistrarLog(log, $"Erro em {fileInfo.Name}: {ex.Message}");
+                RegistrarLog(log, $"Erro DB em {fileInfo.Name}: {ex.Message}");
             }
         }
 
         private string NormalizarNome(string nome)
         {
-            if (string.IsNullOrWhiteSpace(nome)) return "Sem Título";
+            if (string.IsNullOrWhiteSpace(nome)) return "SemTitulo";
 
-            // 1. Substitui caracteres de escape comuns e aspas (como no seu código)
-            nome = nome.Replace("\"", "'").Replace("/", " ").Replace("\\", " ");
+            // Limpa caracteres proibidos em arquivos
+            nome = nome.Replace("\"", "'").Replace("/", " ").Replace("\\", " ")
+                       .Replace(":", " ").Replace("*", " ").Replace("?", " ")
+                       .Replace("<", " ").Replace(">", " ").Replace("|", " ");
 
-            const string letrasValidas = "áàéèêâíìîóòôúùüãõçÁÀÉÈÊÂÍÌÎÓÒÔÚÙÜÃÕÇ";
+            const string letrasValidas = "áàéèêâíìîóòôúùüãõçÁÀÉÈÊÂÍÌÎÓÒÔÚÙÜÃÕÇ0123456789";
             StringBuilder sb = new StringBuilder();
 
             foreach (char c in nome)
             {
                 int codLetra = (int)c;
-
-                // Mantém letras ASCII básicas (32 a 122) 
-                // OU letras acentuadas válidas
-                if ((codLetra >= 32 && codLetra <= 122) || letrasValidas.Contains(c))
+                if ((codLetra >= 65 && codLetra <= 90) || // A-Z
+                    (codLetra >= 97 && codLetra <= 122) || // a-z
+                    (codLetra >= 48 && codLetra <= 57) || // 0-9
+                    (codLetra == 32) || // Espaço
+                    letrasValidas.Contains(c))
                 {
                     sb.Append(c);
                 }
                 else
                 {
-                    // Substitui o que for "estranho" por underline (exatamente como o VB6)
                     sb.Append('_');
                 }
             }
 
             string resultado = sb.ToString().Trim();
-
-            // 2. Remove o "0 " no início (conforme sua lógica original)
-            if (resultado.StartsWith("0 "))
-            {
-                resultado = resultado.Substring(2).Trim();
-            }
+            while (resultado.Contains("__")) resultado = resultado.Replace("__", "_");
+            if (resultado.StartsWith("0 ")) resultado = resultado.Substring(2).Trim();
 
             return resultado;
         }
@@ -201,7 +289,17 @@ namespace XP3.Services
             string timestamp = DateTime.Now.ToString("HH:mm:ss");
             string linha = $"[{timestamp}] {msg}";
             _logFull.AppendLine(linha);
-            prog.Report(msg);
+            prog?.Report(msg);
+        }
+
+        private void SalvarLogEmDisco(string nomeArquivo)
+        {
+            try
+            {
+                string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, nomeArquivo);
+                File.WriteAllText(logPath, _logFull.ToString(), Encoding.UTF8);
+            }
+            catch { }
         }
     }
 }

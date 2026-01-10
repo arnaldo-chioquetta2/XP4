@@ -4,46 +4,53 @@ using System.Windows.Forms;
 
 namespace XP3.Services
 {
-    public class GlobalHotkeyService : IMessageFilter
+    public class GlobalHotkeyService
     {
+        // Importações da API do Windows (user32.dll)
         [DllImport("user32.dll")]
-        private static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
-        private const int WM_HOTKEY = 0x0312;
-        private readonly IntPtr _hWnd;
-        private readonly int _id;
-        
-        public event Action HotkeyPressed;
+        private IntPtr _windowHandle;
+        private int _currentId = 0;
 
-        public GlobalHotkeyService(IntPtr hWnd, int id = 1)
+        public event EventHandler<int> HotkeyPressed;
+
+        public GlobalHotkeyService(IntPtr handle)
         {
-            _hWnd = hWnd;
-            _id = id;
-            Application.AddMessageFilter(this);
+            _windowHandle = handle;
         }
 
-        public void Register(Keys key)
+        // Modificadores: 0=Nenhum, 1=Alt, 2=Control, 4=Shift, 8=Windows
+        // No GlobalHotkeyService.cs
+        public bool Register(Keys key, uint modifiers = 0)
         {
-            // No modifiers for simplicity as requested
-            RegisterHotKey(_hWnd, _id, 0, (int)key);
+            _currentId++;
+            // Agora capturamos o retorno da API do Windows
+            bool sucesso = RegisterHotKey(_windowHandle, _currentId, modifiers, (uint)key);
+            return sucesso;
         }
 
-        public void Unregister()
+        public void UnregisterAll()
         {
-            UnregisterHotKey(_hWnd, _id);
-        }
-
-        public bool PreFilterMessage(ref Message m)
-        {
-            if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == _id)
+            for (int i = 1; i <= _currentId; i++)
             {
-                HotkeyPressed?.Invoke();
-                return true;
+                UnregisterHotKey(_windowHandle, i);
             }
-            return false;
+        }
+
+        // Método que o Form vai chamar quando receber uma mensagem do Windows
+        public void ProcessMessage(Message m)
+        {
+            const int WM_HOTKEY = 0x0312;
+            if (m.Msg == WM_HOTKEY)
+            {
+                // O WParam contém o ID da Hotkey que definimos
+                int id = m.WParam.ToInt32();
+                HotkeyPressed?.Invoke(this, id);
+            }
         }
     }
 }

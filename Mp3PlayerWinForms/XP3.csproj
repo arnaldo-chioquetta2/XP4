@@ -165,6 +165,7 @@
     <Compile Include="Services\FolderScannerService.cs.cs" />
     <Compile Include="Services\IniFileService.cs" />
     <Compile Include="Services\GlobalHotkeyService.cs" />
+    <Compile Include="Services\KeyPollingService.cs" />
     <Compile Include="Services\SampleAggregator.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -173,6 +174,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Forms\Inicial.resx">
       <DependentUpon>Inicial.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\ScannerForm.resx">
+      <DependentUpon>ScannerForm.cs</DependentUpon>
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>

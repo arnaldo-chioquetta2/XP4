@@ -16,6 +16,7 @@
             this.progressBar1 = new System.Windows.Forms.ProgressBar();
             this.txtLog = new System.Windows.Forms.TextBox();
             this.label1 = new System.Windows.Forms.Label();
+            this.btnOkClose = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // btnSelectFolder
@@ -30,7 +31,8 @@
             // 
             // progressBar1
             // 
-            this.progressBar1.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) | System.Windows.Forms.AnchorStyles.Right)));
+            this.progressBar1.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.progressBar1.Location = new System.Drawing.Point(12, 48);
             this.progressBar1.Name = "progressBar1";
             this.progressBar1.Size = new System.Drawing.Size(560, 23);
@@ -38,7 +40,9 @@
             // 
             // txtLog
             // 
-            this.txtLog.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) | System.Windows.Forms.AnchorStyles.Left) | System.Windows.Forms.AnchorStyles.Right)));
+            this.txtLog.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.txtLog.BackColor = System.Drawing.Color.Black;
             this.txtLog.ForeColor = System.Drawing.Color.Lime;
             this.txtLog.Location = new System.Drawing.Point(12, 77);
@@ -57,11 +61,23 @@
             this.label1.TabIndex = 3;
             this.label1.Text = "Scanner de Músicas (Raiz + Subpastas de Bandas)";
             // 
+            // btnOkClose
+            // 
+            this.btnOkClose.Enabled = false;
+            this.btnOkClose.Location = new System.Drawing.Point(491, 12);
+            this.btnOkClose.Name = "btnOkClose";
+            this.btnOkClose.Size = new System.Drawing.Size(81, 30);
+            this.btnOkClose.TabIndex = 4;
+            this.btnOkClose.Text = "OK";
+            this.btnOkClose.UseVisualStyleBackColor = true;
+            this.btnOkClose.Click += new System.EventHandler(this.btnOkClose_Click_1);
+            // 
             // ScannerForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(584, 361);
+            this.Controls.Add(this.btnOkClose);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.txtLog);
             this.Controls.Add(this.progressBar1);
@@ -71,11 +87,13 @@
             this.Text = "Scanner de MP3";
             this.ResumeLayout(false);
             this.PerformLayout();
+
         }
 
         private System.Windows.Forms.Button btnSelectFolder;
         private System.Windows.Forms.ProgressBar progressBar1;
         private System.Windows.Forms.TextBox txtLog;
         private System.Windows.Forms.Label label1;
+        private System.Windows.Forms.Button btnOkClose;
     }
 }
