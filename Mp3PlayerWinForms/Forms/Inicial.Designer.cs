@@ -14,6 +14,7 @@
 
         private void InitializeComponent()
         {
+            this.components = new System.ComponentModel.Container();
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Inicial));
             this.lvTracks = new System.Windows.Forms.ListView();
             this.colMusica = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -28,6 +29,7 @@
             this.pnlHeader = new System.Windows.Forms.Panel();
             this.lblTrackCount = new System.Windows.Forms.Label();
             this.lblPlaylistTitle = new System.Windows.Forms.Label();
+            this.timerProgresso = new System.Windows.Forms.Timer(this.components);
             this.pnlControls.SuspendLayout();
             this.pnlHeader.SuspendLayout();
             this.SuspendLayout();
@@ -207,5 +209,6 @@
         private System.Windows.Forms.Panel pnlHeader;
         private System.Windows.Forms.Label lblPlaylistTitle;
         private System.Windows.Forms.Label lblTrackCount;
+        private System.Windows.Forms.Timer timerProgresso;
     }
 }

@@ -25,27 +25,39 @@ namespace XP3.Forms
         private VisualizerForm _visualizerWindow;
         private List<Track> _allTracks = new List<Track>();
 
+        private ModernSeekBar modernSeekBar1;
+
         public Inicial()
         {
-            // 1. PRIMEIRO: Cria todos os componentes da tela (Labels, Painéis, etc)
             InitializeComponent();
 
-            // 2. DEPOIS: Carrega as configurações do INI
+            // --- CRIAÇÃO E POSICIONAMENTO DA BARRA DE PROGRESSO ---
+            if (modernSeekBar1 == null)
+            {
+                modernSeekBar1 = new ModernSeekBar(); // Certifique-se que o namespace XP3.Controls está no using
+                modernSeekBar1.ProgressColor = Color.Cyan;
+                modernSeekBar1.TrackColor = Color.FromArgb(40, 40, 40);
+
+                int margemInferior = 130;
+
+                modernSeekBar1.Location = new Point(12, this.ClientSize.Height - margemInferior);
+                modernSeekBar1.Size = new Size(this.ClientSize.Width - 24, 15);
+                modernSeekBar1.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+                this.Controls.Add(modernSeekBar1);
+                modernSeekBar1.BringToFront();
+            }
+            // ------------------------------------------------------
+
             CarregarConfiguracoes();
-
-            // 3. Inicializa bibliotecas extras
             Batteries.Init();
-
-            // 4. Configura os serviços (Player, Repository)
             SetupServices();
             ConfigurarEventosDeTela();
 
             lvTracks.VirtualMode = true;
             lvTracks.VirtualListSize = 0;
-            // Evento principal que popula a linha sob demanda
             lvTracks.RetrieveVirtualItem += LvTracks_RetrieveVirtualItem;
 
-            // 5. POR ÚLTIMO: Carrega os dados na tela
             LoadPlaylist();
         }
 
@@ -132,9 +144,37 @@ namespace XP3.Forms
                 }));
             };
 
+            timerProgresso.Tick += TimerProgresso_Tick;
+            timerProgresso.Start();
+            modernSeekBar1.SeekChanged += (s, porcentagem) =>
+            {
+                // O usuário clicou, mandamos o player pular
+                _player.SetPosition(porcentagem);
+            };
+
             _hotkeyService = new GlobalHotkeyService(this.Handle);
             _hotkeyService.Register(Keys.F10);
             _hotkeyService.HotkeyPressed += () => _player.TogglePlayPause();
+        }
+
+        private void TimerProgresso_Tick(object sender, EventArgs e)
+        {
+            // Só atualiza se tiver música tocando e se o player tiver duração válida
+            if (_player.TotalTime.TotalSeconds > 0)
+            {
+                // Calcula a porcentagem atual
+                double porcentagem = _player.CurrentTime.TotalSeconds / _player.TotalTime.TotalSeconds;
+
+                // Atualiza a barra visualmente
+                modernSeekBar1.Value = porcentagem;
+
+                // Opcional: Atualizar um Label de tempo texto (ex: 02:30 / 04:00)
+                // lblTempo.Text = $"{_player.CurrentTime:mm\\:ss} / {_player.TotalTime:mm\\:ss}";
+            }
+            else
+            {
+                modernSeekBar1.Value = 0;
+            }
         }
 
         private void InicializarSpectrumSeNecessario()

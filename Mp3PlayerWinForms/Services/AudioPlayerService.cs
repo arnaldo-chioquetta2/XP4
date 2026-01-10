@@ -27,10 +27,26 @@ namespace XP3.Services
 
         // NOVO EVENTO: Esse é o segredo para o Spectrum funcionar!
         // Ele avisa: "Ei, carreguei um áudio novo, quem quiser desenhar o gráfico, pega aqui!"
-        public event EventHandler<WaveStream> AudioSourceCreated;
+        //public event EventHandler<WaveStream> AudioSourceCreated;
+        // Propriedades para ler o tempo
+        public TimeSpan CurrentTime => _audioFile?.CurrentTime ?? TimeSpan.Zero;
+        public TimeSpan TotalTime => _audioFile?.TotalTime ?? TimeSpan.Zero;
 
         public bool IsPlaying => _waveOut?.PlaybackState == PlaybackState.Playing;
         public Track CurrentTrack => (_currentIndex >= 0 && _currentIndex < _playlist.Count) ? _playlist[_currentIndex] : null;
+
+        public void SetPosition(double percentage)
+        {
+            if (_audioFile != null)
+            {
+                // Calcula o novo tempo baseada na porcentagem
+                double totalSeconds = _audioFile.TotalTime.TotalSeconds;
+                double newSeconds = totalSeconds * percentage;
+
+                // Aplica no arquivo
+                _audioFile.CurrentTime = TimeSpan.FromSeconds(newSeconds);
+            }
+        }
 
         public AudioPlayerService()
         {
