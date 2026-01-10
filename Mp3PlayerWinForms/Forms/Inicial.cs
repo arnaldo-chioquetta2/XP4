@@ -8,6 +8,7 @@ using XP3.Controls; // Para achar o SpectrumControl
 using XP3.Forms;    // Para achar o VisualizerForm
 using System.IO;
 using SQLitePCL;
+using System.Collections.Generic;
 
 namespace XP3.Forms
 {
@@ -22,6 +23,7 @@ namespace XP3.Forms
         // Mantenha apenas UMA declaração aqui.
         private SpectrumControl spectrum;
         private VisualizerForm _visualizerWindow;
+        private List<Track> _allTracks = new List<Track>();
 
         public Inicial()
         {
@@ -38,8 +40,30 @@ namespace XP3.Forms
             SetupServices();
             ConfigurarEventosDeTela();
 
+            lvTracks.VirtualMode = true;
+            lvTracks.VirtualListSize = 0;
+            // Evento principal que popula a linha sob demanda
+            lvTracks.RetrieveVirtualItem += LvTracks_RetrieveVirtualItem;
+
             // 5. POR ÚLTIMO: Carrega os dados na tela
             LoadPlaylist();
+        }
+
+        private void LvTracks_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
+        {
+            // Verifica se o índice solicitado existe na nossa lista
+            if (e.ItemIndex >= 0 && e.ItemIndex < _allTracks.Count)
+            {
+                Track t = _allTracks[e.ItemIndex];
+
+                // Cria o item "ao voo" apenas para exibição
+                ListViewItem item = new ListViewItem(t.Title);
+                item.SubItems.Add(t.BandName);
+                item.SubItems.Add(t.DurationFormatted);
+
+                // Define o item que o ListView deve mostrar nesta linha
+                e.Item = item;
+            }
         }
 
         private void CarregarConfiguracoes()
@@ -201,61 +225,33 @@ namespace XP3.Forms
         {
             try
             {
-                // Recupera o ID da última lista tocada do arquivo INI
                 _currentPlaylistId = _iniService.ReadInt("Player", "LastPlaylistId", 1);
-
-                // 1. Busca o nome da lista no banco de dados
                 string nomeLista = _trackRepo.GetPlaylistName(_currentPlaylistId);
 
-                // Atualiza o Título no Header (Verifica se o label existe)
                 if (lblPlaylistTitle != null)
-                {
                     lblPlaylistTitle.Text = nomeLista.ToUpper();
-                }
 
-                // 2. Busca as músicas da lista no banco de dados
-                var tracks = _trackRepo.GetTracksByPlaylist(_currentPlaylistId);
+                // 1. Carrega os dados para a lista em memória
+                _allTracks = _trackRepo.GetTracksByPlaylist(_currentPlaylistId);
 
-                // Informa ao serviço de áudio qual é a nova playlist
                 if (_player != null)
-                {
-                    _player.SetPlaylist(tracks);
-                }
+                    _player.SetPlaylist(_allTracks);
 
-                // Atualiza o contador de músicas (Verifica se o label existe)
                 if (lblTrackCount != null)
-                {
-                    lblTrackCount.Text = $"{tracks.Count} músicas encontradas";
-                }
+                    lblTrackCount.Text = $"{_allTracks.Count} músicas encontradas";
 
-                // 3. Popula o ListView (Grid)
+                // 2. Atualiza o ListView para o Modo Virtual
                 if (lvTracks != null)
                 {
-                    lvTracks.Items.Clear();
-
-                    // BeginUpdate evita que a tela "pisque" enquanto adicionamos muitos itens
-                    lvTracks.BeginUpdate();
-
-                    foreach (var t in tracks)
-                    {
-                        // Cria a linha com o título da música
-                        ListViewItem item = new ListViewItem(t.Title);
-
-                        // Adiciona as colunas de Banda e Duração
-                        item.SubItems.Add(t.BandName);
-                        item.SubItems.Add(t.DurationFormatted);
-
-                        // Adiciona a linha completa à lista
-                        lvTracks.Items.Add(item);
-                    }
-
-                    lvTracks.EndUpdate();
+                    // IMPORTANTE: No modo virtual, NÃO use Clear() ou Add().
+                    // Apenas atualize o tamanho e force o redesenho.
+                    lvTracks.VirtualListSize = _allTracks.Count;
+                    lvTracks.Invalidate(); // Força a atualização visual
                 }
             }
             catch (Exception ex)
             {
-                // Caso ocorra erro de SQL ou de conversão, exibe o alerta
-                MessageBox.Show("Erro ao carregar lista: " + ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Erro ao carregar lista: " + ex.Message);
             }
         }
 

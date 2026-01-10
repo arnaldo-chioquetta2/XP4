@@ -8,7 +8,10 @@ namespace XP3.Controls
     public class SpectrumControl : UserControl
     {
         private float[] _visualData; // Dados reais vindos do FFT
-        private readonly int _barCount = 32; // Quantas barras queremos desenhar
+
+        private readonly int _barCount = 64; // Quantas barras queremos desenhar
+        // private readonly int _barCount = 32; // Quantas barras queremos desenhar
+
         public event EventHandler DoubleClicked;
 
         public SpectrumControl()
