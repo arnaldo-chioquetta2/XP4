@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.SQLite; // Biblioteca correta
+using System.IO;
 using XP3.Models;
 
 namespace XP3.Data
@@ -186,6 +187,202 @@ namespace XP3.Data
                 }
             }
         }
+
+        #region Apagar
+
+        public void AdicionarParaApagarDepois(string caminho, string banda)
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+                string sql = "INSERT INTO ApagarMusicas (Lugar, Banda) VALUES (@Lugar, @Banda)";
+
+                using (var command = new SQLiteCommand(sql, connection))
+                {
+                    command.Parameters.AddWithValue("@Lugar", caminho);
+                    command.Parameters.AddWithValue("@Banda", banda);
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public void RemoverMusicaDefinitivamente(int trackId)
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                // 1. Antes de apagar, guardamos o ID da Banda
+                int bandaId = -1;
+                using (var cmdBusca = new SQLiteCommand("SELECT Banda FROM Musica WHERE ID = @Id", connection))
+                {
+                    cmdBusca.Parameters.AddWithValue("@Id", trackId);
+                    var result = cmdBusca.ExecuteScalar();
+                    if (result != null && result != DBNull.Value) bandaId = Convert.ToInt32(result);
+                }
+
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        // 2. Remove da tabela de ligação (LisMus) - Coluna 'Musica' é o ID da faixa
+                        using (var cmd1 = connection.CreateCommand())
+                        {
+                            cmd1.Transaction = transaction;
+                            cmd1.CommandText = "DELETE FROM LisMus WHERE Musica = @Id";
+                            cmd1.Parameters.AddWithValue("@Id", trackId);
+                            cmd1.ExecuteNonQuery();
+                        }
+
+                        // 3. Remove da tabela principal (Musica)
+                        using (var cmd2 = connection.CreateCommand())
+                        {
+                            cmd2.Transaction = transaction;
+                            cmd2.CommandText = "DELETE FROM Musica WHERE ID = @Id";
+                            cmd2.Parameters.AddWithValue("@Id", trackId);
+                            cmd2.ExecuteNonQuery();
+                        }
+
+                        // 4. Verifica se ainda restam músicas dessa banda
+                        if (bandaId != -1)
+                        {
+                            using (var cmdCheck = new SQLiteCommand("SELECT COUNT(*) FROM Musica WHERE Banda = @BandaId", connection, transaction))
+                            {
+                                cmdCheck.Parameters.AddWithValue("@BandaId", bandaId);
+                                long restante = (long)cmdCheck.ExecuteScalar();
+
+                                if (restante == 0)
+                                {
+                                    // Tenta obter o caminho da pasta antes de apagar o registro da banda
+                                    string caminhoPastaBanda = string.Empty;
+                                    using (var cmdPath = new SQLiteCommand("SELECT Lugar FROM Banda WHERE ID = @BandaId", connection, transaction))
+                                    {
+                                        cmdPath.Parameters.AddWithValue("@BandaId", bandaId);
+                                        caminhoPastaBanda = cmdPath.ExecuteScalar()?.ToString();
+                                    }
+
+                                    // Apaga o registro da banda (Supondo que a tabela se chama 'Banda')
+                                    using (var cmdDelBanda = new SQLiteCommand("DELETE FROM Banda WHERE ID = @BandaId", connection, transaction))
+                                    {
+                                        cmdDelBanda.Parameters.AddWithValue("@BandaId", bandaId);
+                                        cmdDelBanda.ExecuteNonQuery();
+                                    }
+
+                                    // 5. Tentativa de apagar a pasta física (Fora da transação SQL, após o commit)
+                                    transaction.Commit();
+                                    TentarApagarPastaBanda(caminhoPastaBanda);
+                                    return; // Sai pois já deu commit
+                                }
+                            }
+                        }
+
+                        transaction.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        transaction.Rollback();
+                        System.Windows.Forms.MessageBox.Show($"Erro ao processar exclusão: {ex.Message}");
+                        throw;
+                    }
+                }
+            }
+        }
+
+        private void TentarApagarPastaBanda(string caminho)
+        {
+            if (string.IsNullOrWhiteSpace(caminho) || !Directory.Exists(caminho)) return;
+
+            try
+            {
+                // Só apaga se a pasta estiver vazia
+                if (Directory.GetFileSystemEntries(caminho).Length == 0)
+                {
+                    Directory.Delete(caminho);
+                }
+            }
+            catch
+            {
+                // Silencioso conforme solicitado se não der para apagar
+            }
+        }
+
+
+        #endregion
+
+        #region Copiar/Mover
+
+        // Retorna todas as listas cadastradas ordenadas por nome
+        public List<Playlist> GetAllPlaylists()
+        {
+            var list = new List<Playlist>();
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome FROM Lista ORDER BY Nome", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        list.Add(new Playlist { Id = reader.GetInt32(0), Name = reader.GetString(1) });
+                    }
+                }
+            }
+            return list;
+        }
+
+        // Retorna as listas às quais uma música específica já pertence
+        public List<Playlist> GetPlaylistsByMusicaId(int musicaId)
+        {
+            var list = new List<Playlist>();
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                string sql = @"SELECT l.ID, l.Nome FROM Lista l 
+                       JOIN LisMus lm ON l.ID = lm.Lista 
+                       WHERE lm.Musica = @musId";
+                using (var cmd = new SQLiteCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@musId", musicaId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            list.Add(new Playlist { Id = reader.GetInt32(0), Name = reader.GetString(1) });
+                        }
+                    }
+                }
+            }
+            return list;
+        }
+
+        public void LimparMusicaDeTodasPlaylists(int musicaId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("DELETE FROM LisMus WHERE Musica = @musId", conn))
+                {
+                    cmd.Parameters.AddWithValue("@musId", musicaId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public void RemoverMusicaDaLista(int musicaId, int listaId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("DELETE FROM LisMus WHERE Musica = @musId AND Lista = @listId", conn))
+                {
+                    cmd.Parameters.AddWithValue("@musId", musicaId);
+                    cmd.Parameters.AddWithValue("@listId", listaId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        #endregion
 
     }
 }

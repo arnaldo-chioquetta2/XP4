@@ -4,6 +4,10 @@ using NAudio.Wave; // Essencial
 using System.Windows.Media;
 using Mp3PlayerWinForms.Services;
 using XP3.Models;
+using System.IO;
+using System.Text;
+using System.Data.SQLite;
+using XP3.Data;
 
 namespace XP3.Services
 {
@@ -22,7 +26,7 @@ namespace XP3.Services
         public event EventHandler<Track> TrackChanged;
         //public event EventHandler PlaybackStopped;
         public event EventHandler<float[]> FftDataReceived;
-        public event EventHandler<string> PlaybackError;
+        public event EventHandler<Tuple<Track, string>> PlaybackError;
         private SampleAggregator _aggregator;
 
         // NOVO EVENTO: Esse é o segredo para o Spectrum funcionar!
@@ -34,6 +38,15 @@ namespace XP3.Services
 
         public bool IsPlaying => _waveOut?.PlaybackState == PlaybackState.Playing;
         public Track CurrentTrack => (_currentIndex >= 0 && _currentIndex < _playlist.Count) ? _playlist[_currentIndex] : null;
+
+        public AudioPlayerService()
+        {
+            _mediaPlayer = new MediaPlayer();
+            _playlist = new List<Track>();
+            _mediaPlayer.MediaEnded += _mediaPlayer_MediaEnded;
+        }
+
+        #region Inicializacao
 
         public void SetPosition(double percentage)
         {
@@ -48,12 +61,9 @@ namespace XP3.Services
             }
         }
 
-        public AudioPlayerService()
-        {
-            _mediaPlayer = new MediaPlayer();
-            _playlist = new List<Track>();
-            _mediaPlayer.MediaEnded += _mediaPlayer_MediaEnded;
-        }
+
+        #endregion
+
 
         private void _mediaPlayer_MediaEnded(object sender, EventArgs e)
         {
@@ -103,7 +113,57 @@ namespace XP3.Services
             }
             catch (Exception ex)
             {
-                System.Windows.Forms.MessageBox.Show($"Erro: {ex.Message}");
+                RegistrarLogErro(track, ex);
+                // Agora passamos a Track E a Mensagem
+                PlaybackError?.Invoke(this, new Tuple<Track, string>(track, $"Erro: {ex.Message}"));
+            }
+        }
+
+        private void RegistrarLogErro(Track track, Exception ex)
+        {
+            try
+            {
+                string arquivoLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Log_Erros_Playback.txt");
+                StringBuilder sb = new StringBuilder();
+
+                sb.AppendLine("==================================================");
+                sb.AppendLine($"DATA/HORA: {DateTime.Now}");
+                sb.AppendLine($"MÚSICA ID: {track.Id}");
+                sb.AppendLine($"TÍTULO:    {track.Title}");
+                sb.AppendLine($"BANDA:     {track.BandName}");
+                sb.AppendLine($"CAMINHO:   {track.FilePath}");
+
+                // Verifica detalhes físicos do arquivo
+                if (File.Exists(track.FilePath))
+                {
+                    var info = new FileInfo(track.FilePath);
+                    sb.AppendLine($"TAMANHO:   {info.Length} bytes");
+                    sb.AppendLine($"CRIADO EM: {info.CreationTime}");
+
+                    if (info.Length == 0)
+                        sb.AppendLine("ALERTA:    O ARQUIVO ESTÁ VAZIO (0 BYTES).");
+                }
+                else
+                {
+                    sb.AppendLine("ALERTA:    ARQUIVO NÃO ENCONTRADO NO DISCO.");
+                }
+
+                sb.AppendLine("--------------------------------------------------");
+                sb.AppendLine($"MENSAGEM:  {ex.Message}");
+
+                // Pega o código Hexadecimal do erro (ex: 0xC00D36C4)
+                sb.AppendLine($"HRESULT:   0x{ex.HResult:X}");
+                sb.AppendLine($"SOURCE:    {ex.Source}");
+                sb.AppendLine($"STACK:     {ex.StackTrace}");
+                sb.AppendLine("==================================================");
+                sb.AppendLine(""); // Linha em branco
+
+                // Grava no arquivo (Append para não apagar os anteriores)
+                File.AppendAllText(arquivoLog, sb.ToString(), Encoding.UTF8);
+            }
+            catch
+            {
+                // Se der erro ao gravar o log, não podemos fazer nada para não travar o app
             }
         }
 
@@ -161,7 +221,7 @@ namespace XP3.Services
             // Se houver exceção, paramos por erro
             if (e.Exception != null)
             {
-                PlaybackError?.Invoke(this, $"Erro na reprodução: {e.Exception.Message}");
+                PlaybackError?.Invoke(this, new Tuple<Track, string>(CurrentTrack, $"Erro na reprodução: {e.Exception.Message}"));
                 return;
             }
 
@@ -186,5 +246,58 @@ namespace XP3.Services
         {
             Stop();
         }
+
+        #region Apagar
+
+
+        // 2. Insere na tabela de Apagar Futuramente (Caso falhe agora)
+        public void AdicionarParaApagarDepois(string caminho, string banda)
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+                string sql = "INSERT INTO ApagarMusicas (Lugar, Banda) VALUES (@Lugar, @Banda)";
+
+                using (var command = new SQLiteCommand(sql, connection))
+                {
+                    command.Parameters.AddWithValue("@Lugar", caminho);
+                    command.Parameters.AddWithValue("@Banda", banda);
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        // 3. Remove a música de TODAS as playlists e do cadastro principal
+        public void RemoverMusicaDefinitivamente(int trackId)
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        // Remove das playlists (Tabela de ligação)
+                        var cmd1 = new SQLiteCommand("DELETE FROM PlaylistTracks WHERE TrackId = @Id", connection, transaction);
+                        cmd1.Parameters.AddWithValue("@Id", trackId);
+                        cmd1.ExecuteNonQuery();
+
+                        // Remove do cadastro de faixas
+                        var cmd2 = new SQLiteCommand("DELETE FROM Tracks WHERE Id = @Id", connection, transaction);
+                        cmd2.Parameters.AddWithValue("@Id", trackId);
+                        cmd2.ExecuteNonQuery();
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw; // Repassa o erro se der
+                    }
+                }
+            }
+        }
+        #endregion
+
     }
 }
