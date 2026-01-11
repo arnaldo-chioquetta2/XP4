@@ -248,30 +248,7 @@ namespace XP3.Forms
             // QUANDO A MÚSICA MUDA/COMEÇA
             // Dentro de Inicial.cs -> SetupServices()
 
-            _player.TrackChanged += (s, track) =>
-            {
-                this.BeginInvoke(new Action(() =>
-                {
-                    // ... (seus códigos de Label e Texto da Janela) ...
-                    lblStatus.Text = $"Tocando: {track.Title} - {track.BandName}";
-
-                    if (modernSeekBar1 != null) modernSeekBar1.Visible = true;
-
-                    // --- NOVO: SALVA O ID DA MÚSICA NO ARQUIVO INI ---
-                    // Seção: [Playback], Chave: LastTrackId, Valor: ID da música
-                    _iniService.Write("Playback", "LastTrackId", track.Id.ToString());
-                    // -------------------------------------------------
-
-                    // ... (resto do código de Grid e Spectrum) ...
-                    InicializarSpectrumSeNecessario();
-
-                    // Atualiza seleção da grid...
-                    if (lvTracks != null && _allTracks.Count > 0)
-                    {
-                        // ... (seu código de selecionar a linha azul) ...
-                    }
-                }));
-            };
+            _player.TrackChanged += (s, track) => TratarMudancaDeFaixa(track);
 
             if (spectrum != null)
             {
@@ -348,6 +325,90 @@ namespace XP3.Forms
             _pollingService.Start();
 
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
+        }
+
+        private void TratarMudancaDeFaixa(Track track)
+        {
+            if (track == null) return;
+
+            // Garante que rode na Thread principal (UI)
+            this.BeginInvoke(new Action(() =>
+            {
+                // ==========================================================
+                // 1. ATUALIZAÇÕES VISUAIS BÁSICAS
+                // ==========================================================
+                lblStatus.Text = $"Tocando: {track.Title} - {track.BandName}";
+                lblStatus.ForeColor = Color.LightGreen; // Indica sucesso
+                this.Text = $"{track.Title} - Mp3 Player XP3"; // Título da Janela
+
+                if (modernSeekBar1 != null) modernSeekBar1.Visible = true;
+
+                InicializarSpectrumSeNecessario();
+
+                // ==========================================================
+                // 2. PERSISTÊNCIA (SALVA NO INI)
+                // ==========================================================
+                try
+                {
+                    _iniService.Write("Playback", "LastTrackId", track.Id.ToString());
+                }
+                catch { /* Ignora erro de escrita no INI */ }
+
+                // ==========================================================
+                // 3. LÓGICA ESPECIAL: LISTA "AESCOLHER"
+                // ==========================================================
+                bool foiRemovidaDaLista = false;
+
+                // Verifica se estamos na lista de triagem (case insensitive)
+                if (lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Verifica em quantas listas essa música existe no total
+                    var listasDaMusica = _repo.GetPlaylistsByMusicaId(track.Id);
+
+                    // Se estiver em mais de 1 lista (ou seja, AEscolher + Alguma Outra)
+                    if (listasDaMusica.Count > 1)
+                    {
+                        // Remove do Banco (apenas da relação com a lista atual)
+                        _repo.RemoverMusicaDaLista(track.Id, _currentPlaylistId);
+
+                        // Remove da Memória (Grid)
+                        _allTracks.Remove(track);
+
+                        // Atualiza a Grid
+                        lvTracks.VirtualListSize = _allTracks.Count;
+                        lvTracks.Refresh();
+                        AtualizarContadorDeMusicas();
+
+                        lblStatus.Text += " (Removida da triagem: Já possui destino)";
+                        foiRemovidaDaLista = true;
+                    }
+                }
+
+                // ==========================================================
+                // 4. SELEÇÃO NA GRID (O CÓDIGO QUE HAVIA SUMIDO)
+                // ==========================================================
+                // Só tentamos selecionar se a música AINDA estiver na lista
+                if (!foiRemovidaDaLista && lvTracks != null && _allTracks.Count > 0)
+                {
+                    // Localiza o índice da música na lista atual
+                    int index = _allTracks.FindIndex(t => t.Id == track.Id);
+
+                    if (index >= 0)
+                    {
+                        // Limpa seleções anteriores para não ficar várias azuis
+                        lvTracks.SelectedIndices.Clear();
+
+                        // Seleciona a nova
+                        lvTracks.SelectedIndices.Add(index);
+
+                        // Garante que a grid role até a música (scroll automático)
+                        lvTracks.EnsureVisible(index);
+
+                        // Opcional: Força o foco na Grid para o teclado funcionar nela
+                        // lvTracks.Focus(); 
+                    }
+                }
+            }));
         }
 
         private void TratarErroReproducao(Track track, string mensagem)
