@@ -33,6 +33,8 @@ namespace XP3.Forms
         private Button btnApagarErro;
         private Track _trackComErroAtual; // Guarda qual música deu pau
 
+
+
         public Inicial()
         {
             InitializeComponent();
@@ -135,6 +137,22 @@ namespace XP3.Forms
                 if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy;
             };
             lvTracks.DragDrop += LvTracks_DragDrop;
+
+            lvTracks.MouseClick += LvTracks_MouseClick;
+
+            lvTracks.MouseMove += (s, e) =>
+            {
+                var info = lvTracks.HitTest(e.Location);
+                if (info.Item != null && info.SubItem != null && info.Item.SubItems.IndexOf(info.SubItem) == 3 && info.SubItem.Text == "[ APAGAR ]")
+                {
+                    lvTracks.Cursor = Cursors.Hand;
+                }
+                else
+                {
+                    lvTracks.Cursor = Cursors.Default;
+                }
+            };
+
         }
 
         private void ConfigurarBotaoApagar()
@@ -276,29 +294,7 @@ namespace XP3.Forms
                 }
             };
 
-            _player.PlaybackError += (s, args) =>
-            {
-                var track = args.Item1;
-                var msg = args.Item2;
-
-                this.BeginInvoke(new Action(() => {
-                    lblStatus.ForeColor = Color.Salmon;
-
-                    // Limita o texto para garantir que o botão não saia da tela
-                    if (msg.Length > 55) msg = msg.Substring(0, 52) + "...";
-                    lblStatus.Text = msg;
-                    _trackComErroAtual = track;
-
-                    // MEDIÇÃO PRECISA: Calcula a largura do texto atual
-                    int larguraTexto = TextRenderer.MeasureText(lblStatus.Text, lblStatus.Font).Width;
-
-                    // Posiciona o botão exatamente 10 pixels após o fim das letras
-                    btnApagarErro.Location = new Point(lblStatus.Location.X + larguraTexto + 10, lblStatus.Location.Y - 2);
-
-                    btnApagarErro.Visible = true;
-                    btnApagarErro.BringToFront();
-                }));
-            };
+            _player.PlaybackError += (s, args) => TratarErroReproducao(args.Item1, args.Item2);
 
             timerProgresso.Tick += TimerProgresso_Tick;
             timerProgresso.Start();
@@ -349,6 +345,31 @@ namespace XP3.Forms
             _pollingService.Start();
 
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
+        }
+
+        private void TratarErroReproducao(Track track, string mensagem)
+        {
+            // O evento de erro vem de uma thread secundária, por isso usamos BeginInvoke
+            this.BeginInvoke(new Action(() =>
+            {
+                // 1. Atualiza o status no rodapé com a mensagem completa
+                lblStatus.ForeColor = Color.Salmon;
+                lblStatus.Text = mensagem;
+
+                // 2. Define qual música está com problema para o ListView pintar
+                _trackComErroAtual = track;
+
+                // 3. TIRA A SELEÇÃO (AZUL): 
+                // Isso é vital para que as cores de erro (fundo vermelho) 
+                // definidas no RetrieveVirtualItem fiquem visíveis.
+                lvTracks.SelectedIndices.Clear();
+
+                // 4. Força a Grid a redesenhar para mostrar o [ APAGAR ] e o fundo vermelho
+                lvTracks.Refresh();
+
+                // Se houver algum botão físico antigo 'btnApagarErro', garanta que ele esteja invisível
+                if (btnApagarErro != null) btnApagarErro.Visible = false;
+            }));
         }
 
         #endregion
@@ -638,17 +659,34 @@ namespace XP3.Forms
 
         private void LvTracks_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
-            // Verifica se o índice solicitado existe na nossa lista
             if (e.ItemIndex >= 0 && e.ItemIndex < _allTracks.Count)
             {
-                Track t = _allTracks[e.ItemIndex];
+                var track = _allTracks[e.ItemIndex];
+                ListViewItem item = new ListViewItem(track.Title);
+                item.SubItems.Add(track.BandName);
+                item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
 
-                // Cria o item "ao voo" apenas para exibição
-                ListViewItem item = new ListViewItem(t.Title);
-                item.SubItems.Add(t.BandName);
-                item.SubItems.Add(t.DurationFormatted);
+                // Verificamos se esta é a música que disparou o erro
+                if (_trackComErroAtual != null && track.Id == _trackComErroAtual.Id)
+                {
+                    item.SubItems.Add("[ APAGAR ]");
 
-                // Define o item que o ListView deve mostrar nesta linha
+                    // IMPORTANTE: Desativa o estilo padrão para podermos pintar a linha
+                    item.UseItemStyleForSubItems = false;
+
+                    // Pinta a linha inteira com um tom de erro
+                    item.BackColor = Color.FromArgb(60, 0, 0); // Vermelho bem escuro para o fundo
+                    item.ForeColor = Color.White;
+
+                    // Destaca especificamente o texto de APAGAR
+                    item.SubItems[3].ForeColor = Color.Yellow;
+                    item.SubItems[3].Font = new Font(lvTracks.Font, FontStyle.Bold);
+                }
+                else
+                {
+                    item.SubItems.Add("");
+                }
+
                 e.Item = item;
             }
         }
@@ -712,25 +750,20 @@ namespace XP3.Forms
             lblTrackCount.Text = $"{_allTracks.Count} músicas";
         }
 
-        // Evento separado para ficar organizado
         private void LvTracks_MouseClick(object sender, MouseEventArgs e)
         {
-            // Só nos interessa o botão direito
-            if (e.Button == MouseButtons.Right)
+            var info = lvTracks.HitTest(e.Location);
+
+            // 1. Verifica se o clique atingiu um item e um subitem
+            if (info.Item != null && info.SubItem != null)
             {
-                // Verifica ONDE o mouse clicou (HitTest)
-                var hitTest = lvTracks.HitTest(e.Location);
+                // 2. Encontra o índice da coluna clicada comparando o subitem
+                int columnIndex = info.Item.SubItems.IndexOf(info.SubItem);
 
-                // Se clicou em cima de um item válido
-                if (hitTest.Item != null)
+                // 3. Verifica se clicou na coluna 3 e se o texto é o botão de apagar
+                if (columnIndex == 3 && info.SubItem.Text == "[ APAGAR ]")
                 {
-                    // Opcional (mas recomendado): Seleciona visualmente a linha clicada
-                    // Isso garante que a linha azul vá para onde você clicou com o direito
-                    lvTracks.SelectedIndices.Clear();
-                    lvTracks.SelectedIndices.Add(hitTest.Item.Index);
-
-                    // Exibe o menu na posição do mouse
-                    _ctxMenuGrid.Show(lvTracks, e.Location);
+                    BtnApagarErro_Click(this, EventArgs.Empty);
                 }
             }
         }

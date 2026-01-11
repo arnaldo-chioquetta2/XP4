@@ -69,6 +69,8 @@
             // 
             this.colDuracao.Text = "Tempo";
             this.colDuracao.Width = 80;
+
+            lvTracks.Columns.Add("Operação", 100);
             // 
             // pnlControls
             // 
