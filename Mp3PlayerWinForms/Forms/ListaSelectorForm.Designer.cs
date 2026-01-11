@@ -65,6 +65,7 @@
             this.btnExcluir.TabIndex = 2;
             this.btnExcluir.Text = "Excluir";
             this.btnExcluir.UseVisualStyleBackColor = true;
+            this.btnExcluir.Click += new System.EventHandler(this.btnExcluir_Click);
             // 
             // btnMover
             // 
@@ -74,6 +75,7 @@
             this.btnMover.TabIndex = 1;
             this.btnMover.Text = "Mover";
             this.btnMover.UseVisualStyleBackColor = true;
+            this.btnMover.Click += new System.EventHandler(this.btnMover_Click);
             // 
             // btnCopiar
             // 
@@ -83,6 +85,7 @@
             this.btnCopiar.TabIndex = 0;
             this.btnCopiar.Text = "Copiar";
             this.btnCopiar.UseVisualStyleBackColor = true;
+            this.btnCopiar.Click += new System.EventHandler(this.btnCopiar_Click);
             // 
             // ListaSelectorForm
             // 

@@ -1,12 +1,14 @@
 using System;
 using XP3.Data;
 using SQLitePCL;
-using XP3.Models;
 using System.IO;
+using XP3.Models;
+using System.Linq;
 using XP3.Services;
 using XP3.Controls;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 
 namespace XP3.Forms
@@ -22,6 +24,7 @@ namespace XP3.Forms
 
         private int _currentPlaylistId = 1;
         private bool _emTelaCheia = false;
+        private bool _janelaAberta = false;
 
         // Mantenha apenas UMA declaração aqui.
         private SpectrumControl spectrum;
@@ -349,27 +352,135 @@ namespace XP3.Forms
 
         private void TratarErroReproducao(Track track, string mensagem)
         {
-            // O evento de erro vem de uma thread secundária, por isso usamos BeginInvoke
             this.BeginInvoke(new Action(() =>
             {
-                // 1. Atualiza o status no rodapé com a mensagem completa
                 lblStatus.ForeColor = Color.Salmon;
                 lblStatus.Text = mensagem;
-
-                // 2. Define qual música está com problema para o ListView pintar
                 _trackComErroAtual = track;
 
-                // 3. TIRA A SELEÇÃO (AZUL): 
-                // Isso é vital para que as cores de erro (fundo vermelho) 
-                // definidas no RetrieveVirtualItem fiquem visíveis.
                 lvTracks.SelectedIndices.Clear();
-
-                // 4. Força a Grid a redesenhar para mostrar o [ APAGAR ] e o fundo vermelho
                 lvTracks.Refresh();
 
-                // Se houver algum botão físico antigo 'btnApagarErro', garanta que ele esteja invisível
-                if (btnApagarErro != null) btnApagarErro.Visible = false;
+                // NOVO: Dispara a varredura a partir da próxima música
+                int indexAtual = _allTracks.IndexOf(track);
+                if (indexAtual != -1)
+                {
+                    IniciarVarreduraDeErros(indexAtual);
+                }
             }));
+        }
+
+        private async void IniciarVarreduraDeErros(int startIndex)
+        {
+            List<Track> tracksComErro = new List<Track>();
+            int totalVerificado = 0;
+            // Vamos verificar um limite razoável de músicas à frente
+            int limiteBusca = 10000;
+
+            lblStatus.ForeColor = Color.Yellow;
+            lblStatus.Text = "Verificando integridade das próximas músicas...";
+
+            for (int i = startIndex; i < _allTracks.Count && totalVerificado < limiteBusca; i++)
+            {
+                var track = _allTracks[i];
+                totalVerificado++;
+
+                lblStatus.Text = $"Procurando erros... ({tracksComErro.Count} encontrados)";
+
+                // CRITÉRIOS DE ERRO:
+                // 1. Arquivo não existe no HD
+                // 2. OU o tempo está zerado (indica que o scanner não conseguiu ler o arquivo)
+                // 3. OU o método ArquivoEhValido falhou
+                bool arquivoExiste = File.Exists(track.FilePath);
+                bool tempoZerado = track.Duration.TotalSeconds <= 0;
+
+                if (!arquivoExiste || tempoZerado || !ArquivoEhValido(track.FilePath))
+                {
+                    // Se cair aqui, é música inválida
+                    if (!tracksComErro.Contains(track))
+                        tracksComErro.Add(track);
+                }
+                else
+                {
+                    // ENCONTROU UMA MÚSICA BOA!
+                    // Aqui paramos de procurar, pois achamos onde o player pode continuar tocando.
+                    break;
+                }
+
+                await Task.Delay(30); // Delay para não travar a UI
+            }
+
+            // 3. Pergunta se deseja apagar
+            if (tracksComErro.Count > 0)
+            {
+                // Forçamos o Refresh para o [ APAGAR ] aparecer em todas as inválidas na grid
+                _trackComErroAtual = tracksComErro[0]; // Para fins visuais
+                lvTracks.Refresh();
+
+                var result = MessageBox.Show(
+                    $"Foram encontradas {tracksComErro.Count} músicas inválidas em sequência.\n\n" +
+                    "Deseja removê-las definitivamente da biblioteca e do disco?",
+                    "Limpeza Automática",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+
+                if (result == DialogResult.Yes)
+                {
+                    ExecutarExclusaoEmMassa(tracksComErro);
+                }
+                else
+                {
+                    lblStatus.Text = "Músicas inválidas mantidas na lista.";
+                }
+            }
+            else
+            {
+                lblStatus.Text = "Nenhuma outra música inválida encontrada em sequência.";
+            }
+        }
+
+        private void ExecutarExclusaoEmMassa(List<Track> listaParaApagar)
+        {
+            int apagadasDisco = 0;
+
+            foreach (var track in listaParaApagar)
+            {
+                // Apaga do Disco
+                try
+                {
+                    if (File.Exists(track.FilePath))
+                    {
+                        File.Delete(track.FilePath);
+                        apagadasDisco++;
+                    }
+                }
+                catch { /* Arquivo bloqueado ou já inexistente */ }
+
+                // Apaga do Banco
+                _trackRepo.RemoverMusicaDefinitivamente(track.Id);
+
+                // Remove da Memória
+                _allTracks.Remove(track);
+            }
+
+            // Atualiza Interface
+            lvTracks.VirtualListSize = _allTracks.Count;
+            lvTracks.Refresh();
+            lblTrackCount.Text = $"{_allTracks.Count} músicas";
+
+            lblStatus.ForeColor = Color.Cyan;
+            lblStatus.Text = $"Resumo: {listaParaApagar.Count} removidas da lista ({apagadasDisco} do disco).";
+        }
+
+        // Função auxiliar para checar se o arquivo abre
+        private bool ArquivoEhValido(string path)
+        {
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
+                    return fs.Length > 0;
+            }
+            catch { return false; }
         }
 
         #endregion
@@ -486,56 +597,60 @@ namespace XP3.Forms
                 if (lblPlaylistTitle != null)
                     lblPlaylistTitle.Text = nomeLista.ToUpper();
 
-                // 1. Carrega os dados para a lista em memória
-                _allTracks = _trackRepo.GetTracksByPlaylist(_currentPlaylistId);
+                // 1. Carrega os dados brutos do banco
+                var tracksDoBanco = _trackRepo.GetTracksByPlaylist(_currentPlaylistId);
 
-                if (_allTracks != null && _allTracks.Count > 0)
+                // 2. APLICA O FILTRO: Mantém apenas músicas com tempo > 00:00
+                if (tracksDoBanco != null)
+                {
+                    _allTracks = tracksDoBanco
+                        .Where(t => t.Duration.TotalSeconds > 0)
+                        .ToList();
+                }
+                else
+                {
+                    _allTracks = new List<Track>();
+                }
+
+                // 3. Ordenação (agora sobre a lista filtrada)
+                if (_allTracks.Count > 0)
                 {
                     _allTracks.Sort((a, b) => a.Duration.CompareTo(b.Duration));
                 }
 
+                // 4. Envia a lista limpa para o Player
                 if (_player != null)
                     _player.SetPlaylist(_allTracks);
 
+                // 5. Tenta restaurar a última música tocada
                 try
                 {
-                    // 1. Lê o ID salvo no INI (se não tiver nada, retorna "0")
                     string strLastId = _iniService.Read("Playback", "LastTrackId");
-
                     if (int.TryParse(strLastId, out int lastId) && lastId > 0)
                     {
-                        // 2. Procura em qual posição da lista essa música está
                         int indexEncontrado = _allTracks.FindIndex(t => t.Id == lastId);
-
                         if (indexEncontrado >= 0)
                         {
-                            // 3. Seleciona visualmente na Grid
                             lvTracks.SelectedIndices.Clear();
                             lvTracks.SelectedIndices.Add(indexEncontrado);
                             lvTracks.EnsureVisible(indexEncontrado);
-
-                            // 4. Manda o Player tocar essa posição
-                            // Nota: O Play já dispara o TrackChanged, que vai atualizar os Labels e o Spectrum
                             _player.Play(indexEncontrado);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    // Se der erro ao ler o INI, apenas ignora e abre parado
                     System.Diagnostics.Debug.WriteLine("Erro ao carregar última música: " + ex.Message);
                 }
 
+                // 6. Atualiza contadores e a Grid Visual
                 if (lblTrackCount != null)
                     lblTrackCount.Text = $"{_allTracks.Count} músicas encontradas";
 
-                // 2. Atualiza o ListView para o Modo Virtual
                 if (lvTracks != null)
                 {
-                    // IMPORTANTE: No modo virtual, NÃO use Clear() ou Add().
-                    // Apenas atualize o tamanho e force o redesenho.
                     lvTracks.VirtualListSize = _allTracks.Count;
-                    lvTracks.Invalidate(); // Força a atualização visual
+                    lvTracks.Invalidate();
                 }
             }
             catch (Exception ex)
@@ -666,25 +781,27 @@ namespace XP3.Forms
                 item.SubItems.Add(track.BandName);
                 item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
 
-                // Verificamos se esta é a música que disparou o erro
-                if (_trackComErroAtual != null && track.Id == _trackComErroAtual.Id)
+                // Critérios de Erro: Arquivo inexistente ou Duração zerada
+                bool arquivoInexistente = !File.Exists(track.FilePath);
+                bool semDuracao = track.Duration.TotalSeconds <= 0;
+                bool musicaComErro = arquivoInexistente || semDuracao || (_trackComErroAtual != null && track.Id == _trackComErroAtual.Id);
+
+                if (musicaComErro)
                 {
+                    // Se tem erro, a prioridade é APAGAR
                     item.SubItems.Add("[ APAGAR ]");
-
-                    // IMPORTANTE: Desativa o estilo padrão para podermos pintar a linha
                     item.UseItemStyleForSubItems = false;
-
-                    // Pinta a linha inteira com um tom de erro
-                    item.BackColor = Color.FromArgb(60, 0, 0); // Vermelho bem escuro para o fundo
+                    item.BackColor = Color.FromArgb(60, 0, 0); // Fundo vermelho escuro
                     item.ForeColor = Color.White;
-
-                    // Destaca especificamente o texto de APAGAR
                     item.SubItems[3].ForeColor = Color.Yellow;
                     item.SubItems[3].Font = new Font(lvTracks.Font, FontStyle.Bold);
                 }
                 else
                 {
-                    item.SubItems.Add("");
+                    // Se está tudo certo, mostramos a opção de COPIAR/MOVER
+                    item.SubItems.Add("[ COPIAR ]");
+                    item.UseItemStyleForSubItems = false;
+                    item.SubItems[3].ForeColor = Color.Cyan; // Cor diferenciada para ação normal
                 }
 
                 e.Item = item;
@@ -714,32 +831,66 @@ namespace XP3.Forms
 
         private void AbrirGerenciadorDeListas()
         {
-            // 1. Verifica se há uma música selecionada na Grid
+            // Se já estiver processando uma abertura, ignora o segundo clique (debounce)
+            if (_janelaAberta) return;
+
             if (lvTracks.SelectedIndices.Count > 0)
             {
+                _janelaAberta = true; // Ativa a trava de segurança
+
                 int index = lvTracks.SelectedIndices[0];
                 var track = _allTracks[index];
 
-                // 2. Abre o formulário passando o ID da música e o ID da lista onde estamos agora
-                using (var form = new ListaSelectorForm(track.Id, _currentPlaylistId))
+                try
                 {
-                    // 3. Se o usuário clicou em algum botão de ação (OK/Salvar)
-                    if (form.ShowDialog() == DialogResult.OK)
+                    using (var form = new ListaSelectorForm(track.Id, _currentPlaylistId))
                     {
-                        // 4. Se a operação foi MOVER ou EXCLUIR, removemos da tela atual
-                        if (form.DeveRemoverDaGrid)
+                        if (form.ShowDialog() == DialogResult.OK)
                         {
-                            _allTracks.Remove(track);
-                            lvTracks.VirtualListSize = _allTracks.Count;
-                            lvTracks.Refresh();
+                            // Se o Form retornou que a música deve sair desta lista (Mover ou Excluir)
+                            if (form.DeveRemoverDaGrid)
+                            {
+                                // 1. Verifica se a música que está sendo removida é a que está tocando agora
+                                bool eraMusicaAtual = (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id);
 
-                            // Atualiza o label do total de músicas que fizemos antes
-                            AtualizarContadorDeMusicas();
+                                if (eraMusicaAtual)
+                                {
+                                    // Para o áudio imediatamente para liberar o buffer/arquivo
+                                    _player.Stop();
+                                }
 
-                            // Opcional: Se a música que saiu era a que estava tocando, 
-                            // você pode decidir se para o player ou apenas segue a lista.
+                                // 2. Remove a música da memória e atualiza a Grid
+                                _allTracks.Remove(track);
+                                lvTracks.VirtualListSize = _allTracks.Count;
+                                lvTracks.Refresh();
+
+                                // Atualiza o label de contagem de músicas
+                                AtualizarContadorDeMusicas();
+
+                                // 3. Se era a música ativa, pula para a próxima disponível na lista
+                                if (eraMusicaAtual && _allTracks.Count > 0)
+                                {
+                                    _player.Next();
+                                }
+                            }
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("Erro ao abrir gerenciador: " + ex.Message);
+                }
+                finally
+                {
+                    // O finally garante que a trava seja liberada após fechar o Form.
+                    // Usamos um Timer de 200ms para ignorar cliques fantasmas/residuais do Windows.
+                    Timer timerLibera = new Timer { Interval = 200 };
+                    timerLibera.Tick += (s, e) => {
+                        _janelaAberta = false;
+                        timerLibera.Stop();
+                        timerLibera.Dispose();
+                    };
+                    timerLibera.Start();
                 }
             }
         }
@@ -752,18 +903,25 @@ namespace XP3.Forms
 
         private void LvTracks_MouseClick(object sender, MouseEventArgs e)
         {
+            if (e.Button != MouseButtons.Left) return;
+
             var info = lvTracks.HitTest(e.Location);
 
-            // 1. Verifica se o clique atingiu um item e um subitem
             if (info.Item != null && info.SubItem != null)
             {
-                // 2. Encontra o índice da coluna clicada comparando o subitem
                 int columnIndex = info.Item.SubItems.IndexOf(info.SubItem);
 
-                // 3. Verifica se clicou na coluna 3 e se o texto é o botão de apagar
-                if (columnIndex == 3 && info.SubItem.Text == "[ APAGAR ]")
+                // Verifica se clicou na coluna "Operação" (Índice 3)
+                if (columnIndex == 3)
                 {
-                    BtnApagarErro_Click(this, EventArgs.Empty);
+                    if (info.SubItem.Text == "[ APAGAR ]")
+                    {
+                        BtnApagarErro_Click(this, EventArgs.Empty);
+                    }
+                    else if (info.SubItem.Text == "[ COPIAR ]")
+                    {
+                        AbrirGerenciadorDeListas(); // Chama o método que abre o ListaSelectorForm
+                    }
                 }
             }
         }

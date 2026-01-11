@@ -1,10 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Linq;
-using System.Windows.Forms;
 using XP3.Data;
 using XP3.Models;
+using System.Linq;
+using System.Windows.Forms;
 
 namespace XP3.Forms
 {
@@ -22,9 +20,9 @@ namespace XP3.Forms
             _listaAtualId = listaAtualId;
 
             // Configura os botões
-            btnCopiar.Click += (s, e) => Salvar("COPIAR");
-            btnMover.Click += (s, e) => Salvar("MOVER");
-            btnExcluir.Click += (s, e) => Salvar("EXCLUIR");
+            //btnCopiar.Click += (s, e) => Salvar("COPIAR");
+            //btnMover.Click += (s, e) => Salvar("MOVER");
+            //btnExcluir.Click += (s, e) => Salvar("EXCLUIR");
 
             CarregarPlaylistsOrdenadas();
         }
@@ -60,10 +58,9 @@ namespace XP3.Forms
             }
             else
             {
-                // 1. Verifica primeiro se precisa criar uma nova lista
+                // 1. Tratamento de Nova Lista (Inalterado)
                 int? novaListaId = null;
                 bool marcaramNovaLista = false;
-
                 for (int i = 0; i < clbPlaylists.Items.Count; i++)
                 {
                     if (clbPlaylists.GetItemChecked(i) && clbPlaylists.Items[i].ToString() == "Adicionar em nova lista")
@@ -76,20 +73,26 @@ namespace XP3.Forms
                 if (marcaramNovaLista)
                 {
                     string nomeNovaLista = ShowInputBox("Nova Lista", "Digite o nome para a nova lista:");
-
-                    // Se cancelou (null) ou deixou vazio, aborta tudo conforme solicitado
-                    if (string.IsNullOrWhiteSpace(nomeNovaLista))
-                    {
-                        return; // Não fecha a tela, permite o usuário corrigir ou desmarcar
-                    }
-
-                    // Cria a lista no banco e guarda o ID
+                    if (string.IsNullOrWhiteSpace(nomeNovaLista)) return;
                     novaListaId = _repo.GetOrCreatePlaylist(nomeNovaLista);
                 }
 
-                // 2. Agora sim, procede com a limpeza e reinserção
-                _repo.LimparMusicaDeTodasPlaylists(_musicaId);
+                // 2. LÓGICA DE MOVER vs COPIAR
+                // No modo MOVER, removemos de absolutamente tudo antes de reinserir nas novas
+                if (modo == "MOVER")
+                {
+                    _repo.LimparMusicaDeTodasPlaylists(_musicaId);
+                    DeveRemoverDaGrid = true;
+                }
+                else // No modo COPIAR
+                {
+                    // Opcional: Se quiser que o COPIAR apenas adicione sem remover das outras, 
+                    // você pode comentar a linha abaixo. 
+                    // Mas se o seu COPIAR deve "espelhar" exatamente o que está nos checks:
+                    _repo.LimparMusicaDeTodasPlaylists(_musicaId);
+                }
 
+                // 3. Reinserção baseada nos Checks
                 for (int i = 0; i < clbPlaylists.Items.Count; i++)
                 {
                     if (clbPlaylists.GetItemChecked(i))
@@ -97,26 +100,21 @@ namespace XP3.Forms
                         var item = clbPlaylists.Items[i];
                         int idDestino = -1;
 
-                        if (item is Playlist p)
-                        {
-                            idDestino = p.Id;
-                        }
+                        if (item is Playlist p) idDestino = p.Id;
                         else if (item.ToString() == "Adicionar em nova lista" && novaListaId.HasValue)
-                        {
                             idDestino = novaListaId.Value;
-                        }
 
                         if (idDestino != -1)
                         {
-                            // No modo MOVER, pula a lista atual
-                            if (modo == "MOVER" && idDestino == _listaAtualId) continue;
+                            // REGRA DE OURO DO MOVER:
+                            // Se estivermos movendo, nunca permite reinserir na lista de origem.
+                            if (modo == "MOVER" && idDestino == _listaAtualId)
+                                continue;
 
                             _repo.AddTrackToPlaylist(idDestino, _musicaId);
                         }
                     }
                 }
-
-                if (modo == "MOVER") DeveRemoverDaGrid = true;
             }
 
             this.DialogResult = DialogResult.OK;
@@ -148,6 +146,57 @@ namespace XP3.Forms
             promptForm.CancelButton = btnCancel;
 
             return promptForm.ShowDialog() == DialogResult.OK ? txtInput.Text : null;
+        }
+
+        private void btnExcluir_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // 1. Obtemos os dados da música
+                var track = _repo.GetTrackById(_musicaId);
+
+                if (track != null)
+                {
+                    // 2. Tenta enviar para a Lixeira (sem confirmação do programa)
+                    try
+                    {
+                        if (System.IO.File.Exists(track.FilePath))
+                        {
+
+                            System.IO.File.Delete(track.FilePath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Se falhar (arquivo em uso), agendamos para apagar depois
+                        _repo.AdicionarParaApagarDepois(track.FilePath, track.BandName);
+                    }
+
+                    // 3. Remove do Banco de Dados definitivamente (método que limpa LisMus, Musica e Banda)
+                    _repo.RemoverMusicaDefinitivamente(_musicaId);
+
+                    // 4. Fecha a tela e sinaliza remoção visual
+                    this.DeveRemoverDaGrid = true;
+                    this.DialogResult = DialogResult.OK;
+                    this.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Erro na exclusão: {ex.Message}");
+            }
+        }
+
+        private void btnMover_Click(object sender, EventArgs e)
+        {
+            // Chama a lógica centralizada com o modo MOVER
+            Salvar("MOVER");
+        }
+
+        private void btnCopiar_Click(object sender, EventArgs e)
+        {
+            // Chama a lógica centralizada com o modo COPIAR
+            Salvar("COPIAR");
         }
 
     }

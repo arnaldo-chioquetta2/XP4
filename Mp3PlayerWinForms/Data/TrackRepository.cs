@@ -169,6 +169,32 @@ namespace XP3.Data
             }
         }
 
+        public Track GetTrackById(int id)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome, Lugar, Banda FROM Musica WHERE ID = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return new Track
+                            {
+                                Id = reader.GetInt32(0),
+                                Title = reader.GetString(1),
+                                FilePath = reader.GetString(2),
+                                BandId = reader.GetInt32(3)
+                            };
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
         public void ResetarBancoDeDados()
         {
             using (var conn = Database.GetConnection())

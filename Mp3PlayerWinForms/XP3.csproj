@@ -181,6 +181,9 @@
     <EmbeddedResource Include="Forms\Inicial.resx">
       <DependentUpon>Inicial.cs</DependentUpon>
     </EmbeddedResource>
+    <EmbeddedResource Include="Forms\ListaSelectorForm.resx">
+      <DependentUpon>ListaSelectorForm.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="Forms\ScannerForm.resx">
       <DependentUpon>ScannerForm.cs</DependentUpon>
     </EmbeddedResource>
