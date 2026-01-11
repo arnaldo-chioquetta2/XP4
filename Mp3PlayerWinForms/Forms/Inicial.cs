@@ -36,11 +36,32 @@ namespace XP3.Forms
         private Button btnApagarErro;
         private Track _trackComErroAtual; // Guarda qual música deu pau
 
-
+        // Controles do Painel Lateral
+        private Panel _pnlLateral;
+        private CheckedListBox _clbPlaylistsLateral;
+        private Button _btnCopiarLat;
+        private Button _btnMoverLat;
+        private Button _btnExcluirLat;
+        private Label _lblTituloLateral;
+        private Track _trackEmEdicao; // Guarda qual música está sendo mostrada no painel
 
         public Inicial()
         {
             InitializeComponent();
+
+            ConstruirPainelLateral();
+
+            lvTracks.SelectedIndexChanged += (s, e) =>
+            {
+                if (lvTracks.SelectedIndices.Count > 0)
+                {
+                    int index = lvTracks.SelectedIndices[0];
+                    if (index >= 0 && index < _allTracks.Count)
+                    {
+                        AtualizarPainelLateral(_allTracks[index]);
+                    }
+                }
+            };
 
             // --- CRIAÇÃO E POSICIONAMENTO DA BARRA DE PROGRESSO ---
             if (modernSeekBar1 == null)
@@ -343,6 +364,11 @@ namespace XP3.Forms
 
                 if (modernSeekBar1 != null) modernSeekBar1.Visible = true;
 
+                if (lvTracks.SelectedIndices.Count == 0)
+                {
+                    AtualizarPainelLateral(track);
+                }
+
                 InicializarSpectrumSeNecessario();
 
                 // ==========================================================
@@ -363,13 +389,13 @@ namespace XP3.Forms
                 if (lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
                 {
                     // Verifica em quantas listas essa música existe no total
-                    var listasDaMusica = _repo.GetPlaylistsByMusicaId(track.Id);
+                    var listasDaMusica = _trackRepo.GetPlaylistsByMusicaId(track.Id);
 
                     // Se estiver em mais de 1 lista (ou seja, AEscolher + Alguma Outra)
                     if (listasDaMusica.Count > 1)
                     {
                         // Remove do Banco (apenas da relação com a lista atual)
-                        _repo.RemoverMusicaDaLista(track.Id, _currentPlaylistId);
+                        _trackRepo.RemoverMusicaDaLista(track.Id, _currentPlaylistId);
 
                         // Remove da Memória (Grid)
                         _allTracks.Remove(track);
@@ -544,6 +570,185 @@ namespace XP3.Forms
             catch { return false; }
         }
 
+        private void ConstruirPainelLateral()
+        {
+            // 1. O Painel Principal
+            _pnlLateral = new Panel();
+            _pnlLateral.Parent = this;
+            _pnlLateral.Dock = DockStyle.Right;
+            _pnlLateral.Width = 250;
+            _pnlLateral.BackColor = Color.FromArgb(45, 45, 48);
+            _pnlLateral.Padding = new Padding(10);
+
+            // 2. Botões (De baixo para cima)
+
+            // Botão Excluir
+            _btnExcluirLat = CriarBotaoLateral("Excluir", Color.Salmon);
+            _btnExcluirLat.Click += BtnExcluirLat_Click;
+
+            // Botão Mover
+            _btnMoverLat = CriarBotaoLateral("Mover", Color.LightBlue);
+            _btnMoverLat.Click += (s, e) => SalvarEdicaoLateral("MOVER");
+
+            // Botão Copiar
+            _btnCopiarLat = CriarBotaoLateral("Copiar", Color.LightGreen);
+            _btnCopiarLat.Enabled = false;
+            _btnCopiarLat.Click += (s, e) => SalvarEdicaoLateral("COPIAR");
+
+            // 3. Lista de Checkbox (Ocupa todo o espaço restante acima dos botões)
+            _clbPlaylistsLateral = new CheckedListBox();
+            _clbPlaylistsLateral.Parent = _pnlLateral;
+            _clbPlaylistsLateral.Dock = DockStyle.Fill; // Preenche tudo o que sobrou
+            _clbPlaylistsLateral.BackColor = Color.FromArgb(30, 30, 30);
+            _clbPlaylistsLateral.ForeColor = Color.White;
+            _clbPlaylistsLateral.BorderStyle = BorderStyle.None;
+            _clbPlaylistsLateral.CheckOnClick = true;
+            _clbPlaylistsLateral.ItemCheck += _clbPlaylistsLateral_ItemCheck;
+
+            // --- CORREÇÃO DO NOME XP3.Models... ---
+            // Diz para a lista: "Procure a propriedade chamada 'Name' dentro do objeto para mostrar o texto"
+            _clbPlaylistsLateral.DisplayMember = "Name";
+            _clbPlaylistsLateral.Font = new Font("Segoe UI", 12f, FontStyle.Regular);
+
+            this.MinimumSize = new Size(1000, 600);
+
+            _pnlLateral.BringToFront();
+        }
+
+        private void _clbPlaylistsLateral_ItemCheck(object sender, ItemCheckEventArgs e)
+        {
+            // O WinForms processa o check após o evento, então usamos o BeginInvoke
+            this.BeginInvoke(new Action(() => ValidarBotaoCopiar()));
+        }
+
+        private void ValidarBotaoCopiar()
+        {
+            // Habilita apenas se o usuário marcou alguma playlist para copiar
+            bool temCheck = _clbPlaylistsLateral.CheckedItems.Count > 0;
+
+            _btnCopiarLat.Enabled = temCheck;
+            _btnCopiarLat.BackColor = temCheck ? Color.LightGreen : Color.DimGray;
+        }
+
+        private void BtnExcluirLat_Click(object sender, EventArgs e)
+        {
+            if (_trackEmEdicao == null) return;
+
+            // Usa a lógica de lixeira que já criamos
+            try
+            {
+                if (System.IO.File.Exists(_trackEmEdicao.FilePath))
+                {
+                    System.IO.File.Delete(_trackEmEdicao.FilePath);
+                }
+            }
+            catch
+            {
+                _trackRepo.AdicionarParaApagarDepois(_trackEmEdicao.FilePath, _trackEmEdicao.BandName);
+            }
+
+            _trackRepo.RemoverMusicaDefinitivamente(_trackEmEdicao.Id);
+
+            // Atualiza Grid
+            _allTracks.Remove(_trackEmEdicao);
+            lvTracks.VirtualListSize = _allTracks.Count;
+            lvTracks.Refresh();
+            AtualizarContadorDeMusicas();
+
+            // Limpa lateral
+            _lblTituloLateral.Text = "Música Excluída.";
+            _clbPlaylistsLateral.Items.Clear();
+        }
+
+        private void SalvarEdicaoLateral(string modo)
+        {
+            if (_trackEmEdicao == null) return;
+
+            // 1. Nova Lista?
+            int? novaListaId = null;
+            int indexNovaLista = _clbPlaylistsLateral.Items.IndexOf("Adicionar em nova lista");
+
+            if (indexNovaLista >= 0 && _clbPlaylistsLateral.GetItemChecked(indexNovaLista))
+            {
+                string nome = ShowInputBox("Nova Lista", "Digite o nome para a nova lista:");
+                if (string.IsNullOrWhiteSpace(nome)) return;
+                novaListaId = _trackRepo.GetOrCreatePlaylist(nome);
+            }
+
+            // 2. Lógica Mover/Copiar
+            if (modo == "MOVER")
+            {
+                // Remove de TODAS as listas primeiro
+                _trackRepo.LimparMusicaDeTodasPlaylists(_trackEmEdicao.Id);
+
+                // Se a música estava na lista que estamos vendo agora, precisamos removê-la da visualização
+                // (A menos que o usuário tenha marcado a própria lista atual na lateral, o que seria um "desfazer mover")
+            }
+
+            // 3. Insere nas marcadas
+            bool permaneceuNaListaAtual = false;
+
+            for (int i = 0; i < _clbPlaylistsLateral.Items.Count; i++)
+            {
+                if (_clbPlaylistsLateral.GetItemChecked(i))
+                {
+                    var item = _clbPlaylistsLateral.Items[i];
+                    int idDestino = -1;
+
+                    if (item is Playlist p) idDestino = p.Id;
+                    else if (novaListaId.HasValue && item.ToString() == "Adicionar em nova lista") idDestino = novaListaId.Value;
+
+                    if (idDestino != -1)
+                    {
+                        // Verifica se o destino é a lista que estamos vendo agora
+                        if (idDestino == _currentPlaylistId) permaneceuNaListaAtual = true;
+
+                        // Se for MOVER e o destino for igual a lista atual, PULA a inserção 
+                        // (a menos que a gente queira permitir que ele "mova" para a mesma lista, cancelando a saída)
+                        // Pela sua regra anterior: Mover tira da atual.
+                        if (modo == "MOVER" && idDestino == _currentPlaylistId) continue;
+
+                        _trackRepo.AddTrackToPlaylist(idDestino, _trackEmEdicao.Id);
+                    }
+                }
+            }
+
+            // 4. Feedback Visual
+            if (modo == "MOVER")
+            {
+                // Remove da grid imediatamente
+                _allTracks.Remove(_trackEmEdicao);
+                lvTracks.VirtualListSize = _allTracks.Count;
+                lvTracks.Refresh();
+                AtualizarContadorDeMusicas();
+
+                // Limpa o painel lateral ou pega a próxima música
+                _lblTituloLateral.Text = "Movida com sucesso.";
+                _clbPlaylistsLateral.Items.Clear();
+            }
+            else
+            {
+                lblStatus.Text = "Listas atualizadas com sucesso.";
+                lblStatus.ForeColor = Color.Cyan;
+            }
+        }
+
+        // Helper para criar botões padronizados
+        private Button CriarBotaoLateral(string texto, Color corFundo)
+        {
+            Button btn = new Button();
+            btn.Parent = _pnlLateral;
+            btn.Dock = DockStyle.Bottom;
+            btn.Height = 40;
+            btn.Text = texto;
+            btn.BackColor = corFundo;
+            btn.FlatStyle = FlatStyle.Flat;
+            btn.Margin = new Padding(0, 5, 0, 5);
+            // Adiciona um painel spacer para dar margem entre botões
+            Panel spacer = new Panel { Parent = _pnlLateral, Dock = DockStyle.Bottom, Height = 5, BackColor = Color.Transparent };
+            return btn;
+        }
+
         #endregion
 
         #region Spectrum
@@ -646,6 +851,8 @@ namespace XP3.Forms
             }
         }
 
+        #region Grid
+
         private void LoadPlaylist()
         {
             try
@@ -717,6 +924,20 @@ namespace XP3.Forms
                 MessageBox.Show("Erro ao carregar lista: " + ex.Message);
             }
         }
+
+        private void ConfigurarColunasGrid()
+        {
+            lvTracks.Columns.Clear();
+
+            // Aumentamos as larguras para preencher melhor o novo espaço
+            lvTracks.Columns.Add("Música", 380);
+            lvTracks.Columns.Add("Banda", 200);
+            lvTracks.Columns.Add("Tempo", 110);    // MAIS LARGO como solicitado
+            lvTracks.Columns.Add("Operação", 120); // Espaço para o [ APAGAR ]
+        }
+
+        #endregion
+
 
         private void AddTrack(string filePath)
         {
@@ -798,7 +1019,49 @@ namespace XP3.Forms
             LoadPlaylist();
         }
 
+        private void lvTracks_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (lvTracks.SelectedIndices.Count > 0)
+            {
+                int index = lvTracks.SelectedIndices[0];
+                // Verifica limites para evitar erro em modo virtual
+                if (index >= 0 && index < _allTracks.Count)
+                {
+                    var trackSelecionada = _allTracks[index];
+                    AtualizarPainelLateral(trackSelecionada);
+                }
+            }
+        }
 
+        private void AtualizarPainelLateral(Track track)
+        {
+            if (track == null) return;
+            _trackEmEdicao = track;
+
+            // REMOVIDO: _lblTituloLateral.Text = ...
+
+            // Limpa a lista visual
+            _clbPlaylistsLateral.Items.Clear();
+
+            // Opção de Nova Lista (Texto simples)
+            _clbPlaylistsLateral.Items.Add("Adicionar em nova lista", false);
+
+            // Busca dados no banco
+            var todas = _trackRepo.GetAllPlaylists();
+            var atuais = _trackRepo.GetPlaylistsByMusicaId(track.Id);
+
+            // Preenche a lista
+            foreach (var p in todas.OrderBy(x => x.Name))
+            {
+                bool pertence = atuais.Any(a => a.Id == p.Id);
+
+                // Adiciona o OBJETO Playlist inteiro. 
+                // Como configuramos DisplayMember="Name" acima, ele mostrará o nome correto agora.
+                _clbPlaylistsLateral.Items.Add(p, pertence);
+            }
+
+            ValidarBotaoCopiar();
+        }
 
         private void LvTracks_ColumnClick(object sender, ColumnClickEventArgs e)
         {
@@ -840,27 +1103,29 @@ namespace XP3.Forms
                 item.SubItems.Add(track.BandName);
                 item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
 
-                // Critérios de Erro: Arquivo inexistente ou Duração zerada
+                // Lógica de Erro
                 bool arquivoInexistente = !File.Exists(track.FilePath);
                 bool semDuracao = track.Duration.TotalSeconds <= 0;
                 bool musicaComErro = arquivoInexistente || semDuracao || (_trackComErroAtual != null && track.Id == _trackComErroAtual.Id);
 
                 if (musicaComErro)
                 {
-                    // Se tem erro, a prioridade é APAGAR
+                    // MANTÉM: Botão de Apagar para erros
                     item.SubItems.Add("[ APAGAR ]");
                     item.UseItemStyleForSubItems = false;
-                    item.BackColor = Color.FromArgb(60, 0, 0); // Fundo vermelho escuro
+                    item.BackColor = Color.FromArgb(60, 0, 0);
                     item.ForeColor = Color.White;
                     item.SubItems[3].ForeColor = Color.Yellow;
                     item.SubItems[3].Font = new Font(lvTracks.Font, FontStyle.Bold);
                 }
                 else
                 {
-                    // Se está tudo certo, mostramos a opção de COPIAR/MOVER
-                    item.SubItems.Add("[ COPIAR ]");
-                    item.UseItemStyleForSubItems = false;
-                    item.SubItems[3].ForeColor = Color.Cyan; // Cor diferenciada para ação normal
+                    // ALTERAÇÃO: Não escreve mais nada aqui. A gestão é na lateral.
+                    item.SubItems.Add("");
+                    // Garante que o estilo volte ao normal caso a linha tenha sido reciclada
+                    item.UseItemStyleForSubItems = true;
+                    item.BackColor = lvTracks.BackColor;
+                    item.ForeColor = lvTracks.ForeColor;
                 }
 
                 e.Item = item;
@@ -970,19 +1235,48 @@ namespace XP3.Forms
             {
                 int columnIndex = info.Item.SubItems.IndexOf(info.SubItem);
 
-                // Verifica se clicou na coluna "Operação" (Índice 3)
+                // Se clicou na coluna 3 (Operação)
                 if (columnIndex == 3)
                 {
+                    // SÓ processa se for o botão de erro
                     if (info.SubItem.Text == "[ APAGAR ]")
                     {
                         BtnApagarErro_Click(this, EventArgs.Empty);
                     }
-                    else if (info.SubItem.Text == "[ COPIAR ]")
-                    {
-                        AbrirGerenciadorDeListas(); // Chama o método que abre o ListaSelectorForm
-                    }
+                    // Removemos o 'else if' do COPIAR
                 }
             }
+        }
+
+        #endregion
+
+        #region Auxiliares
+
+        private string ShowInputBox(string titulo, string prompt)
+        {
+            Form promptForm = new Form()
+            {
+                Width = 300,
+                Height = 150,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                Text = titulo,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false,
+                MinimizeBox = false
+            };
+            Label lblText = new Label() { Left = 20, Top = 20, Text = prompt, Width = 250 };
+            TextBox txtInput = new TextBox() { Left = 20, Top = 45, Width = 240 };
+            Button btnOk = new Button() { Text = "OK", Left = 100, Width = 80, Top = 80, DialogResult = DialogResult.OK };
+            Button btnCancel = new Button() { Text = "Cancelar", Left = 190, Width = 80, Top = 80, DialogResult = DialogResult.Cancel };
+
+            promptForm.Controls.Add(lblText);
+            promptForm.Controls.Add(txtInput);
+            promptForm.Controls.Add(btnOk);
+            promptForm.Controls.Add(btnCancel);
+            promptForm.AcceptButton = btnOk;
+            promptForm.CancelButton = btnCancel;
+
+            return promptForm.ShowDialog() == DialogResult.OK ? txtInput.Text : null;
         }
 
         #endregion
