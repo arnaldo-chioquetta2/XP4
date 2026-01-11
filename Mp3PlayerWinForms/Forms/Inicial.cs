@@ -489,27 +489,25 @@ namespace XP3.Forms
 
         private void Spectrum_DoubleClicked(object sender, EventArgs e)
         {
-            // 1. Abre a Visualização em Tela Cheia
-            // _visualizerWindow = new VisualizerWindow();
             if (_visualizerWindow == null || _visualizerWindow.IsDisposed)
             {
                 _emTelaCheia = true;
                 _visualizerWindow = new VisualizerForm();
+
+                // REMOVA o KeyDown daqui - deixe o VisualizerForm tratar isso internamente
+
+                _visualizerWindow.FormClosed += (s, args) =>
+                {
+                    _emTelaCheia = false;
+                    this.WindowState = FormWindowState.Normal;
+                    this.Show();
+                    this.Activate();
+                };
+
                 _visualizerWindow.Show();
+
+                this.WindowState = FormWindowState.Minimized;
             }
-
-            // Quando a tela cheia fechar, restauramos o Form principal
-            _visualizerWindow.FormClosed += (s, args) =>
-            {
-                _emTelaCheia = false;
-                this.WindowState = FormWindowState.Normal;
-                this.Show();
-            };
-
-            _visualizerWindow.Show();
-
-            // 2. Minimiza o Form Principal
-            this.WindowState = FormWindowState.Minimized;
         }
 
         #endregion

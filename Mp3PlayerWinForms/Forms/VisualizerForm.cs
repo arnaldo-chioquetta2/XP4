@@ -25,6 +25,17 @@ namespace XP3.Forms
             // Eventos manuais
             this.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) this.Close(); };
             this.MouseDoubleClick += (s, e) => this.Close();
+            this.KeyPreview = true;
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.Escape)
+            {
+                this.Close();
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         // --- NOVO: Lógica para detectar o monitor correto ao carregar ---
@@ -43,6 +54,9 @@ namespace XP3.Forms
 
             // 4. Agora sim, maximizamos para preencher AQUELE monitor
             this.WindowState = FormWindowState.Maximized;
+
+            this.Activate();
+            this.Focus();
         }
         // ---------------------------------------------------------------
 
@@ -109,5 +123,7 @@ namespace XP3.Forms
             else { r = c; g = 0; b = x; }
             return Color.FromArgb(255, (int)((r + m) * 255), (int)((g + m) * 255), (int)((b + m) * 255));
         }
+
+
     }
 }
