@@ -543,27 +543,27 @@ namespace XP3.Forms
             _pnlLateral.Dock = DockStyle.Right;
             _pnlLateral.Width = 270;
             _pnlLateral.BackColor = Color.FromArgb(45, 45, 48);
-            // Removemos o Padding do painel principal para gerenciar manualmente
             _pnlLateral.Padding = new Padding(0);
 
             // 2. Painel Container para os Botões (Fica colado no fundo)
             Panel pnlBotoes = new Panel();
             pnlBotoes.Parent = _pnlLateral;
             pnlBotoes.Dock = DockStyle.Bottom;
-            pnlBotoes.Height = 160; // Altura suficiente para os 3 botões + espaços
+            pnlBotoes.Height = 160;
             pnlBotoes.BackColor = Color.Transparent;
-            pnlBotoes.Padding = new Padding(10); // Margem interna para os botões não colarem na borda
+            pnlBotoes.Padding = new Padding(10);
 
-            // 3. Criando os Botões (Agora dentro do pnlBotoes)
-            // Nota: Como estamos usando Dock.Bottom, adicionamos na ordem inversa visual (Excluir é o último de baixo)
+            // 3. Criando os Botões dentro do pnlBotoes
 
             // Botão Excluir
             _btnExcluirLat = CriarBotaoLateral("Excluir", Color.Salmon);
-            _btnExcluirLat.Parent = pnlBotoes; // Importante: Mudar o Parent
+            _btnExcluirLat.Parent = pnlBotoes;
+            _btnExcluirLat.Click += BtnExcluirLat_Click; // Certifique-se que este método existe
 
             // Botão Mover
             _btnMoverLat = CriarBotaoLateral("Mover", Color.LightBlue);
             _btnMoverLat.Parent = pnlBotoes;
+            _btnMoverLat.Click += (s, e) => SalvarEdicaoLateral("MOVER");
 
             // Botão Copiar
             _btnCopiarLat = CriarBotaoLateral("Copiar", Color.LightGreen);
@@ -571,33 +571,48 @@ namespace XP3.Forms
             _btnCopiarLat.Parent = pnlBotoes;
             _btnCopiarLat.Click += (s, e) => SalvarEdicaoLateral("COPIAR");
 
-            // 4. A Lista de Checkbox (Ocupa todo o espaço que SOBROU no topo)
+            // 4. A Lista de Checkbox (Ocupa o espaço que SOBROU no topo)
             _clbPlaylistsLateral = new CheckedListBox();
-            _clbPlaylistsLateral.Parent = _pnlLateral; // Parent é o Painel Principal
-            _clbPlaylistsLateral.Dock = DockStyle.Fill; // Preenche o resto
+            _clbPlaylistsLateral.Parent = _pnlLateral;
+            _clbPlaylistsLateral.Dock = DockStyle.Fill;
             _clbPlaylistsLateral.BackColor = Color.FromArgb(30, 30, 30);
             _clbPlaylistsLateral.ForeColor = Color.White;
             _clbPlaylistsLateral.BorderStyle = BorderStyle.None;
             _clbPlaylistsLateral.CheckOnClick = true;
             _clbPlaylistsLateral.ItemCheck += _clbPlaylistsLateral_ItemCheck;
 
-            // Configurações Visuais
+            // --- NOVO: EVENTO DE DUPLO CLIQUE PARA CARREGAR LISTA ---
+            _clbPlaylistsLateral.MouseDoubleClick += (s, e) =>
+            {
+                // Identifica qual item foi clicado através da posição do mouse
+                int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
+
+                if (index != ListBox.NoMatches)
+                {
+                    var item = _clbPlaylistsLateral.Items[index];
+
+                    // Verifica se o item é um objeto Playlist (ignora o texto "Adicionar em nova lista")
+                    if (item is Playlist p)
+                    {
+                        CarregarPlaylistParaTocar(p);
+                    }
+                }
+            };
+
+            // Configurações Visuais da Lista
             _clbPlaylistsLateral.DisplayMember = "Name";
             _clbPlaylistsLateral.Font = new Font("Segoe UI", 12f, FontStyle.Regular);
 
-            // --- CORREÇÕES DE SCROLL ---
-            _clbPlaylistsLateral.IntegralHeight = false; // Impede buracos no final
-            _clbPlaylistsLateral.ScrollAlwaysVisible = true; // Mostra a barra sempre
+            // Correções de Scroll e Altura
+            _clbPlaylistsLateral.IntegralHeight = false;
+            _clbPlaylistsLateral.ScrollAlwaysVisible = true;
 
-            // TRUQUE DO FOCO: Assim que o mouse entra na lista, damos foco nela.
-            // Isso faz a rodinha do mouse funcionar sem precisar clicar antes.
+            // TRUQUE DO FOCO: Garante que a rodinha do mouse funcione ao passar por cima
             _clbPlaylistsLateral.MouseEnter += (s, e) => _clbPlaylistsLateral.Focus();
 
-            // Traz o painel de botões para frente para garantir a ordem
+            // Ordenação Z-Order para garantir o layout correto
             pnlBotoes.BringToFront();
-            // Traz a lista para frente depois (Dock Fill deve ser o último na ordem Z visual para ocupar o resto)
             _clbPlaylistsLateral.BringToFront();
-
             _pnlLateral.BringToFront();
         }
 
@@ -610,14 +625,15 @@ namespace XP3.Forms
                 _btnCopiarLat.BackColor = Color.LightGreen;
             }));
         }
-        private void ValidarBotaoCopiar()
-        {
-            // Habilita apenas se o usuário marcou alguma playlist para copiar
-            bool temCheck = _clbPlaylistsLateral.CheckedItems.Count > 0;
 
-            _btnCopiarLat.Enabled = temCheck;
-            _btnCopiarLat.BackColor = temCheck ? Color.LightGreen : Color.DimGray;
-        }
+        //private void ValidarBotaoCopiar()
+        //{
+        //    // Habilita apenas se o usuário marcou alguma playlist para copiar
+        //    bool temCheck = _clbPlaylistsLateral.CheckedItems.Count > 0;
+
+        //    _btnCopiarLat.Enabled = temCheck;
+        //    _btnCopiarLat.BackColor = temCheck ? Color.LightGreen : Color.DimGray;
+        //}
 
         private void BtnExcluirLat_Click(object sender, EventArgs e)
         {
@@ -872,58 +888,6 @@ namespace XP3.Forms
 
         #endregion
 
-        private void BtnApagarErro_Click(object sender, EventArgs e)
-        {
-            if (_trackComErroAtual == null) return;
-
-            bool apagouFisicamente = false;
-
-            // 1. Tenta apagar do DISCO
-            try
-            {
-                if (File.Exists(_trackComErroAtual.FilePath))
-                {
-                    File.Delete(_trackComErroAtual.FilePath);
-                    apagouFisicamente = true;
-                }
-            }
-            catch
-            {
-                apagouFisicamente = false;
-            }
-
-            // 2. Apaga do BANCO DE DADOS (Listas e Tracks)
-            // Mesmo se não der pra apagar o arquivo (ex: bloqueado), removemos da lista visual
-            _trackRepo.RemoverMusicaDefinitivamente(_trackComErroAtual.Id);
-
-            // 3. Remove da MEMÓRIA (Lista visual atual)
-            if (_allTracks.Contains(_trackComErroAtual))
-            {
-                _allTracks.Remove(_trackComErroAtual);
-                lvTracks.VirtualListSize = _allTracks.Count; // Atualiza a Grid
-                lvTracks.Refresh();
-                lblTrackCount.Text = _allTracks.Count.ToString()+" músicas";
-            }
-
-            // 4. Lógica de Sucesso ou Falha
-            if (apagouFisicamente)
-            {
-                lblStatus.Text = "Música apagada do disco e da biblioteca.";
-                lblStatus.ForeColor = Color.Yellow; // Destaque
-            }
-            else
-            {
-                // Se falhou no disco, insere na tabela de contingência
-                _trackRepo.AdicionarParaApagarDepois(_trackComErroAtual.FilePath, _trackComErroAtual.BandName);
-
-                lblStatus.Text = "Arquivo bloqueado. Marcada em 'ApagarMusicas' para exclusão futura.";
-                lblStatus.ForeColor = Color.Orange;
-            }
-
-            // 5. Esconde o botão e limpa a variável
-            btnApagarErro.Visible = false;
-            _trackComErroAtual = null;
-        }
 
         private void TimerProgresso_Tick(object sender, EventArgs e)
         {
@@ -1051,6 +1015,93 @@ namespace XP3.Forms
         }
         #endregion
 
+        #region Botões de ação
+        private void BtnApagarErro_Click(object sender, EventArgs e)
+        {
+            if (_trackComErroAtual == null) return;
+
+            bool apagouFisicamente = false;
+
+            // 1. Tenta apagar do DISCO
+            try
+            {
+                if (File.Exists(_trackComErroAtual.FilePath))
+                {
+                    File.Delete(_trackComErroAtual.FilePath);
+                    apagouFisicamente = true;
+                }
+            }
+            catch
+            {
+                apagouFisicamente = false;
+            }
+
+            // 2. Apaga do BANCO DE DADOS (Listas e Tracks)
+            // Mesmo se não der pra apagar o arquivo (ex: bloqueado), removemos da lista visual
+            _trackRepo.RemoverMusicaDefinitivamente(_trackComErroAtual.Id);
+
+            // 3. Remove da MEMÓRIA (Lista visual atual)
+            if (_allTracks.Contains(_trackComErroAtual))
+            {
+                _allTracks.Remove(_trackComErroAtual);
+                lvTracks.VirtualListSize = _allTracks.Count; // Atualiza a Grid
+                lvTracks.Refresh();
+                lblTrackCount.Text = _allTracks.Count.ToString() + " músicas";
+            }
+
+            // 4. Lógica de Sucesso ou Falha
+            if (apagouFisicamente)
+            {
+                lblStatus.Text = "Música apagada do disco e da biblioteca.";
+                lblStatus.ForeColor = Color.Yellow; // Destaque
+            }
+            else
+            {
+                // Se falhou no disco, insere na tabela de contingência
+                _trackRepo.AdicionarParaApagarDepois(_trackComErroAtual.FilePath, _trackComErroAtual.BandName);
+
+                lblStatus.Text = "Arquivo bloqueado. Marcada em 'ApagarMusicas' para exclusão futura.";
+                lblStatus.ForeColor = Color.Orange;
+            }
+
+            // 5. Esconde o botão e limpa a variável
+            btnApagarErro.Visible = false;
+            _trackComErroAtual = null;
+        }
+
+        #endregion
+
+        #region Listas
+
+        private void CarregarPlaylistParaTocar(Playlist playlist)
+        {
+            try
+            {
+                // 1. Salva no INI que agora queremos ver esta playlist
+                _iniService.Write("Player", "LastPlaylistId", playlist.Id.ToString());
+
+                // 2. Feedback visual rápido (opcional)
+                lblStatus.Text = $"Carregando playlist: {playlist.Name}...";
+
+                // 3. Recarrega a tela principal
+                // O LoadPlaylist vai ler o ID que acabamos de gravar no INI
+                LoadPlaylist();
+
+                // 4. (Opcional) Se você quiser que comece a tocar a primeira música da nova lista automaticamente:
+
+                if (_allTracks.Count > 0)
+                {
+                    _player.Play(0);
+                }
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Erro ao carregar playlist: {ex.Message}");
+            }
+        }
+
+        #endregion
 
         private void AddTrack(string filePath)
         {
