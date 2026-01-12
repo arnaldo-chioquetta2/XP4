@@ -11,30 +11,64 @@ namespace XP3.Forms
         private readonly int _bandCount = 64;
         private float _angleOffset = 0;
 
+        // Variáveis para o Overlay de texto
+        private string _overlayTitulo = "";
+        private string _overlayBanda = "";
+        private int _textoAlpha = 0;
+        private Timer _timerTexto;
+        private DateTime _inicioExibicao;
+
         public VisualizerForm()
         {
             InitializeComponent();
 
-            // Configurações visuais
+            // Configurações visuais de tela cheia
             this.FormBorderStyle = FormBorderStyle.None;
-            // REMOVIDO: this.WindowState = FormWindowState.Maximized; (Faremos no OnLoad)
             this.BackColor = Color.Black;
             this.DoubleBuffered = true;
             this.TopMost = true;
-
-            // Eventos manuais
-            this.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) this.Close(); };
-            this.MouseDoubleClick += (s, e) => this.Close();
             this.KeyPreview = true;
+
+            // Otimização para desenho (evita cintilação)
+            this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+
+            // Timer da animação (20 quadros por segundo para suavidade)
+            _timerTexto = new Timer();
+            _timerTexto.Interval = 50;
+            _timerTexto.Tick += (s, e) => AtualizarAnimacaoTexto();
         }
+
+        #region InfoMusica
+
+        private void AtualizarAnimacaoTexto()
+        {
+            double segundos = (DateTime.Now - _inicioExibicao).TotalSeconds;
+
+            if (segundos < 5)
+            {
+                _textoAlpha = 255; // Fica visível por 5 segundos
+            }
+            else if (segundos < 10)
+            {
+                // Desvanece nos próximos 5 segundos (de 5s até 10s)
+                double progressoFade = (10 - segundos) / 5.0;
+                _textoAlpha = (int)(255 * progressoFade);
+            }
+            else
+            {
+                _textoAlpha = 0;
+                _timerTexto.Stop();
+            }
+
+            this.Invalidate(); // Redesenha para aplicar transparência
+        }
+
+        #endregion
+
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (keyData == Keys.Escape)
-            {
-                this.Close();
-                return true;
-            }
+            if (keyData == Keys.Escape) { this.Close(); return true; }
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
@@ -59,12 +93,6 @@ namespace XP3.Forms
             this.Focus();
         }
         // ---------------------------------------------------------------
-
-        public void UpdateData(float[] data)
-        {
-            _fftData = data;
-            this.Invalidate();
-        }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -105,6 +133,33 @@ namespace XP3.Forms
                     }
                 }
             }
+
+            if (_textoAlpha > 0 && !string.IsNullOrEmpty(_overlayTitulo))
+            {
+                // Configurações de Fonte
+                using (Font fonteTitulo = new Font("Segoe UI", 36, FontStyle.Bold))
+                using (Font fonteBanda = new Font("Segoe UI", 24, FontStyle.Regular))
+                using (Brush brushTexto = new SolidBrush(Color.FromArgb(_textoAlpha, 255, 255, 255))) // Branco com Alpha
+                using (Brush brushSombra = new SolidBrush(Color.FromArgb(_textoAlpha, 0, 0, 0))) // Sombra preta
+                {
+                    // Formatação para centralizar
+                    StringFormat sf = new StringFormat();
+                    sf.Alignment = StringAlignment.Center;
+                    sf.LineAlignment = StringAlignment.Center;
+
+                    // Posição: Centro da tela (ajuste o Y se quiser mais pra cima ou baixo)
+                    float centroX = this.ClientSize.Width / 2;
+                    float centroY = this.ClientSize.Height / 2;
+
+                    // Desenha Sombra (Ligeiramente deslocada) para leitura melhor
+                    e.Graphics.DrawString(_overlayTitulo, fonteTitulo, brushSombra, centroX + 2, centroY - 30 + 2, sf);
+                    e.Graphics.DrawString(_overlayBanda, fonteBanda, brushSombra, centroX + 2, centroY + 30 + 2, sf);
+
+                    // Desenha Texto Principal
+                    e.Graphics.DrawString(_overlayTitulo, fonteTitulo, brushTexto, centroX, centroY - 30, sf);
+                    e.Graphics.DrawString(_overlayBanda, fonteBanda, brushTexto, centroX, centroY + 30, sf);
+                }
+            }
         }
 
         public static Color HslToRgb(float h, float s, float l)
@@ -124,6 +179,26 @@ namespace XP3.Forms
             return Color.FromArgb(255, (int)((r + m) * 255), (int)((g + m) * 255), (int)((b + m) * 255));
         }
 
+        #region Publicos
+
+        public void UpdateData(float[] data)
+        {
+            _fftData = data;
+            this.Invalidate();
+        }
+
+
+        public void MostrarInfoMusica(string titulo, string banda)
+        {
+            _overlayTitulo = titulo;
+            _overlayBanda = banda;
+            _inicioExibicao = DateTime.Now;
+            _textoAlpha = 255; // Opacidade máxima
+            _timerTexto.Start();
+            this.Invalidate(); // Força redesenho
+        }
+
+        #endregion
 
     }
 }
