@@ -34,9 +34,8 @@ namespace XP3.Forms
                     string pastaOrigem = fbd.SelectedPath;
                     string pastaBase = AppConfig.PastaBase;
 
-                    // Prepara a tela para o processamento
                     btnSelectFolder.Enabled = false;
-                    btnOkClose.Enabled = false; // Garante que o OK esteja desativado durante o processo
+                    btnOkClose.Enabled = false;
 
                     _trackRepo = new TrackRepository();
                     _trackRepo.GetOrCreatePlaylist("AEscolher");
@@ -49,13 +48,19 @@ namespace XP3.Forms
                         var progress = new Progress<int>(p => progressBar1.Value = p);
                         var log = new Progress<string>(msg => AppendLog(msg));
 
+                        // Verifica se é importação (ou seja, NÃO está dentro da pasta base)
                         bool isImportacao = !IsSubfolder(pastaBase, pastaOrigem);
 
                         if (isImportacao)
                         {
                             AppendLog(">>> MODO IMPORTAÇÃO: Movimentando arquivos...");
-                            // REMOVIDA A CONFIRMAÇÃO: Agora ele vai direto
+
+                            // Executa a importação
                             await Task.Run(() => _scanner.ImportarEscanear(pastaOrigem, pastaBase, progress, log));
+
+                            // --- NOVA LÓGICA DE LIMPEZA AQUI ---
+                            // Como já terminou o await, podemos tentar apagar a pasta com segurança
+                            TentarApagarPastaSeVazia(pastaOrigem);
                         }
                         else
                         {
@@ -66,7 +71,6 @@ namespace XP3.Forms
                         AppendLog("=== PROCESSO CONCLUÍDO ===");
                         AppendLog("Você pode revisar o log acima. Clique em OK para encerrar.");
 
-                        // --- MUDANÇA AQUI: Libera o botão de OK em vez de fechar ---
                         btnOkClose.Enabled = true;
                     }
                     catch (Exception ex)
@@ -76,6 +80,33 @@ namespace XP3.Forms
                         btnOkClose.Enabled = true;
                     }
                 }
+            }
+        }
+
+        private void TentarApagarPastaSeVazia(string caminho)
+        {
+            try
+            {
+                // Verifica se a pasta ainda existe
+                if (!Directory.Exists(caminho)) return;
+
+                // Verifica se sobraram arquivos (recursivamente)
+                string[] arquivosRestantes = Directory.GetFiles(caminho, "*.*", SearchOption.AllDirectories);
+
+                if (arquivosRestantes.Length == 0)
+                {
+                    // Tenta apagar a pasta e subpastas vazias
+                    Directory.Delete(caminho, true);
+                    AppendLog($"LIMPEZA: A pasta de origem estava vazia e foi removida: {caminho}");
+                }
+                else
+                {
+                    AppendLog($"LIMPEZA: A pasta não foi apagada pois ainda contém {arquivosRestantes.Length} arquivos.");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"AVISO: Não foi possível apagar a pasta vazia. Motivo: {ex.Message}");
             }
         }
 

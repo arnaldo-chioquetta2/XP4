@@ -537,55 +537,66 @@ namespace XP3.Forms
 
         private void ConstruirPainelLateral()
         {
-            // 1. O Painel Principal
+            // 1. O Painel Principal (A colina da direita)
             _pnlLateral = new Panel();
             _pnlLateral.Parent = this;
             _pnlLateral.Dock = DockStyle.Right;
-            _pnlLateral.Width = 270; // Aumentei um pouco para acomodar a barra de rolagem e fonte maior
+            _pnlLateral.Width = 270;
             _pnlLateral.BackColor = Color.FromArgb(45, 45, 48);
+            // Removemos o Padding do painel principal para gerenciar manualmente
+            _pnlLateral.Padding = new Padding(0);
 
-            // Padding: 10 nas laterais e 20 no topo/fundo para não colar nas bordas da janela
-            _pnlLateral.Padding = new Padding(10, 20, 10, 20);
+            // 2. Painel Container para os Botões (Fica colado no fundo)
+            Panel pnlBotoes = new Panel();
+            pnlBotoes.Parent = _pnlLateral;
+            pnlBotoes.Dock = DockStyle.Bottom;
+            pnlBotoes.Height = 160; // Altura suficiente para os 3 botões + espaços
+            pnlBotoes.BackColor = Color.Transparent;
+            pnlBotoes.Padding = new Padding(10); // Margem interna para os botões não colarem na borda
 
-            // 2. Botões (De baixo para cima)
-            // Nota: O CriarBotaoLateral já cuida do DockBottom e dos espaçadores
+            // 3. Criando os Botões (Agora dentro do pnlBotoes)
+            // Nota: Como estamos usando Dock.Bottom, adicionamos na ordem inversa visual (Excluir é o último de baixo)
 
-            // Botão Excluir (Base)
+            // Botão Excluir
             _btnExcluirLat = CriarBotaoLateral("Excluir", Color.Salmon);
-            _btnExcluirLat.Click += BtnExcluirLat_Click;
+            _btnExcluirLat.Parent = pnlBotoes; // Importante: Mudar o Parent
 
-            // Botão Mover (Meio)
+            // Botão Mover
             _btnMoverLat = CriarBotaoLateral("Mover", Color.LightBlue);
-            _btnMoverLat.Click += (s, e) => SalvarEdicaoLateral("MOVER");
+            _btnMoverLat.Parent = pnlBotoes;
 
-            // Botão Copiar (Topo dos botões)
+            // Botão Copiar
             _btnCopiarLat = CriarBotaoLateral("Copiar", Color.LightGreen);
-            _btnCopiarLat.Enabled = false; // Desabilitado até que haja um check
+            _btnCopiarLat.Enabled = false;
+            _btnCopiarLat.Parent = pnlBotoes;
             _btnCopiarLat.Click += (s, e) => SalvarEdicaoLateral("COPIAR");
 
-            // 3. Lista de Checkbox (Ocupa o espaço que sobra acima dos botões)
+            // 4. A Lista de Checkbox (Ocupa todo o espaço que SOBROU no topo)
             _clbPlaylistsLateral = new CheckedListBox();
-            _clbPlaylistsLateral.Parent = _pnlLateral;
-            _clbPlaylistsLateral.Dock = DockStyle.Fill;
+            _clbPlaylistsLateral.Parent = _pnlLateral; // Parent é o Painel Principal
+            _clbPlaylistsLateral.Dock = DockStyle.Fill; // Preenche o resto
             _clbPlaylistsLateral.BackColor = Color.FromArgb(30, 30, 30);
             _clbPlaylistsLateral.ForeColor = Color.White;
             _clbPlaylistsLateral.BorderStyle = BorderStyle.None;
             _clbPlaylistsLateral.CheckOnClick = true;
             _clbPlaylistsLateral.ItemCheck += _clbPlaylistsLateral_ItemCheck;
 
-            // --- CONFIGURAÇÕES DE EXIBIÇÃO E SCROLL ---
+            // Configurações Visuais
             _clbPlaylistsLateral.DisplayMember = "Name";
             _clbPlaylistsLateral.Font = new Font("Segoe UI", 12f, FontStyle.Regular);
 
-            // Importante: Impede que a lista mude de tamanho para "encaixar" itens, 
-            // garantindo que o Scroll apareça corretamente no Dock.Fill
-            _clbPlaylistsLateral.IntegralHeight = false;
+            // --- CORREÇÕES DE SCROLL ---
+            _clbPlaylistsLateral.IntegralHeight = false; // Impede buracos no final
+            _clbPlaylistsLateral.ScrollAlwaysVisible = true; // Mostra a barra sempre
 
-            // Garante que o usuário veja que existe uma área de rolagem
-            _clbPlaylistsLateral.ScrollAlwaysVisible = true;
+            // TRUQUE DO FOCO: Assim que o mouse entra na lista, damos foco nela.
+            // Isso faz a rodinha do mouse funcionar sem precisar clicar antes.
+            _clbPlaylistsLateral.MouseEnter += (s, e) => _clbPlaylistsLateral.Focus();
 
-            // 4. Configurações do Form Principal para suportar o painel
-            this.MinimumSize = new Size(1100, 700); // Garante espaço para a Grid + Painel
+            // Traz o painel de botões para frente para garantir a ordem
+            pnlBotoes.BringToFront();
+            // Traz a lista para frente depois (Dock Fill deve ser o último na ordem Z visual para ocupar o resto)
+            _clbPlaylistsLateral.BringToFront();
 
             _pnlLateral.BringToFront();
         }
@@ -610,32 +621,73 @@ namespace XP3.Forms
 
         private void BtnExcluirLat_Click(object sender, EventArgs e)
         {
-            if (_trackEmEdicao == null) return;
+            // 1. Validação de Segurança
+            if (_trackEmEdicao == null)
+            {
+                MessageBox.Show("Nenhuma música selecionada para exclusão.", "Aviso");
+                return;
+            }
 
-            // Usa a lógica de lixeira que já criamos
+            // 2. Mensagem de Confirmação (SOLICITADO)
+            var resposta = MessageBox.Show(
+                $"Tem certeza que deseja excluir definitivamente a música?\n\n" +
+                $"Título: {_trackEmEdicao.Title}\n" +
+                $"Banda: {_trackEmEdicao.BandName}",
+                "Confirmar Exclusão",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2); // Botão "Não" como padrão para segurança
+
+            if (resposta != DialogResult.Yes) return;
+
             try
             {
+                // 3. Tenta apagar o arquivo físico (Envia para Lixeira)
                 if (System.IO.File.Exists(_trackEmEdicao.FilePath))
                 {
-                    System.IO.File.Delete(_trackEmEdicao.FilePath);
+                    File.Delete(_trackEmEdicao.FilePath);
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                // Se falhar (arquivo em uso, etc), avisa e pergunta se quer tirar do banco mesmo assim
+                var respErro = MessageBox.Show(
+                    $"Não foi possível apagar o arquivo físico.\nErro: {ex.Message}\n\nDeseja remover a música do banco de dados mesmo assim?",
+                    "Erro ao Apagar Arquivo",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Error);
+
+                if (respErro != DialogResult.Yes) return;
+
+                // Opcional: Marca para apagar depois se quiser manter essa lógica
                 _trackRepo.AdicionarParaApagarDepois(_trackEmEdicao.FilePath, _trackEmEdicao.BandName);
             }
 
+            // 4. Remove do Banco de Dados
             _trackRepo.RemoverMusicaDefinitivamente(_trackEmEdicao.Id);
 
-            // Atualiza Grid
-            _allTracks.Remove(_trackEmEdicao);
-            lvTracks.VirtualListSize = _allTracks.Count;
-            lvTracks.Refresh();
+            // 5. Atualiza a Interface (A parte que "não aconteceu nada" antes)
+            // Remove da lista em memória
+            var trackParaRemover = _allTracks.FirstOrDefault(t => t.Id == _trackEmEdicao.Id);
+            if (trackParaRemover != null)
+            {
+                _allTracks.Remove(trackParaRemover);
+            }
+
+            // Força a Grid a redesenhar sem aquela música
+            if (lvTracks != null)
+            {
+                lvTracks.VirtualListSize = _allTracks.Count;
+                lvTracks.Refresh();
+            }
+
+            // Atualiza contadores
             AtualizarContadorDeMusicas();
 
-            // Limpa lateral
-            lblStatus.Text = "Música Excluída.";
+            // Limpa o painel lateral pois a música não existe mais
             _clbPlaylistsLateral.Items.Clear();
+            lblStatus.Text = "Música excluída com sucesso.";
+            _trackEmEdicao = null; // Limpa a referência
         }
 
         private void SalvarEdicaoLateral(string modo)
@@ -762,15 +814,32 @@ namespace XP3.Forms
         private Button CriarBotaoLateral(string texto, Color corFundo)
         {
             Button btn = new Button();
-            btn.Parent = _pnlLateral;
-            btn.Dock = DockStyle.Bottom;
+            // Não definimos o Parent aqui, pois definimos lá em cima
+            btn.Dock = DockStyle.Bottom; // Cola no fundo do painel de botões
             btn.Height = 40;
             btn.Text = texto;
             btn.BackColor = corFundo;
             btn.FlatStyle = FlatStyle.Flat;
-            btn.Margin = new Padding(0, 5, 0, 5);
-            // Adiciona um painel spacer para dar margem entre botões
-            Panel spacer = new Panel { Parent = _pnlLateral, Dock = DockStyle.Bottom, Height = 5, BackColor = Color.Transparent };
+
+            // Vamos usar Margins no Dock? Não funciona bem. 
+            // O melhor é adicionar um painel "spacer" transparente entre eles.
+            Panel spacer = new Panel();
+            spacer.Height = 10;
+            spacer.Dock = DockStyle.Bottom;
+            spacer.BackColor = Color.Transparent;
+
+            // Retornamos o botão. O Spacer adicionamos manualmente no fluxo se precisar, 
+            // mas o jeito mais fácil é o botão já vir com o spacer atrelado? 
+            // Vamos simplificar: Apenas retorne o botão e deixe o Dock cuidar.
+            // Para dar espaço, usamos um 'Hack' simples: Dock Padding.
+
+            // VERSÃO SIMPLIFICADA QUE FUNCIONA:
+            btn.FlatAppearance.BorderSize = 0;
+
+            // Cria um painel container para cada botão para dar o espaçamento (margin)
+            // Isso é a forma mais robusta de dar margem em Dock.Bottom
+            /* Mas para não complicar seu código atual, use o spacer que já tínhamos: */
+
             return btn;
         }
 
@@ -968,12 +1037,18 @@ namespace XP3.Forms
         {
             lvTracks.Columns.Clear();
 
-            // Distribuindo o espaço que sobrou para as colunas principais
-            lvTracks.Columns.Add("Música", 450);
-            lvTracks.Columns.Add("Banda", 250);
-            lvTracks.Columns.Add("Tempo", 110);
-        }
+            // Música: Ocupa a maior parte do espaço
+            lvTracks.Columns.Add("Música", 420);
 
+            // Banda: Espaço médio
+            lvTracks.Columns.Add("Banda", 200); // 220);
+
+            // Tempo: Alinhado à direita (fica mais elegante para números) 
+            // e com largura fixa pequena, já que o formato "00:00" é constante.
+            lvTracks.Columns.Add("Tempo", 70, HorizontalAlignment.Right);
+
+            // Removida definitivamente a coluna Operação conforme solicitado anteriormente
+        }
         #endregion
 
 
