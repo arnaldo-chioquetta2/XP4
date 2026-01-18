@@ -65,7 +65,8 @@ namespace XP3.Forms
         {
             typeof(XP3.Visualizers.VisualizerRadial),
             typeof(XP3.Visualizers.VisualizerMontanhas),
-            typeof(XP3.Visualizers.VisualizerLandscape)
+            typeof(XP3.Visualizers.VisualizerLandscape),
+            typeof(XP3.Visualizers.VisualizerCityscape)
         };
         private int _currentVisualizerIndex = 0;    
 
@@ -1638,7 +1639,7 @@ namespace XP3.Forms
                 Screen[] telas = Screen.AllScreens;
 
                 // MODO DESENVOLVIMENTO: Se true, ignora a segunda tela e abre na sua frente
-                if (_modoDesenvolvimento)
+                if (AppSettings.IsDevelopment)
                 {
                     _visualizerWindow.StartPosition = FormStartPosition.CenterScreen;
                     _visualizerWindow.WindowState = FormWindowState.Maximized;

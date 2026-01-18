@@ -130,6 +130,7 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AppSettings.cs" />
     <Compile Include="Helpers\ColorHelper.cs" />
     <Compile Include="Controls\ModernSeekBar.cs">
       <SubType>Component</SubType>
@@ -171,7 +172,12 @@
     <Compile Include="Visualizers\VisualizerBase.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Visualizers\VisualizerLandscape.cs" />
+    <Compile Include="Visualizers\VisualizerCityscape.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Visualizers\VisualizerLandscape.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Visualizers\VisualizerMontanhas,cs.cs">
       <SubType>Form</SubType>
     </Compile>
