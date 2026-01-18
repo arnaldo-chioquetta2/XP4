@@ -66,7 +66,8 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerRadial),
             typeof(XP3.Visualizers.VisualizerMontanhas),
             typeof(XP3.Visualizers.VisualizerLandscape),
-            typeof(XP3.Visualizers.VisualizerCityscape)
+            typeof(XP3.Visualizers.VisualizerCityscape),
+            typeof(XP3.Visualizers.VisualizerFlores)
         };
         private int _currentVisualizerIndex = 0;    
 

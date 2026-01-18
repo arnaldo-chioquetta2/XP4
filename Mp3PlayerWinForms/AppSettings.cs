@@ -7,6 +7,6 @@
         public static bool IsDevelopment = System.Diagnostics.Debugger.IsAttached;
 
         // Propriedade auxiliar para o volume inicial
-        public static float InitialVolume => IsDevelopment ? 0.1f : 1.0f;
+        public static float InitialVolume => IsDevelopment ? 0.01f : 1.0f;
     }
 }
