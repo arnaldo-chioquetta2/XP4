@@ -17,6 +17,8 @@ namespace XP3.Visualizers
         protected int _textoAlpha = 0;
         protected Timer _timerTexto;
 
+        public event EventHandler<int> RequestNavigation;
+
         public VisualizerBase()
         {
             // Configurações Padrão de Tela Cheia
@@ -85,11 +87,55 @@ namespace XP3.Visualizers
             }
         }
 
-        // Fecha com ESC ou Duplo Clique (opcional)
+        #region Eventos de teclado
+        //protected override void OnKeyDown(KeyEventArgs e)
+        //{
+        //    if (e.KeyCode == Keys.Escape) this.Close();
+        //    base.OnKeyDown(e);
+        //}
+
+        protected void DesenharTexto(Graphics g, int w, int h)
+        {
+            if (_textoAlpha > 0 && !string.IsNullOrEmpty(_overlayTitulo))
+            {
+                using (Font fonteTitulo = new Font("Segoe UI", 36, FontStyle.Bold))
+                using (Font fonteBanda = new Font("Segoe UI", 24, FontStyle.Regular))
+                using (Brush brushTexto = new SolidBrush(Color.FromArgb(_textoAlpha, 255, 255, 255)))
+                using (Brush brushSombra = new SolidBrush(Color.FromArgb(_textoAlpha, 0, 0, 0)))
+                {
+                    StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                    int cx = w / 2;
+                    int cy = h / 2;
+
+                    g.DrawString(_overlayTitulo, fonteTitulo, brushSombra, cx + 2, cy - 30 + 2, sf);
+                    g.DrawString(_overlayBanda, fonteBanda, brushSombra, cx + 2, cy + 30 + 2, sf);
+                    g.DrawString(_overlayTitulo, fonteTitulo, brushTexto, cx, cy - 30, sf);
+                    g.DrawString(_overlayBanda, fonteBanda, brushTexto, cx, cy + 30, sf);
+                }
+            }
+        }
+
         protected override void OnKeyDown(KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Escape) this.Close();
             base.OnKeyDown(e);
+
+            if (e.KeyCode == Keys.Escape)
+            {
+                this.Close();
+            }
+            else if (e.KeyCode == Keys.Right)
+            {
+                RequestNavigation?.Invoke(this, 1); // Avança
+            }
+            else if (e.KeyCode == Keys.Left)
+            {
+                RequestNavigation?.Invoke(this, -1); // Volta
+            }
         }
+
+        #endregion
+
+        // Fecha com ESC ou Duplo Clique (opcional)
+
     }
 }

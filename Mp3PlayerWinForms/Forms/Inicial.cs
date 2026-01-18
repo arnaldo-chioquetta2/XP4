@@ -17,6 +17,8 @@ namespace XP3.Forms
 {
     public partial class Inicial : Form
     {
+        private bool _modoDesenvolvimento = true;
+
         private AudioPlayerService _player;
         private TrackRepository _trackRepo;
         private IniFileService _iniService;
@@ -58,6 +60,13 @@ namespace XP3.Forms
 
         private const float FONTE_NORMAL_LATERAL = 11f;
         private const float FONTE_MAX_LATERAL = 20f;    // Aumentado para 20
+
+        private List<Type> _visualizerTypes = new List<Type>
+        {
+            typeof(XP3.Visualizers.VisualizerRadial),
+            typeof(XP3.Visualizers.VisualizerMontanhas)
+        };
+        private int _currentVisualizerIndex = 0;    
 
         public Inicial()
         {
@@ -947,66 +956,78 @@ namespace XP3.Forms
 
         private void Spectrum_DoubleClicked(object sender, EventArgs e)
         {
-            // Evita abrir duplicado
             if (_visualizerWindow != null && !_visualizerWindow.IsDisposed && _visualizerWindow.Visible)
             {
                 _visualizerWindow.BringToFront();
                 return;
             }
 
-            _emTelaCheia = true;
-            _visualizerWindow = new XP3.Visualizers.VisualizerRadial();
-
-            // --- LÓGICA DE TELAS (VJ MODE) ---
-            Screen[] telas = Screen.AllScreens;
-
-            if (telas.Length > 1)
-            {
-                // 1. Manda o Visualizer para a Tela 2
-                _visualizerWindow.PosicionarNaSegundaTela();
-
-                // 2. Verifica onde o Player (Janela Principal) está
-                Screen telaDoPlayer = Screen.FromControl(this);
-
-                // Se o player estiver na mesma tela que o Visualizer vai abrir (Tela 2), 
-                // ou se simplesmente quisermos forçar ele para a Tela 1:
-
-                // Se o player NÃO estiver na tela principal (estiver na secundária)
-                if (!telaDoPlayer.Primary)
-                {
-                    // Manda o Player para a Tela 1 (Principal)
-                    this.StartPosition = FormStartPosition.Manual;
-                    this.Location = telas[0].WorkingArea.Location;
-                }
-
-                this.FazSpectrum = false;
-                this.WindowState = FormWindowState.Minimized;
-            }
-            else
-            {
-                // Comportamento para monitor único: Player se esconde, Visualizer domina
-                this.WindowState = FormWindowState.Minimized;
-                _visualizerWindow.WindowState = FormWindowState.Maximized;
-            }
-
-            // --- EVENTOS DE FECHAMENTO ---
-            _visualizerWindow.FormClosed += (s, args) =>
-            {
-                _emTelaCheia = false;
-
-                // Quando fechar o visualizer, o player volta ao normal na tela onde estiver
-                if (this.WindowState == FormWindowState.Minimized)
-                {
-                    this.WindowState = FormWindowState.Normal;
-                }
-
-                this.Show();
-                this.Activate();
-            };
-
-            // Finalmente, exibe o visualizador
-            _visualizerWindow.Show();
+            // Abre o atual (ou o primeiro da lista)
+            AbrirVisualizador(_currentVisualizerIndex);
         }
+
+        //private void Spectrum_DoubleClicked(object sender, EventArgs e)
+        //{
+        //    // Evita abrir duplicado
+        //    if (_visualizerWindow != null && !_visualizerWindow.IsDisposed && _visualizerWindow.Visible)
+        //    {
+        //        _visualizerWindow.BringToFront();
+        //        return;
+        //    }
+
+        //    _emTelaCheia = true;
+        //    _visualizerWindow = new XP3.Visualizers.VisualizerRadial();
+
+        //    // --- LÓGICA DE TELAS (VJ MODE) ---
+        //    Screen[] telas = Screen.AllScreens;
+
+        //    if (telas.Length > 1)
+        //    {
+        //        // 1. Manda o Visualizer para a Tela 2
+        //        _visualizerWindow.PosicionarNaSegundaTela();
+
+        //        // 2. Verifica onde o Player (Janela Principal) está
+        //        Screen telaDoPlayer = Screen.FromControl(this);
+
+        //        // Se o player estiver na mesma tela que o Visualizer vai abrir (Tela 2), 
+        //        // ou se simplesmente quisermos forçar ele para a Tela 1:
+
+        //        // Se o player NÃO estiver na tela principal (estiver na secundária)
+        //        if (!telaDoPlayer.Primary)
+        //        {
+        //            // Manda o Player para a Tela 1 (Principal)
+        //            this.StartPosition = FormStartPosition.Manual;
+        //            this.Location = telas[0].WorkingArea.Location;
+        //        }
+
+        //        this.FazSpectrum = false;
+        //        this.WindowState = FormWindowState.Minimized;
+        //    }
+        //    else
+        //    {
+        //        // Comportamento para monitor único: Player se esconde, Visualizer domina
+        //        this.WindowState = FormWindowState.Minimized;
+        //        _visualizerWindow.WindowState = FormWindowState.Maximized;
+        //    }
+
+        //    // --- EVENTOS DE FECHAMENTO ---
+        //    _visualizerWindow.FormClosed += (s, args) =>
+        //    {
+        //        _emTelaCheia = false;
+
+        //        // Quando fechar o visualizer, o player volta ao normal na tela onde estiver
+        //        if (this.WindowState == FormWindowState.Minimized)
+        //        {
+        //            this.WindowState = FormWindowState.Normal;
+        //        }
+
+        //        this.Show();
+        //        this.Activate();
+        //    };
+
+        //    // Finalmente, exibe o visualizador
+        //    _visualizerWindow.Show();
+        //}
 
         #endregion
 
@@ -1489,5 +1510,96 @@ namespace XP3.Forms
                 this.FazSpectrum = true;
             }
         }
+
+        private void AbrirVisualizador(int index)
+        {
+            // 1. VALIDAÇÃO DO ÍNDICE (Loop infinito)
+            if (index >= _visualizerTypes.Count) index = 0;
+            if (index < 0) index = _visualizerTypes.Count - 1;
+            _currentVisualizerIndex = index;
+
+            // 2. BACKUP DE ESTADO (Para trocas suaves entre tipos de visualização)
+            Rectangle boundsAntigos = Rectangle.Empty;
+            FormWindowState estadoAntigo = FormWindowState.Normal;
+            bool estavaAberto = false;
+
+            if (_visualizerWindow != null && !_visualizerWindow.IsDisposed)
+            {
+                estavaAberto = true;
+                boundsAntigos = _visualizerWindow.Bounds;
+                estadoAntigo = _visualizerWindow.WindowState;
+
+                // Desconecta o evento antes de fechar para a troca não disparar a volta do Player
+                _visualizerWindow.FormClosed -= OnVisualizerClosed;
+                _visualizerWindow.Close();
+            }
+
+            // 3. CRIAÇÃO DA INSTÂNCIA
+            Type tipoParaCriar = _visualizerTypes[_currentVisualizerIndex];
+            _visualizerWindow = (XP3.Visualizers.VisualizerBase)Activator.CreateInstance(tipoParaCriar);
+
+            // 4. EVENTOS (Navegação e Fechamento)
+            _visualizerWindow.RequestNavigation += (s, direcao) =>
+            {
+                this.BeginInvoke(new Action(() => AbrirVisualizador(_currentVisualizerIndex + direcao)));
+            };
+
+            _visualizerWindow.FormClosed += OnVisualizerClosed;
+
+            // 5. LÓGICA DE POSICIONAMENTO (Aqui resolvemos o problema das duas telas)
+            if (estavaAberto)
+            {
+                // Se já estava aberto, apenas mantém onde o anterior estava
+                _visualizerWindow.StartPosition = FormStartPosition.Manual;
+                _visualizerWindow.Bounds = boundsAntigos;
+                _visualizerWindow.WindowState = estadoAntigo;
+            }
+            else
+            {
+                _emTelaCheia = true;
+                Screen[] telas = Screen.AllScreens;
+
+                // MODO DESENVOLVIMENTO: Se true, ignora a segunda tela e abre na sua frente
+                if (_modoDesenvolvimento)
+                {
+                    _visualizerWindow.StartPosition = FormStartPosition.CenterScreen;
+                    _visualizerWindow.WindowState = FormWindowState.Maximized;
+                    this.WindowState = FormWindowState.Minimized; // Minimiza o player para você ver o teste
+                }
+                else if (telas.Length > 1)
+                {
+                    // MODO VJ (Produção): Vai para a TV/Monitor secundário
+                    _visualizerWindow.PosicionarNaSegundaTela();
+                    this.WindowState = FormWindowState.Minimized;
+                }
+                else
+                {
+                    // ÚNICA TELA: Padrão
+                    _visualizerWindow.WindowState = FormWindowState.Maximized;
+                    this.WindowState = FormWindowState.Minimized;
+                }
+            }
+
+            // 6. EXIBIÇÃO E FOCO
+            _visualizerWindow.Show();
+            _visualizerWindow.Activate(); // <--- ESSENCIAL para as setas funcionarem na hora
+
+            // 7. SINCRONIZAÇÃO DE TEXTO
+            // Se houver uma música tocando, já manda o nome para a nova tela
+            if (_player.CurrentTrack != null)
+            {
+                _visualizerWindow.MostrarInfoMusica(_player.CurrentTrack.Title, _player.CurrentTrack.BandName);
+            }
+        }
+
+        // Método auxiliar para o evento de fechamento
+        private void OnVisualizerClosed(object sender, FormClosedEventArgs e)
+        {
+            _emTelaCheia = false;
+            if (this.WindowState == FormWindowState.Minimized) this.WindowState = FormWindowState.Normal;
+            this.Show();
+            this.Activate();
+        }
+
     }
 }
