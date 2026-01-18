@@ -13,6 +13,9 @@ namespace XP3.Services
 {
     public class AudioPlayerService : IDisposable
     {
+        private float _volume = 0.1f;
+        // private float _volume = 1.0f
+
         private IWavePlayer _waveOut;
 
         // ALTERAÇÃO 1: Mudamos de 'AudioFileReader' para 'WaveStream'
@@ -28,6 +31,15 @@ namespace XP3.Services
         public event EventHandler<float[]> FftDataReceived;
         public event EventHandler<Tuple<Track, string>> PlaybackError;
         private SampleAggregator _aggregator;
+
+        public void SetVolume(float volume)
+        {
+            _volume = volume;
+            if (_waveOut != null)
+            {
+                _waveOut.Volume = _volume;
+            }
+        }
 
         // NOVO EVENTO: Esse é o segredo para o Spectrum funcionar!
         // Ele avisa: "Ei, carreguei um áudio novo, quem quiser desenhar o gráfico, pega aqui!"
@@ -105,6 +117,8 @@ namespace XP3.Services
                 // 4. Inicia o WaveOut usando o AGGREGATOR como fonte, não o reader direto
                 _waveOut = new WaveOutEvent();
                 _waveOut.Init(_aggregator); // O áudio passa por dentro do aggregator agora!
+
+                _waveOut.Volume = _volume;
 
                 _waveOut.PlaybackStopped += OnPlaybackStopped;
                 _waveOut.Play();
@@ -245,6 +259,16 @@ namespace XP3.Services
         public void Dispose()
         {
             Stop();
+        }
+
+        // No AudioPlayerService.cs
+        public void AtualizarIndiceAposRemocao(int novoIndice)
+        {
+            // Apenas ajusta a variável interna de controle
+            this._currentIndex = novoIndice;
+
+            // NOTA: Não paramos a música nem recarregamos nada, 
+            // apenas alinhamos o ponteiro interno.
         }
 
         #region Apagar

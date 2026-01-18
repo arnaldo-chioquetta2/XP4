@@ -195,6 +195,19 @@ namespace XP3.Data
             return null;
         }
 
+        public void Tocou(int id) {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+                string sql = "Update Musica Set vez = vez + 1 where ID = @ID";
+                using (var command = new SQLiteCommand(sql, connection))
+                {
+                    command.Parameters.AddWithValue("@ID", id);
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
         public void ResetarBancoDeDados()
         {
             using (var conn = Database.GetConnection())
@@ -204,8 +217,6 @@ namespace XP3.Data
                 {
                     using (var cmd = conn.CreateCommand())
                     {
-                        // Deleta as associações e as músicas. 
-                        // As bandas podem ficar ou ser deletadas também.
                         cmd.CommandText = "DELETE FROM LisMus; DELETE FROM Musica; DELETE FROM Banda;";
                         cmd.ExecuteNonQuery();
                     }

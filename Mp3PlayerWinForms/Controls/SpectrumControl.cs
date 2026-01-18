@@ -14,6 +14,9 @@ namespace XP3.Controls
 
         public event EventHandler DoubleClicked;
 
+        private float maxValorEncontrado = 0.0f;
+        private float Fator=1.0f;
+
         public SpectrumControl()
         {
             this.DoubleBuffered = true; // Evita piscar
@@ -33,8 +36,7 @@ namespace XP3.Controls
         {
             if (fftData == null || fftData.Length == 0) return;
 
-            int step = (fftData.Length / 2) / _barCount;
-            float maxValorEncontrado = 0; // Para o log
+            int step = (fftData.Length / 2) / _barCount;            
 
             for (int i = 0; i < _barCount; i++)
             {
@@ -49,8 +51,19 @@ namespace XP3.Controls
                 _visualData[i] = sum / step;
 
                 // Captura o maior valor para o log
-                if (_visualData[i] > maxValorEncontrado)
-                    maxValorEncontrado = _visualData[i];
+                if (_visualData[i] > this.maxValorEncontrado)
+                {
+                    this.maxValorEncontrado = _visualData[i];
+                    System.Diagnostics.Debug.WriteLine($"Valor Máximo: {this.maxValorEncontrado:F6} Fator: {this.Fator:F6} ");
+                    if (this.maxValorEncontrado>1) {
+                        this.Fator = this.maxValorEncontrado;
+                    }
+                    
+                }
+
+                _visualData[i] = _visualData[i] / this.Fator;
+
+
             }
 
             // --- LOG PARA DEBUG ---
@@ -108,6 +121,19 @@ namespace XP3.Controls
                     }
                 }
             }
+        }
+
+        public void setaFator(float Max)
+        {
+            this.Fator = Max;
+            if (Max==1.0f)
+            {
+                this.maxValorEncontrado = 0.0f;
+            } else
+            {
+                this.maxValorEncontrado = Max;
+            }
+            
         }
     }
 }

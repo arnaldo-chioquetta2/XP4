@@ -1,4 +1,5 @@
 using System;
+using System;
 using XP3.Data;
 using SQLitePCL;
 using System.IO;
@@ -7,6 +8,7 @@ using System.Linq;
 using XP3.Services;
 using XP3.Controls;
 using System.Drawing;
+using XP3.Visualizers;
 using System.Windows.Forms;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -24,12 +26,12 @@ namespace XP3.Forms
 
         private int _currentPlaylistId = 1;
         private bool _emTelaCheia = false;
-        private bool _janelaAberta = false;
+        //private bool _janelaAberta = false;
         private Track _musicaAnterior = null; // Guarda a música que acabou de tocar
 
         // Mantenha apenas UMA declaração aqui.
         private SpectrumControl spectrum;
-        private VisualizerForm _visualizerWindow;
+        private XP3.Visualizers.VisualizerBase _visualizerWindow;
         private List<Track> _allTracks = new List<Track>();
 
         private ModernSeekBar modernSeekBar1;
@@ -43,8 +45,19 @@ namespace XP3.Forms
         private Button _btnCopiarLat;
         private Button _btnMoverLat;
         private Button _btnExcluirLat;
-        private Label _lblTituloLateral;
-        private Track _trackEmEdicao; // Guarda qual música está sendo mostrada no painel
+        private Track _trackEmEdicao; 
+        private bool FazSpectrum = true;
+        private bool CarregandoListas = false;
+        //private bool EstouMudandoFaixa=false;
+        //private bool _precisaSalvarMaxVol = false;
+        private float _picoMaximoDaSessao = 1.0f;
+
+        // --- CONSTANTES DE TAMANHO DE FONTE (Aumentadas) ---
+        private const float FONTE_NORMAL_GRID = 9f;
+        private const float FONTE_MAX_GRID = 18f;      // Aumentado para 18
+
+        private const float FONTE_NORMAL_LATERAL = 11f;
+        private const float FONTE_MAX_LATERAL = 20f;    // Aumentado para 20
 
         public Inicial()
         {
@@ -109,6 +122,8 @@ namespace XP3.Forms
 
         private void ConfigurarEventosDeTela()
         {
+            this.Resize += (s, e) => AtualizarTamanhoDasFontes();
+
             // Botões de controle
             btnPlay.Click += (s, e) => _player.TogglePlayPause();
             btnPause.Click += (s, e) => _player.TogglePlayPause();
@@ -158,6 +173,10 @@ namespace XP3.Forms
 
                         // Marca a música com erro em cinza escuro
                         lvTracks.Items[index].ForeColor = Color.DimGray;
+                    }
+                    if (spectrum!=null)
+                    {
+                        spectrum.setaFator(1.0f);
                     }
                 }
             };
@@ -254,6 +273,7 @@ namespace XP3.Forms
                 spectrum.Height = 120; // Altura fixa para o gráfico
 
                 spectrum.DoubleClicked += Spectrum_DoubleClicked;
+                spectrum.MouseClick += Spectrum_Clicked;
 
                 // Adiciona o controle
                 this.Controls.Add(spectrum);
@@ -264,6 +284,12 @@ namespace XP3.Forms
                 spectrum.SendToBack();    // Fica acima do pnlControls
                 lvTracks.BringToFront();  // Preenche o que sobrou no topo
             }
+            spectrum.setaFator(1.0f);
+        }
+
+        private void Spectrum_Clicked(object sender, MouseEventArgs e)
+        {
+            this.FazSpectrum = true;
         }
 
         private void SetupServices()
@@ -271,9 +297,6 @@ namespace XP3.Forms
             _player = new AudioPlayerService();
             _trackRepo = new TrackRepository();
             _iniService = new IniFileService();
-
-            // QUANDO A MÚSICA MUDA/COMEÇA
-            // Dentro de Inicial.cs -> SetupServices()
 
             _player.TrackChanged += (s, track) => TratarMudancaDeFaixa(track);
 
@@ -286,7 +309,8 @@ namespace XP3.Forms
             {
                 // REGRA: Se o form principal estiver minimizado, NÃO atualizamos o spectrum pequeno
                 // Isso economiza processamento enquanto você vê a tela cheia
-                if (!_emTelaCheia && this.WindowState != FormWindowState.Minimized)
+                
+                if (this.FazSpectrum)
                 {
                     if (spectrum != null && !spectrum.IsDisposed)
                     {
@@ -294,10 +318,23 @@ namespace XP3.Forms
                     }
                 }
 
+                //if (this.WindowState != FormWindowState.Minimized)
+                //{
+                //    if (spectrum != null && !spectrum.IsDisposed)
+                //    {
+                //        spectrum.BeginInvoke(new Action(() => spectrum.UpdateData(data)));
+                //    }
+                //}
+
                 // Se a janela de tela cheia existir e estiver visível, ela recebe os dados
                 if (_visualizerWindow != null && !_visualizerWindow.IsDisposed)
                 {
-                    _visualizerWindow.BeginInvoke(new Action(() => _visualizerWindow.UpdateData(data)));
+                    // _visualizerWindow.BeginInvoke(new Action(() => _visualizerWindow.UpdateData(data)));
+                    _visualizerWindow.BeginInvoke(new Action(() =>
+                    {
+                        // Adicionamos a variável _picoMaximoDaSessao como segundo argumento
+                        _visualizerWindow.UpdateData(data, _picoMaximoDaSessao);
+                    }));
                 }
             };
 
@@ -326,12 +363,6 @@ namespace XP3.Forms
                 // MessageBox.Show("Não foi possível registrar as teclas globais (Pause). Feche outras instâncias.");
             }
 
-            //_hotkeyService.HotkeyPressed += (s, id) =>
-            //{
-            //    // Debug para garantir que o evento chegou
-            //    System.Diagnostics.Debug.WriteLine($"Tecla Global Pressionada! ID: {id}");
-            //    _player.TogglePlayPause();
-            //};
             _pollingService = new KeyPollingService();
 
             // O que fazer quando detectar o Pause?
@@ -358,12 +389,36 @@ namespace XP3.Forms
         {
             if (track == null) return;
 
+            // Removemos o 'EstouMudandoFaixa'. O BeginInvoke já gerencia a fila da UI.
             this.BeginInvoke(new Action(() =>
             {
                 // 1. LIMPEZA DA MÚSICA ANTERIOR (Lógica AEscolher)
-                if (_musicaAnterior != null && lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
+                if (_musicaAnterior != null)
                 {
-                    ValidarPermanenciaNaListaAEscolher(_musicaAnterior);
+                    _trackRepo.Tocou(_musicaAnterior.Id); // Registra play
+
+                    // Se estiver na lista de triagem, removemos a música anterior
+                    if (lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Verifica o tamanho da lista antes
+                        int qtdAntes = _allTracks.Count;
+
+                        ValidarPermanenciaNaListaAEscolher(_musicaAnterior);
+
+                        // SE HOUVE REMOÇÃO NA LISTA
+                        if (_allTracks.Count < qtdAntes)
+                        {
+                            // Ocorreu o "Index Shift". A música atual (track) mudou de posição.
+                            // Precisamos descobrir onde ela foi parar.
+                            int novoIndiceReal = _allTracks.FindIndex(t => t.Id == track.Id);
+
+                            if (novoIndiceReal >= 0)
+                            {
+                                // AVISO IMPORTANTE AO PLAYER: "Você não está mais no índice X, agora é Y"
+                                _player.AtualizarIndiceAposRemocao(novoIndiceReal);
+                            }
+                        }
+                    }
                 }
 
                 _musicaAnterior = track;
@@ -376,7 +431,7 @@ namespace XP3.Forms
 
                 InicializarSpectrumSeNecessario();
 
-                // --- NOVO: Notifica a tela cheia para mostrar o nome gigante ---
+                // Notifica a tela cheia
                 if (_visualizerWindow != null && !_visualizerWindow.IsDisposed && _visualizerWindow.Visible)
                 {
                     _visualizerWindow.MostrarInfoMusica(track.Title, track.BandName);
@@ -388,6 +443,7 @@ namespace XP3.Forms
                 // 4. Atualiza Seleção na Grid e Painel Lateral
                 if (lvTracks != null && _allTracks.Count > 0)
                 {
+                    // Usamos FindIndex para garantir que pegamos a posição atual correta
                     int index = _allTracks.FindIndex(t => t.Id == track.Id);
                     if (index >= 0)
                     {
@@ -395,7 +451,6 @@ namespace XP3.Forms
                         lvTracks.SelectedIndices.Add(index);
                         lvTracks.EnsureVisible(index);
 
-                        // Sincroniza o painel lateral com a música que começou a tocar
                         AtualizarPainelLateral(track);
                     }
                 }
@@ -524,17 +579,6 @@ namespace XP3.Forms
             lblStatus.Text = $"Resumo: {listaParaApagar.Count} removidas da lista ({apagadasDisco} do disco).";
         }
 
-        // Função auxiliar para checar se o arquivo abre
-        private bool ArquivoEhValido(string path)
-        {
-            try
-            {
-                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
-                    return fs.Length > 0;
-            }
-            catch { return false; }
-        }
-
         private void ConstruirPainelLateral()
         {
             // 1. O Painel Principal (A colina da direita)
@@ -553,23 +597,25 @@ namespace XP3.Forms
             pnlBotoes.BackColor = Color.Transparent;
             pnlBotoes.Padding = new Padding(10);
 
-            // 3. Criando os Botões dentro do pnlBotoes
+            // Botão Copiar
+            _btnCopiarLat = CriarBotaoLateral("Copiar", Color.Gray);
+            // Color.Gray
+            // Color.DimGray
+            // _btnCopiarLat = CriarBotaoLateral("Copiar", Color.LightGreen);
 
-            // Botão Excluir
-            _btnExcluirLat = CriarBotaoLateral("Excluir", Color.Salmon);
-            _btnExcluirLat.Parent = pnlBotoes;
-            _btnExcluirLat.Click += BtnExcluirLat_Click; // Certifique-se que este método existe
+            _btnCopiarLat.Enabled = false;
+            _btnCopiarLat.Parent = pnlBotoes;
+            _btnCopiarLat.Click += (s, e) => SalvarEdicaoLateral("COPIAR");
 
             // Botão Mover
             _btnMoverLat = CriarBotaoLateral("Mover", Color.LightBlue);
             _btnMoverLat.Parent = pnlBotoes;
             _btnMoverLat.Click += (s, e) => SalvarEdicaoLateral("MOVER");
 
-            // Botão Copiar
-            _btnCopiarLat = CriarBotaoLateral("Copiar", Color.LightGreen);
-            _btnCopiarLat.Enabled = false;
-            _btnCopiarLat.Parent = pnlBotoes;
-            _btnCopiarLat.Click += (s, e) => SalvarEdicaoLateral("COPIAR");
+            // Botão Excluir
+            _btnExcluirLat = CriarBotaoLateral("Excluir", Color.Salmon);
+            _btnExcluirLat.Parent = pnlBotoes;
+            _btnExcluirLat.Click += BtnExcluirLat_Click; // Certifique-se que este método existe
 
             // 4. A Lista de Checkbox (Ocupa o espaço que SOBROU no topo)
             _clbPlaylistsLateral = new CheckedListBox();
@@ -618,22 +664,16 @@ namespace XP3.Forms
 
         private void _clbPlaylistsLateral_ItemCheck(object sender, ItemCheckEventArgs e)
         {
-            this.BeginInvoke(new Action(() =>
+            if (this.CarregandoListas==false)
             {
-                // Se o usuário mexeu em qualquer check, habilitamos o Copiar
-                _btnCopiarLat.Enabled = true;
-                _btnCopiarLat.BackColor = Color.LightGreen;
-            }));
+                this.BeginInvoke(new Action(() =>
+                {
+                    // Se o usuário mexeu em qualquer check, habilitamos o Copiar
+                    _btnCopiarLat.Enabled = true;
+                    _btnCopiarLat.BackColor = Color.LightGreen;
+                }));
+            }            
         }
-
-        //private void ValidarBotaoCopiar()
-        //{
-        //    // Habilita apenas se o usuário marcou alguma playlist para copiar
-        //    bool temCheck = _clbPlaylistsLateral.CheckedItems.Count > 0;
-
-        //    _btnCopiarLat.Enabled = temCheck;
-        //    _btnCopiarLat.BackColor = temCheck ? Color.LightGreen : Color.DimGray;
-        //}
 
         private void BtnExcluirLat_Click(object sender, EventArgs e)
         {
@@ -777,15 +817,10 @@ namespace XP3.Forms
                 lblStatus.Text = $"Cópia de '{_trackEmEdicao.Title}' realizada com sucesso.";
                 lblStatus.ForeColor = Color.Cyan;
 
-                // --- ALTERAÇÃO SOLICITADA ---
-                // Não chamamos mais o ValidarPermanenciaNaListaAEscolher aqui.
-                // A música permanece na Grid. Apenas atualizamos o painel lateral 
-                // para refletir os novos checks (inclusive a nova lista se foi criada).
-
                 AtualizarPainelLateral(_trackEmEdicao);
 
-                // O AtualizarPainelLateral já vai resetar o botão Copiar para desabilitado
-                // (pois os checks agora condizem com o que está no banco).
+                _btnCopiarLat.BackColor = Color.Gray;
+
             }
         }
 
@@ -826,7 +861,7 @@ namespace XP3.Forms
                 }
             }
         }
-        // Helper para criar botões padronizados
+        
         private Button CriarBotaoLateral(string texto, Color corFundo)
         {
             Button btn = new Button();
@@ -861,33 +896,119 @@ namespace XP3.Forms
 
         #endregion
 
-        #region Spectrum
+        #region Maximizado
 
-        private void Spectrum_DoubleClicked(object sender, EventArgs e)
+        private void AtualizarTamanhoDasFontes()
         {
-            if (_visualizerWindow == null || _visualizerWindow.IsDisposed)
+            bool estaMaximizado = (this.WindowState == FormWindowState.Maximized);
+
+            float tamanhoGrid = estaMaximizado ? FONTE_MAX_GRID : FONTE_NORMAL_GRID;
+            float tamanhoLateral = estaMaximizado ? FONTE_MAX_LATERAL : FONTE_NORMAL_LATERAL;
+
+            // 1. Ajusta a Grid de Músicas
+            if (lvTracks != null)
             {
-                _emTelaCheia = true;
-                _visualizerWindow = new VisualizerForm();
+                lvTracks.Font = new Font("Segoe UI", tamanhoGrid, FontStyle.Regular);
 
-                // REMOVA o KeyDown daqui - deixe o VisualizerForm tratar isso internamente
+                // --- AJUSTE DINÂMICO DE COLUNAS ---
+                // Pegamos a largura útil total da grid (descontando uma margem para a barra de rolagem)
+                int larguraTotal = lvTracks.ClientSize.Width - 25;
 
-                _visualizerWindow.FormClosed += (s, args) =>
+                if (estaMaximizado)
                 {
-                    _emTelaCheia = false;
-                    this.WindowState = FormWindowState.Normal;
-                    this.Show();
-                    this.Activate();
-                };
+                    // No modo maximizado, damos prioridade para a Música e Banda
+                    lvTracks.Columns[2].Width = 120; // Tempo um pouco maior para a fonte grande
+                    int resto = larguraTotal - 120;
+                    lvTracks.Columns[0].Width = (int)(resto * 0.65); // 65% para Música
+                    lvTracks.Columns[1].Width = (int)(resto * 0.35); // 35% para Banda
+                }
+                else
+                {
+                    // No modo normal (conforme configuramos antes)
+                    lvTracks.Columns[2].Width = 70;
+                    int resto = larguraTotal - 70;
+                    lvTracks.Columns[0].Width = (int)(resto * 0.60);
+                    lvTracks.Columns[1].Width = (int)(resto * 0.40);
+                }
 
-                _visualizerWindow.Show();
+                lvTracks.Refresh();
+            }
 
-                this.WindowState = FormWindowState.Minimized;
+            // 2. Ajusta a Lista Lateral
+            if (_clbPlaylistsLateral != null)
+            {
+                _clbPlaylistsLateral.Font = new Font("Segoe UI", tamanhoLateral, FontStyle.Regular);
             }
         }
 
         #endregion
 
+        #region Spectrum
+
+        private void Spectrum_DoubleClicked(object sender, EventArgs e)
+        {
+            // Evita abrir duplicado
+            if (_visualizerWindow != null && !_visualizerWindow.IsDisposed && _visualizerWindow.Visible)
+            {
+                _visualizerWindow.BringToFront();
+                return;
+            }
+
+            _emTelaCheia = true;
+            _visualizerWindow = new XP3.Visualizers.VisualizerRadial();
+
+            // --- LÓGICA DE TELAS (VJ MODE) ---
+            Screen[] telas = Screen.AllScreens;
+
+            if (telas.Length > 1)
+            {
+                // 1. Manda o Visualizer para a Tela 2
+                _visualizerWindow.PosicionarNaSegundaTela();
+
+                // 2. Verifica onde o Player (Janela Principal) está
+                Screen telaDoPlayer = Screen.FromControl(this);
+
+                // Se o player estiver na mesma tela que o Visualizer vai abrir (Tela 2), 
+                // ou se simplesmente quisermos forçar ele para a Tela 1:
+
+                // Se o player NÃO estiver na tela principal (estiver na secundária)
+                if (!telaDoPlayer.Primary)
+                {
+                    // Manda o Player para a Tela 1 (Principal)
+                    this.StartPosition = FormStartPosition.Manual;
+                    this.Location = telas[0].WorkingArea.Location;
+                }
+
+                this.FazSpectrum = false;
+                this.WindowState = FormWindowState.Minimized;
+            }
+            else
+            {
+                // Comportamento para monitor único: Player se esconde, Visualizer domina
+                this.WindowState = FormWindowState.Minimized;
+                _visualizerWindow.WindowState = FormWindowState.Maximized;
+            }
+
+            // --- EVENTOS DE FECHAMENTO ---
+            _visualizerWindow.FormClosed += (s, args) =>
+            {
+                _emTelaCheia = false;
+
+                // Quando fechar o visualizer, o player volta ao normal na tela onde estiver
+                if (this.WindowState == FormWindowState.Minimized)
+                {
+                    this.WindowState = FormWindowState.Normal;
+                }
+
+                this.Show();
+                this.Activate();
+            };
+
+            // Finalmente, exibe o visualizador
+            _visualizerWindow.Show();
+        }
+
+        #endregion
 
         private void TimerProgresso_Tick(object sender, EventArgs e)
         {
@@ -942,8 +1063,9 @@ namespace XP3.Forms
                     lvTracks.Invalidate();
                 }
 
-                // 5. Restaura última música (INI)
+                this.CarregandoListas = true;
                 RestaurarUltimaMusica();
+                this.CarregandoListas = false;
 
                 if (lblTrackCount != null)
                     lblTrackCount.Text = $"{_allTracks.Count} músicas encontradas";
@@ -985,7 +1107,6 @@ namespace XP3.Forms
                             _player.Play(indexEncontrado);
                         }
 
-                        // 5. Atualiza o Novo Painel Lateral com as informações da música restaurada
                         AtualizarPainelLateral(track);
                     }
                 }
@@ -1201,6 +1322,7 @@ namespace XP3.Forms
         private void AtualizarPainelLateral(Track track, int? idParaMarcar = null)
         {
             if (track == null) return;
+            this.CarregandoListas = true;
             _trackEmEdicao = track;
 
             _clbPlaylistsLateral.Items.Clear();
@@ -1227,6 +1349,8 @@ namespace XP3.Forms
 
             _btnExcluirLat.Enabled = true;
             _btnExcluirLat.BackColor = Color.Salmon;
+
+            this.CarregandoListas = false;
         }
 
         private void LvTracks_ColumnClick(object sender, ColumnClickEventArgs e)
@@ -1294,79 +1418,13 @@ namespace XP3.Forms
             ToolStripMenuItem itemLista = new ToolStripMenuItem("Lista");
 
             // 2. Define o que acontece ao clicar em "Lista"
-            itemLista.Click += (s, e) => AbrirGerenciadorDeListas();
+            //itemLista.Click += (s, e) => AbrirGerenciadorDeListas();
 
             // Adiciona o item ao menu
             _ctxMenuGrid.Items.Add(itemLista);
 
             // 3. Associa o evento de clique do mouse na Grid
             lvTracks.MouseClick += LvTracks_MouseClick;
-        }
-
-        private void AbrirGerenciadorDeListas()
-        {
-            // Se já estiver processando uma abertura, ignora o segundo clique (debounce)
-            if (_janelaAberta) return;
-
-            if (lvTracks.SelectedIndices.Count > 0)
-            {
-                _janelaAberta = true; // Ativa a trava de segurança
-
-                int index = lvTracks.SelectedIndices[0];
-                var track = _allTracks[index];
-
-                try
-                {
-                    using (var form = new ListaSelectorForm(track.Id, _currentPlaylistId))
-                    {
-                        if (form.ShowDialog() == DialogResult.OK)
-                        {
-                            // Se o Form retornou que a música deve sair desta lista (Mover ou Excluir)
-                            if (form.DeveRemoverDaGrid)
-                            {
-                                // 1. Verifica se a música que está sendo removida é a que está tocando agora
-                                bool eraMusicaAtual = (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id);
-
-                                if (eraMusicaAtual)
-                                {
-                                    // Para o áudio imediatamente para liberar o buffer/arquivo
-                                    _player.Stop();
-                                }
-
-                                // 2. Remove a música da memória e atualiza a Grid
-                                _allTracks.Remove(track);
-                                lvTracks.VirtualListSize = _allTracks.Count;
-                                lvTracks.Refresh();
-
-                                // Atualiza o label de contagem de músicas
-                                AtualizarContadorDeMusicas();
-
-                                // 3. Se era a música ativa, pula para a próxima disponível na lista
-                                if (eraMusicaAtual && _allTracks.Count > 0)
-                                {
-                                    _player.Next();
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine("Erro ao abrir gerenciador: " + ex.Message);
-                }
-                finally
-                {
-                    // O finally garante que a trava seja liberada após fechar o Form.
-                    // Usamos um Timer de 200ms para ignorar cliques fantasmas/residuais do Windows.
-                    Timer timerLibera = new Timer { Interval = 200 };
-                    timerLibera.Tick += (s, e) => {
-                        _janelaAberta = false;
-                        timerLibera.Stop();
-                        timerLibera.Dispose();
-                    };
-                    timerLibera.Start();
-                }
-            }
         }
 
         private void AtualizarContadorDeMusicas()
@@ -1412,7 +1470,24 @@ namespace XP3.Forms
             return promptForm.ShowDialog() == DialogResult.OK ? txtInput.Text : null;
         }
 
+        private bool ArquivoEhValido(string path)
+        {
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
+                    return fs.Length > 0;
+            }
+            catch { return false; }
+        }
+
         #endregion
 
+        private void pnlControls_Resize(object sender, EventArgs e)
+        {
+            if (this.WindowState== FormWindowState.Normal)
+            {
+                this.FazSpectrum = true;
+            }
+        }
     }
 }

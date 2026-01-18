@@ -200,5 +200,34 @@ namespace XP3.Forms
 
         #endregion
 
+        public void PosicionarNaSegundaTela()
+        {
+            // Obtém lista de todas as telas conectadas
+            Screen[] telas = Screen.AllScreens;
+
+            // Se tivermos mais de uma tela (0 é a principal, 1 é a secundária)
+            if (telas.Length > 1)
+            {
+                Screen segundaTela = telas[1]; // Pega a segunda tela
+
+                // Configura para posicionamento manual
+                this.StartPosition = FormStartPosition.Manual;
+
+                // Define a posição inicial no topo/esquerda da segunda tela
+                this.Location = segundaTela.Bounds.Location;
+
+                // Garante que o tamanho cubra a segunda tela
+                this.Size = new Size(segundaTela.Bounds.Width, segundaTela.Bounds.Height);
+
+                // Maximiza para garantir tela cheia real
+                this.WindowState = FormWindowState.Maximized;
+            }
+            else
+            {
+                // Se só tiver 1 tela, faz o comportamento padrão (tela cheia na principal)
+                this.WindowState = FormWindowState.Maximized;
+            }
+        }
+
     }
 }

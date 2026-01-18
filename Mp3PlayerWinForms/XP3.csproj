@@ -130,6 +130,7 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Helpers\ColorHelper.cs" />
     <Compile Include="Controls\ModernSeekBar.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -138,12 +139,6 @@
     </Compile>
     <Compile Include="Forms\Inicial.Designer.cs">
       <DependentUpon>Inicial.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Forms\ListaSelectorForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Forms\ListaSelectorForm.Designer.cs">
-      <DependentUpon>ListaSelectorForm.cs</DependentUpon>
     </Compile>
     <Compile Include="Forms\ScannerForm.cs">
       <SubType>Form</SubType>
@@ -173,6 +168,12 @@
     <Compile Include="Services\GlobalHotkeyService.cs" />
     <Compile Include="Services\KeyPollingService.cs" />
     <Compile Include="Services\SampleAggregator.cs" />
+    <Compile Include="Visualizers\VisualizerBase.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Visualizers\VisualizerRadial.cs">
+      <SubType>Form</SubType>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -180,9 +181,6 @@
   <ItemGroup>
     <EmbeddedResource Include="Forms\Inicial.resx">
       <DependentUpon>Inicial.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Forms\ListaSelectorForm.resx">
-      <DependentUpon>ListaSelectorForm.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Forms\ScannerForm.resx">
       <DependentUpon>ScannerForm.cs</DependentUpon>

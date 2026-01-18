@@ -69,8 +69,6 @@
             // 
             this.colDuracao.Text = "Tempo";
             this.colDuracao.Width = 80;
-
-            lvTracks.Columns.Add("Operação", 100);
             // 
             // pnlControls
             // 
@@ -85,6 +83,7 @@
             this.pnlControls.Name = "pnlControls";
             this.pnlControls.Size = new System.Drawing.Size(800, 60);
             this.pnlControls.TabIndex = 1;
+            this.pnlControls.Resize += new System.EventHandler(this.pnlControls_Resize);
             // 
             // btnScan
             // 
