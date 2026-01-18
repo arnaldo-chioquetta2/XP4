@@ -13,8 +13,8 @@ namespace XP3.Services
 {
     public class AudioPlayerService : IDisposable
     {
-        private float _volume = 0.1f;
-        //private float _volume = 1.0f;
+        // private float _volume = 0.1f;
+        private float _volume = 1.0f;
 
         private IWavePlayer _waveOut;
 

@@ -171,6 +171,7 @@
     <Compile Include="Visualizers\VisualizerBase.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Visualizers\VisualizerLandscape.cs" />
     <Compile Include="Visualizers\VisualizerMontanhas,cs.cs">
       <SubType>Form</SubType>
     </Compile>

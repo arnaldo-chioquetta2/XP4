@@ -17,7 +17,7 @@ namespace XP3.Forms
 {
     public partial class Inicial : Form
     {
-        private bool _modoDesenvolvimento = true;
+        private bool _modoDesenvolvimento = false;
 
         private AudioPlayerService _player;
         private TrackRepository _trackRepo;
@@ -64,7 +64,8 @@ namespace XP3.Forms
         private List<Type> _visualizerTypes = new List<Type>
         {
             typeof(XP3.Visualizers.VisualizerRadial),
-            typeof(XP3.Visualizers.VisualizerMontanhas)
+            typeof(XP3.Visualizers.VisualizerMontanhas),
+            typeof(XP3.Visualizers.VisualizerLandscape)
         };
         private int _currentVisualizerIndex = 0;    
 
@@ -398,32 +399,29 @@ namespace XP3.Forms
         {
             if (track == null) return;
 
-            // Removemos o 'EstouMudandoFaixa'. O BeginInvoke já gerencia a fila da UI.
+            // O BeginInvoke gerencia a fila da UI de forma segura
             this.BeginInvoke(new Action(() =>
             {
-                // 1. LIMPEZA DA MÚSICA ANTERIOR (Lógica AEscolher)
+                // 1. LIMPEZA E LÓGICA DA MÚSICA ANTERIOR (Repositório / AEscolher)
                 if (_musicaAnterior != null)
                 {
-                    _trackRepo.Tocou(_musicaAnterior.Id); // Registra play
+                    _trackRepo.Tocou(_musicaAnterior.Id); // Registra que a música foi ouvida
 
-                    // Se estiver na lista de triagem, removemos a música anterior
+                    // Se estivermos na playlist de triagem "AESCOLHER"
                     if (lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
                     {
-                        // Verifica o tamanho da lista antes
                         int qtdAntes = _allTracks.Count;
 
                         ValidarPermanenciaNaListaAEscolher(_musicaAnterior);
 
-                        // SE HOUVE REMOÇÃO NA LISTA
+                        // Se a música anterior saiu da lista, precisamos ajustar o índice do player
                         if (_allTracks.Count < qtdAntes)
                         {
-                            // Ocorreu o "Index Shift". A música atual (track) mudou de posição.
-                            // Precisamos descobrir onde ela foi parar.
                             int novoIndiceReal = _allTracks.FindIndex(t => t.Id == track.Id);
 
                             if (novoIndiceReal >= 0)
                             {
-                                // AVISO IMPORTANTE AO PLAYER: "Você não está mais no índice X, agora é Y"
+                                // Sincroniza o ponteiro do serviço de áudio
                                 _player.AtualizarIndiceAposRemocao(novoIndiceReal);
                             }
                         }
@@ -432,27 +430,35 @@ namespace XP3.Forms
 
                 _musicaAnterior = track;
 
-                // 2. Atualizações Visuais da Interface Principal
+                // 2. ATUALIZAÇÕES VISUAIS DA INTERFACE PRINCIPAL
                 lblStatus.Text = $"Tocando: {track.Title} - {track.BandName}";
                 lblStatus.ForeColor = Color.LightGreen;
                 this.Text = $"{track.Title} - Mp3 Player XP3";
+
                 if (modernSeekBar1 != null) modernSeekBar1.Visible = true;
 
                 InicializarSpectrumSeNecessario();
 
-                // Notifica a tela cheia
+                // --- NOVIDADE: ROTAÇÃO AUTOMÁTICA DE VISUALIZAÇÃO ---
+                // Se a tela cheia estiver aberta, passamos para o próximo estilo
                 if (_visualizerWindow != null && !_visualizerWindow.IsDisposed && _visualizerWindow.Visible)
                 {
-                    _visualizerWindow.MostrarInfoMusica(track.Title, track.BandName);
+                    // O método AbrirVisualizador fecha a atual e abre a próxima (+1)
+                    // Ele também já chama o MostrarInfoMusica para a nova faixa
+                    AbrirVisualizador(_currentVisualizerIndex + 1);
                 }
 
-                // 3. Persistência (INI)
-                try { _iniService.Write("Playback", "LastTrackId", track.Id.ToString()); } catch { }
+                // 3. PERSISTÊNCIA (Grava no INI para o próximo boot)
+                try
+                {
+                    _iniService.Write("Playback", "LastTrackId", track.Id.ToString());
+                }
+                catch { /* Silencioso se falhar gravação */ }
 
-                // 4. Atualiza Seleção na Grid e Painel Lateral
+                // 4. ATUALIZAÇÃO DA GRID (ListView) E PAINEL LATERAL
                 if (lvTracks != null && _allTracks.Count > 0)
                 {
-                    // Usamos FindIndex para garantir que pegamos a posição atual correta
+                    // Localiza a posição da música na lista atual
                     int index = _allTracks.FindIndex(t => t.Id == track.Id);
                     if (index >= 0)
                     {
@@ -465,6 +471,78 @@ namespace XP3.Forms
                 }
             }));
         }
+
+        //private void TratarMudancaDeFaixa(Track track)
+        //{
+        //    if (track == null) return;
+
+        //    // Removemos o 'EstouMudandoFaixa'. O BeginInvoke já gerencia a fila da UI.
+        //    this.BeginInvoke(new Action(() =>
+        //    {
+        //        // 1. LIMPEZA DA MÚSICA ANTERIOR (Lógica AEscolher)
+        //        if (_musicaAnterior != null)
+        //        {
+        //            _trackRepo.Tocou(_musicaAnterior.Id); // Registra play
+
+        //            // Se estiver na lista de triagem, removemos a música anterior
+        //            if (lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
+        //            {
+        //                // Verifica o tamanho da lista antes
+        //                int qtdAntes = _allTracks.Count;
+
+        //                ValidarPermanenciaNaListaAEscolher(_musicaAnterior);
+
+        //                // SE HOUVE REMOÇÃO NA LISTA
+        //                if (_allTracks.Count < qtdAntes)
+        //                {
+        //                    // Ocorreu o "Index Shift". A música atual (track) mudou de posição.
+        //                    // Precisamos descobrir onde ela foi parar.
+        //                    int novoIndiceReal = _allTracks.FindIndex(t => t.Id == track.Id);
+
+        //                    if (novoIndiceReal >= 0)
+        //                    {
+        //                        // AVISO IMPORTANTE AO PLAYER: "Você não está mais no índice X, agora é Y"
+        //                        _player.AtualizarIndiceAposRemocao(novoIndiceReal);
+        //                    }
+        //                }
+        //            }
+        //        }
+
+        //        _musicaAnterior = track;
+
+        //        // 2. Atualizações Visuais da Interface Principal
+        //        lblStatus.Text = $"Tocando: {track.Title} - {track.BandName}";
+        //        lblStatus.ForeColor = Color.LightGreen;
+        //        this.Text = $"{track.Title} - Mp3 Player XP3";
+        //        if (modernSeekBar1 != null) modernSeekBar1.Visible = true;
+
+        //        InicializarSpectrumSeNecessario();
+
+        //        // Notifica a tela cheia
+        //        if (_visualizerWindow != null && !_visualizerWindow.IsDisposed && _visualizerWindow.Visible)
+        //        {
+        //            _visualizerWindow.MostrarInfoMusica(track.Title, track.BandName);
+        //        }
+
+        //        // 3. Persistência (INI)
+        //        try { _iniService.Write("Playback", "LastTrackId", track.Id.ToString()); } catch { }
+
+        //        // 4. Atualiza Seleção na Grid e Painel Lateral
+        //        if (lvTracks != null && _allTracks.Count > 0)
+        //        {
+        //            // Usamos FindIndex para garantir que pegamos a posição atual correta
+        //            int index = _allTracks.FindIndex(t => t.Id == track.Id);
+        //            if (index >= 0)
+        //            {
+        //                lvTracks.SelectedIndices.Clear();
+        //                lvTracks.SelectedIndices.Add(index);
+        //                lvTracks.EnsureVisible(index);
+
+        //                AtualizarPainelLateral(track);
+        //            }
+        //        }
+        //    }));
+        //}
 
         private void TratarErroReproducao(Track track, string mensagem)
         {
