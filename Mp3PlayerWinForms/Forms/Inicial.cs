@@ -9,6 +9,7 @@ using XP3.Services;
 using XP3.Controls;
 using System.Drawing;
 using XP3.Visualizers;
+using System.Diagnostics;
 using System.Windows.Forms;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -17,7 +18,7 @@ namespace XP3.Forms
 {
     public partial class Inicial : Form
     {
-        private bool _modoDesenvolvimento = false;
+        //private bool _modoDesenvolvimento = false;
 
         private AudioPlayerService _player;
         private TrackRepository _trackRepo;
@@ -67,8 +68,17 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerMontanhas),
             typeof(XP3.Visualizers.VisualizerLandscape),
             typeof(XP3.Visualizers.VisualizerCityscape),
-            typeof(XP3.Visualizers.VisualizerFlores)
+            typeof(XP3.Visualizers.VisualizerFlores),
+            typeof(XP3.Visualizers.VisualizerFloresta)
+            // ,typeof(XP3.Visualizers.VisualizerRoblox)
         };
+
+        //private List<Type> _visualizerTypes = new List<Type>
+        //{
+        //    typeof(XP3.Visualizers.VisualizerRoblox)
+        //};
+
+
         private int _currentVisualizerIndex = 0;    
 
         public Inicial()
@@ -472,79 +482,7 @@ namespace XP3.Forms
                     }
                 }
             }));
-        }
-
-        //private void TratarMudancaDeFaixa(Track track)
-        //{
-        //    if (track == null) return;
-
-        //    // Removemos o 'EstouMudandoFaixa'. O BeginInvoke já gerencia a fila da UI.
-        //    this.BeginInvoke(new Action(() =>
-        //    {
-        //        // 1. LIMPEZA DA MÚSICA ANTERIOR (Lógica AEscolher)
-        //        if (_musicaAnterior != null)
-        //        {
-        //            _trackRepo.Tocou(_musicaAnterior.Id); // Registra play
-
-        //            // Se estiver na lista de triagem, removemos a música anterior
-        //            if (lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
-        //            {
-        //                // Verifica o tamanho da lista antes
-        //                int qtdAntes = _allTracks.Count;
-
-        //                ValidarPermanenciaNaListaAEscolher(_musicaAnterior);
-
-        //                // SE HOUVE REMOÇÃO NA LISTA
-        //                if (_allTracks.Count < qtdAntes)
-        //                {
-        //                    // Ocorreu o "Index Shift". A música atual (track) mudou de posição.
-        //                    // Precisamos descobrir onde ela foi parar.
-        //                    int novoIndiceReal = _allTracks.FindIndex(t => t.Id == track.Id);
-
-        //                    if (novoIndiceReal >= 0)
-        //                    {
-        //                        // AVISO IMPORTANTE AO PLAYER: "Você não está mais no índice X, agora é Y"
-        //                        _player.AtualizarIndiceAposRemocao(novoIndiceReal);
-        //                    }
-        //                }
-        //            }
-        //        }
-
-        //        _musicaAnterior = track;
-
-        //        // 2. Atualizações Visuais da Interface Principal
-        //        lblStatus.Text = $"Tocando: {track.Title} - {track.BandName}";
-        //        lblStatus.ForeColor = Color.LightGreen;
-        //        this.Text = $"{track.Title} - Mp3 Player XP3";
-        //        if (modernSeekBar1 != null) modernSeekBar1.Visible = true;
-
-        //        InicializarSpectrumSeNecessario();
-
-        //        // Notifica a tela cheia
-        //        if (_visualizerWindow != null && !_visualizerWindow.IsDisposed && _visualizerWindow.Visible)
-        //        {
-        //            _visualizerWindow.MostrarInfoMusica(track.Title, track.BandName);
-        //        }
-
-        //        // 3. Persistência (INI)
-        //        try { _iniService.Write("Playback", "LastTrackId", track.Id.ToString()); } catch { }
-
-        //        // 4. Atualiza Seleção na Grid e Painel Lateral
-        //        if (lvTracks != null && _allTracks.Count > 0)
-        //        {
-        //            // Usamos FindIndex para garantir que pegamos a posição atual correta
-        //            int index = _allTracks.FindIndex(t => t.Id == track.Id);
-        //            if (index >= 0)
-        //            {
-        //                lvTracks.SelectedIndices.Clear();
-        //                lvTracks.SelectedIndices.Add(index);
-        //                lvTracks.EnsureVisible(index);
-
-        //                AtualizarPainelLateral(track);
-        //            }
-        //        }
-        //    }));
-        //}
+        }        
 
         private void TratarErroReproducao(Track track, string mensagem)
         {
@@ -670,7 +608,7 @@ namespace XP3.Forms
 
         private void ConstruirPainelLateral()
         {
-            // 1. O Painel Principal (A colina da direita)
+            // 1. O Painel Principal
             _pnlLateral = new Panel();
             _pnlLateral.Parent = this;
             _pnlLateral.Dock = DockStyle.Right;
@@ -678,7 +616,7 @@ namespace XP3.Forms
             _pnlLateral.BackColor = Color.FromArgb(45, 45, 48);
             _pnlLateral.Padding = new Padding(0);
 
-            // 2. Painel Container para os Botões (Fica colado no fundo)
+            // 2. Painel de Botões
             Panel pnlBotoes = new Panel();
             pnlBotoes.Parent = _pnlLateral;
             pnlBotoes.Dock = DockStyle.Bottom;
@@ -686,47 +624,80 @@ namespace XP3.Forms
             pnlBotoes.BackColor = Color.Transparent;
             pnlBotoes.Padding = new Padding(10);
 
-            // Botão Copiar
+            // Botões
             _btnCopiarLat = CriarBotaoLateral("Copiar", Color.Gray);
-            // Color.Gray
-            // Color.DimGray
-            // _btnCopiarLat = CriarBotaoLateral("Copiar", Color.LightGreen);
-
             _btnCopiarLat.Enabled = false;
             _btnCopiarLat.Parent = pnlBotoes;
             _btnCopiarLat.Click += (s, e) => SalvarEdicaoLateral("COPIAR");
 
-            // Botão Mover
             _btnMoverLat = CriarBotaoLateral("Mover", Color.LightBlue);
             _btnMoverLat.Parent = pnlBotoes;
             _btnMoverLat.Click += (s, e) => SalvarEdicaoLateral("MOVER");
 
-            // Botão Excluir
             _btnExcluirLat = CriarBotaoLateral("Excluir", Color.Salmon);
             _btnExcluirLat.Parent = pnlBotoes;
-            _btnExcluirLat.Click += BtnExcluirLat_Click; // Certifique-se que este método existe
+            _btnExcluirLat.Click += BtnExcluirLat_Click;
 
-            // 4. A Lista de Checkbox (Ocupa o espaço que SOBROU no topo)
+            // 3. A Lista de Checkbox
             _clbPlaylistsLateral = new CheckedListBox();
             _clbPlaylistsLateral.Parent = _pnlLateral;
             _clbPlaylistsLateral.Dock = DockStyle.Fill;
             _clbPlaylistsLateral.BackColor = Color.FromArgb(30, 30, 30);
             _clbPlaylistsLateral.ForeColor = Color.White;
             _clbPlaylistsLateral.BorderStyle = BorderStyle.None;
-            _clbPlaylistsLateral.CheckOnClick = true;
+
+            // Controle manual total
+            _clbPlaylistsLateral.CheckOnClick = false;
+
+            // Mantemos o evento original por segurança, mas a lógica principal será nos cliques
             _clbPlaylistsLateral.ItemCheck += _clbPlaylistsLateral_ItemCheck;
 
-            // --- NOVO: EVENTO DE DUPLO CLIQUE PARA CARREGAR LISTA ---
+            // --- CORREÇÃO: CLIQUE DO MOUSE ---
+            _clbPlaylistsLateral.MouseClick += (s, e) =>
+            {
+                int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
+                if (index != ListBox.NoMatches)
+                {
+                    // 1. Inverte o Check
+                    bool novoEstado = !_clbPlaylistsLateral.GetItemChecked(index);
+                    _clbPlaylistsLateral.SetItemChecked(index, novoEstado);
+
+                    // 2. Seleciona visualmente (azul)
+                    _clbPlaylistsLateral.SelectedIndex = index;
+
+                    // 3. Habilita o botão Copiar imediatamente
+                    HabilitarBotaoCopiar();
+                }
+            };
+
+            // --- CORREÇÃO: TECLA ESPAÇO ---
+            _clbPlaylistsLateral.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Space)
+                {
+                    int index = _clbPlaylistsLateral.SelectedIndex;
+                    if (index != -1)
+                    {
+                        // 1. Inverte o Check
+                        bool novoEstado = !_clbPlaylistsLateral.GetItemChecked(index);
+                        _clbPlaylistsLateral.SetItemChecked(index, novoEstado);
+
+                        // 2. Habilita o botão Copiar imediatamente
+                        HabilitarBotaoCopiar();
+
+                        e.Handled = true;
+                        e.SuppressKeyPress = true;
+                    }
+                }
+            };
+
+            // Evento de Duplo Clique (Tocar Playlist)
             _clbPlaylistsLateral.MouseDoubleClick += (s, e) =>
             {
-                // Identifica qual item foi clicado através da posição do mouse
                 int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
-
                 if (index != ListBox.NoMatches)
                 {
                     var item = _clbPlaylistsLateral.Items[index];
-
-                    // Verifica se o item é um objeto Playlist (ignora o texto "Adicionar em nova lista")
                     if (item is Playlist p)
                     {
                         CarregarPlaylistParaTocar(p);
@@ -734,21 +705,30 @@ namespace XP3.Forms
                 }
             };
 
-            // Configurações Visuais da Lista
+            // Configurações Visuais
             _clbPlaylistsLateral.DisplayMember = "Name";
             _clbPlaylistsLateral.Font = new Font("Segoe UI", 12f, FontStyle.Regular);
-
-            // Correções de Scroll e Altura
             _clbPlaylistsLateral.IntegralHeight = false;
             _clbPlaylistsLateral.ScrollAlwaysVisible = true;
 
-            // TRUQUE DO FOCO: Garante que a rodinha do mouse funcione ao passar por cima
-            _clbPlaylistsLateral.MouseEnter += (s, e) => _clbPlaylistsLateral.Focus();
-
-            // Ordenação Z-Order para garantir o layout correto
+            // Z-Order
             pnlBotoes.BringToFront();
             _clbPlaylistsLateral.BringToFront();
             _pnlLateral.BringToFront();
+        }
+
+        // --- MÉTODO AUXILIAR NOVO PARA NÃO REPETIR CÓDIGO ---
+        private void HabilitarBotaoCopiar()
+        {
+            // Só habilita se não estiver carregando a lista programaticamente
+            if (!this.CarregandoListas)
+            {
+                if (!_btnCopiarLat.Enabled)
+                {
+                    _btnCopiarLat.Enabled = true;
+                    _btnCopiarLat.BackColor = Color.LightGreen;
+                }
+            }
         }
 
         private void _clbPlaylistsLateral_ItemCheck(object sender, ItemCheckEventArgs e)
@@ -1593,90 +1573,117 @@ namespace XP3.Forms
 
         private void AbrirVisualizador(int index)
         {
-            // 1. VALIDAÇÃO DO ÍNDICE (Loop infinito)
+            // 1. VERIFICAÇÃO DE ESTADO DO PLAYER
+            bool estavaTocando = _player != null && _player.IsPlaying;
+
+            // Validação do índice
             if (index >= _visualizerTypes.Count) index = 0;
             if (index < 0) index = _visualizerTypes.Count - 1;
             _currentVisualizerIndex = index;
 
-            // 2. BACKUP DE ESTADO (Para trocas suaves entre tipos de visualização)
             Rectangle boundsAntigos = Rectangle.Empty;
             FormWindowState estadoAntigo = FormWindowState.Normal;
             bool estavaAberto = false;
 
+            // 2. FECHAMENTO DA JANELA ANTERIOR
             if (_visualizerWindow != null && !_visualizerWindow.IsDisposed)
             {
                 estavaAberto = true;
                 boundsAntigos = _visualizerWindow.Bounds;
                 estadoAntigo = _visualizerWindow.WindowState;
 
-                // Desconecta o evento antes de fechar para a troca não disparar a volta do Player
                 _visualizerWindow.FormClosed -= OnVisualizerClosed;
                 _visualizerWindow.Close();
+                _visualizerWindow.Dispose();
+                _visualizerWindow = null;
+
+                // REMOVI O Application.DoEvents() AQUI PARA NÃO PERDER O FOCO
             }
 
-            // 3. CRIAÇÃO DA INSTÂNCIA
-            Type tipoParaCriar = _visualizerTypes[_currentVisualizerIndex];
-            _visualizerWindow = (XP3.Visualizers.VisualizerBase)Activator.CreateInstance(tipoParaCriar);
-
-            // 4. EVENTOS (Navegação e Fechamento)
-            _visualizerWindow.RequestNavigation += (s, direcao) =>
+            // 3. CRIAÇÃO DA NOVA JANELA
+            try
             {
-                this.BeginInvoke(new Action(() => AbrirVisualizador(_currentVisualizerIndex + direcao)));
-            };
+                Type tipoParaCriar = _visualizerTypes[_currentVisualizerIndex];
+                _visualizerWindow = (XP3.Visualizers.VisualizerBase)Activator.CreateInstance(tipoParaCriar);
 
-            _visualizerWindow.FormClosed += OnVisualizerClosed;
+                // --- CORREÇÃO DO PISCA-PISCA ---
+                // Isso impede que a janela crie um botão na barra de tarefas, evitando o alerta laranja
+                _visualizerWindow.ShowInTaskbar = false;
 
-            // 5. LÓGICA DE POSICIONAMENTO (Aqui resolvemos o problema das duas telas)
-            if (estavaAberto)
-            {
-                // Se já estava aberto, apenas mantém onde o anterior estava
-                _visualizerWindow.StartPosition = FormStartPosition.Manual;
-                _visualizerWindow.Bounds = boundsAntigos;
-                _visualizerWindow.WindowState = estadoAntigo;
-            }
-            else
-            {
-                _emTelaCheia = true;
-                Screen[] telas = Screen.AllScreens;
+                // Garante que ela fique no topo sem pedir permissão
+                _visualizerWindow.TopMost = true;
+                // -------------------------------
 
-                // MODO DESENVOLVIMENTO: Se true, ignora a segunda tela e abre na sua frente
-                if (AppSettings.IsDevelopment)
+                // Eventos de Navegação
+                _visualizerWindow.RequestNavigation += (s, direcao) =>
                 {
-                    _visualizerWindow.StartPosition = FormStartPosition.CenterScreen;
-                    _visualizerWindow.WindowState = FormWindowState.Maximized;
-                    this.WindowState = FormWindowState.Minimized; // Minimiza o player para você ver o teste
-                }
-                else if (telas.Length > 1)
+                    this.BeginInvoke(new Action(() => AbrirVisualizador(_currentVisualizerIndex + direcao)));
+                };
+
+                _visualizerWindow.FormClosed += OnVisualizerClosed;
+
+                // Posicionamento
+                if (estavaAberto)
                 {
-                    // MODO VJ (Produção): Vai para a TV/Monitor secundário
-                    _visualizerWindow.PosicionarNaSegundaTela();
-                    this.WindowState = FormWindowState.Minimized;
+                    _visualizerWindow.StartPosition = FormStartPosition.Manual;
+                    _visualizerWindow.Bounds = boundsAntigos;
+                    _visualizerWindow.WindowState = estadoAntigo;
                 }
                 else
                 {
-                    // ÚNICA TELA: Padrão
-                    _visualizerWindow.WindowState = FormWindowState.Maximized;
+                    this._emTelaCheia = true;
+                    if (AppSettings.IsDevelopment)
+                    {
+                        _visualizerWindow.StartPosition = FormStartPosition.CenterScreen;
+                        _visualizerWindow.WindowState = FormWindowState.Maximized;
+                    }
+                    else if (Screen.AllScreens.Length > 1)
+                    {
+                        _visualizerWindow.PosicionarNaSegundaTela();
+                    }
+                    else
+                    {
+                        _visualizerWindow.WindowState = FormWindowState.Maximized;
+                    }
+
                     this.WindowState = FormWindowState.Minimized;
                 }
+
+                _visualizerWindow.Show();
+                _visualizerWindow.Activate();
+
+                // 4. SINCRONIZAÇÃO DE DADOS
+                if (_player.CurrentTrack != null)
+                {
+                    _visualizerWindow.MostrarInfoMusica(_player.CurrentTrack.Title, _player.CurrentTrack.BandName);
+                }
+
+                // 5. GARANTIA DE PLAYBACK
+                if (estavaTocando && !_player.IsPlaying)
+                {
+                    _player.TogglePlayPause();
+                }
             }
-
-            // 6. EXIBIÇÃO E FOCO
-            _visualizerWindow.Show();
-            _visualizerWindow.Activate(); // <--- ESSENCIAL para as setas funcionarem na hora
-
-            // 7. SINCRONIZAÇÃO DE TEXTO
-            // Se houver uma música tocando, já manda o nome para a nova tela
-            if (_player.CurrentTrack != null)
+            catch (Exception ex)
             {
-                _visualizerWindow.MostrarInfoMusica(_player.CurrentTrack.Title, _player.CurrentTrack.BandName);
+                Console.WriteLine("Erro ao abrir visualizador: " + ex.Message);
             }
         }
 
         // Método auxiliar para o evento de fechamento
+        // Método auxiliar para o evento de fechamento da tela cheia
         private void OnVisualizerClosed(object sender, FormClosedEventArgs e)
         {
             _emTelaCheia = false;
-            if (this.WindowState == FormWindowState.Minimized) this.WindowState = FormWindowState.Normal;
+            _visualizerWindow = null;
+
+            // Se o player estava minimizado, traz ele de volta ao normal
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                this.WindowState = FormWindowState.Normal;
+            }
+
+            // Traz o foco para o player e exibe
             this.Show();
             this.Activate();
         }

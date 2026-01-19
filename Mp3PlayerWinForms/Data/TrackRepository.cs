@@ -1,30 +1,58 @@
 using System;
-using System.Collections.Generic;
-using System.Data.SQLite; // Biblioteca correta
 using System.IO;
 using XP3.Models;
+using System.Diagnostics;
+using System.Data.SQLite; 
+using System.Collections.Generic;
 
 namespace XP3.Data
 {
     public class TrackRepository
     {
+
         // --- MÉTODO NOVO QUE ESTAVA FALTANDO ---
+        //public string GetPlaylistName(int playlistId)
+        //{
+        //    using (var conn = Database.GetConnection())
+        //    {
+        //        conn.Open();
+        //        using (var cmd = conn.CreateCommand())
+        //        {
+        //            cmd.CommandText = "SELECT Nome FROM Lista WHERE ID = @id";
+        //            cmd.Parameters.AddWithValue("@id", playlistId);
+
+        //            var result = cmd.ExecuteScalar();
+        //            return result != null ? result.ToString() : "Lista Desconhecida";
+        //        }
+        //    }
+        //}
+        // ----------------------------------------
         public string GetPlaylistName(int playlistId)
         {
-            using (var conn = Database.GetConnection())
+            Debug.WriteLine($"[REPO] Buscando nome da playlist ID: {playlistId}");
+            try
             {
-                conn.Open();
-                using (var cmd = conn.CreateCommand())
+                using (var conn = Database.GetConnection())
                 {
-                    cmd.CommandText = "SELECT Nome FROM Lista WHERE ID = @id";
-                    cmd.Parameters.AddWithValue("@id", playlistId);
+                    conn.Open();
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = "SELECT Nome FROM Lista WHERE ID = @id";
+                        cmd.Parameters.AddWithValue("@id", playlistId);
 
-                    var result = cmd.ExecuteScalar();
-                    return result != null ? result.ToString() : "Lista Desconhecida";
+                        var result = cmd.ExecuteScalar();
+                        string nome = result != null ? result.ToString() : "Lista Desconhecida";
+                        Debug.WriteLine($"[REPO] Nome encontrado: {nome}");
+                        return nome;
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[REPO_ERRO] Falha em GetPlaylistName: {ex.Message}");
+                return "Erro ao carregar";
+            }
         }
-        // ----------------------------------------
 
         public int GetOrInsertBand(string bandName)
         {
@@ -95,54 +123,122 @@ namespace XP3.Data
         public List<Track> GetTracksByPlaylist(int playlistId)
         {
             var tracks = new List<Track>();
-            using (var conn = Database.GetConnection())
+            Debug.WriteLine($"[REPO] Iniciando GetTracksByPlaylist para ID: {playlistId}");
+
+            try
             {
-                conn.Open();
-
-                string sql = @"
-                    SELECT 
-                        m.ID, 
-                        m.Nome, 
-                        m.Lugar, 
-                        m.Tempo, 
-                        b.ID as BandId, 
-                        b.Nome as BandName
-                    FROM Musica m
-                    LEFT JOIN Banda b ON m.Banda = b.ID
-                    JOIN LisMus lm ON m.ID = lm.Musica
-                    WHERE lm.Lista = @listaId";
-
-                using (var cmd = conn.CreateCommand())
+                using (var conn = Database.GetConnection())
                 {
-                    cmd.CommandText = sql;
-                    cmd.Parameters.AddWithValue("@listaId", playlistId);
+                    Debug.WriteLine("[REPO] Abrindo conexão com o banco...");
+                    conn.Open();
+                    Debug.WriteLine("[REPO] Conexão aberta com sucesso.");
 
-                    using (var reader = cmd.ExecuteReader())
+                    string sql = @"
+                        SELECT 
+                            m.ID, 
+                            m.Nome, 
+                            m.Lugar, 
+                            m.Tempo, 
+                            b.ID as BandId, 
+                            b.Nome as BandName
+                        FROM Musica m
+                        LEFT JOIN Banda b ON m.Banda = b.ID
+                        JOIN LisMus lm ON m.ID = lm.Musica
+                        WHERE lm.Lista = @listaId";
+
+                    using (var cmd = conn.CreateCommand())
                     {
-                        while (reader.Read())
+                        cmd.CommandText = sql;
+                        cmd.Parameters.AddWithValue("@listaId", playlistId);
+
+                        Debug.WriteLine("[REPO] Executando Reader...");
+                        using (var reader = cmd.ExecuteReader())
                         {
-                            var t = new Track();
-                            t.Id = reader.GetInt32(0);
-                            t.Title = reader.IsDBNull(1) ? "Sem Título" : reader.GetString(1);
-                            t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                            int count = 0;
+                            while (reader.Read())
+                            {
+                                var t = new Track();
+                                t.Id = reader.GetInt32(0);
+                                t.Title = reader.IsDBNull(1) ? "Sem Título" : reader.GetString(1);
+                                t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
 
-                            string tempoStr = reader.IsDBNull(3) ? "00:00:00" : reader.GetString(3);
-                            TimeSpan ts;
-                            if (TimeSpan.TryParse(tempoStr, out ts))
-                                t.Duration = ts;
-                            else
-                                t.Duration = TimeSpan.Zero;
+                                string tempoStr = reader.IsDBNull(3) ? "00:00:00" : reader.GetString(3);
+                                TimeSpan ts;
+                                if (TimeSpan.TryParse(tempoStr, out ts)) t.Duration = ts;
+                                else t.Duration = TimeSpan.Zero;
 
-                            t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
-                            t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
+                                t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+                                t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
 
-                            tracks.Add(t);
+                                tracks.Add(t);
+                                count++;
+                            }
+                            Debug.WriteLine($"[REPO] Reader finalizado. {count} músicas encontradas no banco.");
                         }
                     }
                 }
             }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("=================================================");
+                Debug.WriteLine($"[REPO_CRITICAL] ERRO AO ACESSAR MUSICAS: {ex.Message}");
+                Debug.WriteLine($"[REPO_CRITICAL] STACK: {ex.StackTrace}");
+                Debug.WriteLine("=================================================");
+            }
+
             return tracks;
         }
+        //public List<Track> GetTracksByPlaylist(int playlistId)
+        //{
+        //    var tracks = new List<Track>();
+        //    using (var conn = Database.GetConnection())
+        //    {
+        //        conn.Open();
+
+        //        string sql = @"
+        //            SELECT 
+        //                m.ID, 
+        //                m.Nome, 
+        //                m.Lugar, 
+        //                m.Tempo, 
+        //                b.ID as BandId, 
+        //                b.Nome as BandName
+        //            FROM Musica m
+        //            LEFT JOIN Banda b ON m.Banda = b.ID
+        //            JOIN LisMus lm ON m.ID = lm.Musica
+        //            WHERE lm.Lista = @listaId";
+
+        //        using (var cmd = conn.CreateCommand())
+        //        {
+        //            cmd.CommandText = sql;
+        //            cmd.Parameters.AddWithValue("@listaId", playlistId);
+
+        //            using (var reader = cmd.ExecuteReader())
+        //            {
+        //                while (reader.Read())
+        //                {
+        //                    var t = new Track();
+        //                    t.Id = reader.GetInt32(0);
+        //                    t.Title = reader.IsDBNull(1) ? "Sem Título" : reader.GetString(1);
+        //                    t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
+
+        //                    string tempoStr = reader.IsDBNull(3) ? "00:00:00" : reader.GetString(3);
+        //                    TimeSpan ts;
+        //                    if (TimeSpan.TryParse(tempoStr, out ts))
+        //                        t.Duration = ts;
+        //                    else
+        //                        t.Duration = TimeSpan.Zero;
+
+        //                    t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+        //                    t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
+
+        //                    tracks.Add(t);
+        //                }
+        //            }
+        //        }
+        //    }
+        //    return tracks;
+        //}
 
         public int GetOrCreatePlaylist(string nomeLista)
         {

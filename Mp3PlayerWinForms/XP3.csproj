@@ -178,6 +178,9 @@
     <Compile Include="Visualizers\VisualizerFlores.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Visualizers\VisualizerFloresta.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Visualizers\VisualizerLandscape.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -185,6 +188,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Visualizers\VisualizerRadial.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Visualizers\VisualizerRoblox.cs">
       <SubType>Form</SubType>
     </Compile>
   </ItemGroup>
