@@ -56,11 +56,18 @@ namespace XP3.Forms
         private float _picoMaximoDaSessao = 1.0f;
 
         // --- CONSTANTES DE TAMANHO DE FONTE (Aumentadas) ---
+        // --- CONSTANTES DE TAMANHO DE FONTE (Aumentadas Drasticamente) ---
         private const float FONTE_NORMAL_GRID = 9f;
-        private const float FONTE_MAX_GRID = 18f;      // Aumentado para 18
+        private const float FONTE_MAX_GRID = 18f;
 
-        private const float FONTE_NORMAL_LATERAL = 11f;
-        private const float FONTE_MAX_LATERAL = 20f;    // Aumentado para 20
+        // AQUI ESTÁ O SEGREDO DOS CHECKS LATERAIS:
+        private const float FONTE_NORMAL_LATERAL = 14f; // Já começa grande (antes era 11 ou 12)
+        private const float FONTE_MAX_LATERAL = 24f;    // Fica GIGANTE ao maximizar (antes era 20)
+        //private const float FONTE_NORMAL_GRID = 9f;
+        //private const float FONTE_MAX_GRID = 18f;      // Aumentado para 18
+
+        //private const float FONTE_NORMAL_LATERAL = 11f;
+        //private const float FONTE_MAX_LATERAL = 20f;    // Aumentado para 20
 
         private List<Type> _visualizerTypes = new List<Type>
         {
@@ -707,7 +714,10 @@ namespace XP3.Forms
 
             // Configurações Visuais
             _clbPlaylistsLateral.DisplayMember = "Name";
-            _clbPlaylistsLateral.Font = new Font("Segoe UI", 12f, FontStyle.Regular);
+
+            // _clbPlaylistsLateral.Font = new Font("Segoe UI", 12f, FontStyle.Regular);            
+            _clbPlaylistsLateral.Font = new Font("Segoe UI", FONTE_NORMAL_LATERAL, FontStyle.Regular);
+
             _clbPlaylistsLateral.IntegralHeight = false;
             _clbPlaylistsLateral.ScrollAlwaysVisible = true;
 
@@ -979,36 +989,81 @@ namespace XP3.Forms
             {
                 lvTracks.Font = new Font("Segoe UI", tamanhoGrid, FontStyle.Regular);
 
-                // --- AJUSTE DINÂMICO DE COLUNAS ---
-                // Pegamos a largura útil total da grid (descontando uma margem para a barra de rolagem)
+                // Ajuste dinâmico de colunas
                 int larguraTotal = lvTracks.ClientSize.Width - 25;
 
                 if (estaMaximizado)
                 {
-                    // No modo maximizado, damos prioridade para a Música e Banda
-                    lvTracks.Columns[2].Width = 120; // Tempo um pouco maior para a fonte grande
-                    int resto = larguraTotal - 120;
-                    lvTracks.Columns[0].Width = (int)(resto * 0.65); // 65% para Música
-                    lvTracks.Columns[1].Width = (int)(resto * 0.35); // 35% para Banda
+                    lvTracks.Columns[2].Width = 150; // Tempo maior
+                    int resto = larguraTotal - 150;
+                    lvTracks.Columns[0].Width = (int)(resto * 0.65);
+                    lvTracks.Columns[1].Width = (int)(resto * 0.35);
                 }
                 else
                 {
-                    // No modo normal (conforme configuramos antes)
                     lvTracks.Columns[2].Width = 70;
                     int resto = larguraTotal - 70;
                     lvTracks.Columns[0].Width = (int)(resto * 0.60);
                     lvTracks.Columns[1].Width = (int)(resto * 0.40);
                 }
 
+                // Importante: No modo virtual, às vezes precisa forçar o refresh do layout
                 lvTracks.Refresh();
             }
 
-            // 2. Ajusta a Lista Lateral
+            // 2. Ajusta a Lista Lateral (Aqui os checks crescem)
             if (_clbPlaylistsLateral != null)
             {
+                // Ao mudar a fonte aqui, o quadradinho [ ] cresce automaticamente
                 _clbPlaylistsLateral.Font = new Font("Segoe UI", tamanhoLateral, FontStyle.Regular);
+
+                // Força o redimensionamento dos itens
+                _clbPlaylistsLateral.Refresh();
             }
         }
+
+        //private void AtualizarTamanhoDasFontes()
+        //{
+        //    bool estaMaximizado = (this.WindowState == FormWindowState.Maximized);
+
+        //    float tamanhoGrid = estaMaximizado ? FONTE_MAX_GRID : FONTE_NORMAL_GRID;
+        //    float tamanhoLateral = estaMaximizado ? FONTE_MAX_LATERAL : FONTE_NORMAL_LATERAL;
+
+        //    // 1. Ajusta a Grid de Músicas
+        //    if (lvTracks != null)
+        //    {
+        //        lvTracks.Font = new Font("Segoe UI", tamanhoGrid, FontStyle.Regular);
+
+        //        // --- AJUSTE DINÂMICO DE COLUNAS ---
+        //        // Pegamos a largura útil total da grid (descontando uma margem para a barra de rolagem)
+        //        int larguraTotal = lvTracks.ClientSize.Width - 25;
+
+        //        if (estaMaximizado)
+        //        {
+        //            // No modo maximizado, damos prioridade para a Música e Banda
+        //            lvTracks.Columns[2].Width = 120; // Tempo um pouco maior para a fonte grande
+        //            int resto = larguraTotal - 120;
+        //            lvTracks.Columns[0].Width = (int)(resto * 0.65); // 65% para Música
+        //            lvTracks.Columns[1].Width = (int)(resto * 0.35); // 35% para Banda
+        //        }
+        //        else
+        //        {
+        //            // No modo normal (conforme configuramos antes)
+        //            lvTracks.Columns[2].Width = 70;
+        //            int resto = larguraTotal - 70;
+        //            lvTracks.Columns[0].Width = (int)(resto * 0.60);
+        //            lvTracks.Columns[1].Width = (int)(resto * 0.40);
+        //        }
+
+        //        lvTracks.Refresh();
+        //    }
+
+        //    // 2. Ajusta a Lista Lateral
+        //    if (_clbPlaylistsLateral != null)
+        //    {
+        //        _clbPlaylistsLateral.Font = new Font("Segoe UI", tamanhoLateral, FontStyle.Regular);
+        //    }
+        //}
 
         #endregion
 
