@@ -76,8 +76,8 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerLandscape),
             typeof(XP3.Visualizers.VisualizerCityscape),
             typeof(XP3.Visualizers.VisualizerFlores),
-            typeof(XP3.Visualizers.VisualizerFloresta)
-            // ,typeof(XP3.Visualizers.VisualizerRoblox)
+            typeof(XP3.Visualizers.VisualizerFloresta),
+            typeof(XP3.Visualizers.VisualizerCogumelos)
         };
 
         //private List<Type> _visualizerTypes = new List<Type>
@@ -763,7 +763,7 @@ namespace XP3.Forms
                 return;
             }
 
-            // 2. Mensagem de Confirmação (SOLICITADO)
+            // 2. Mensagem de Confirmação
             var resposta = MessageBox.Show(
                 $"Tem certeza que deseja excluir definitivamente a música?\n\n" +
                 $"Título: {_trackEmEdicao.Title}\n" +
@@ -771,13 +771,28 @@ namespace XP3.Forms
                 "Confirmar Exclusão",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning,
-                MessageBoxDefaultButton.Button2); // Botão "Não" como padrão para segurança
+                MessageBoxDefaultButton.Button2);
 
             if (resposta != DialogResult.Yes) return;
 
+            // --- NOVA LÓGICA DE PLAYBACK ---
+            bool estavaTocandoEsta = (_player.CurrentTrack != null && _player.CurrentTrack.Id == _trackEmEdicao.Id);
+            int indiceParaTocarDepois = -1;
+
+            if (estavaTocandoEsta)
+            {
+                // Guarda onde estávamos
+                indiceParaTocarDepois = _allTracks.IndexOf(_trackEmEdicao);
+
+                // PARA A MÚSICA IMEDIATAMENTE!
+                // Isso é crucial para liberar o arquivo do Windows (File Lock) e permitir o Delete
+                _player.Stop();
+            }
+            // -------------------------------
+
             try
             {
-                // 3. Tenta apagar o arquivo físico (Envia para Lixeira)
+                // 3. Tenta apagar o arquivo físico
                 if (System.IO.File.Exists(_trackEmEdicao.FilePath))
                 {
                     File.Delete(_trackEmEdicao.FilePath);
@@ -785,7 +800,6 @@ namespace XP3.Forms
             }
             catch (Exception ex)
             {
-                // Se falhar (arquivo em uso, etc), avisa e pergunta se quer tirar do banco mesmo assim
                 var respErro = MessageBox.Show(
                     $"Não foi possível apagar o arquivo físico.\nErro: {ex.Message}\n\nDeseja remover a música do banco de dados mesmo assim?",
                     "Erro ao Apagar Arquivo",
@@ -794,35 +808,43 @@ namespace XP3.Forms
 
                 if (respErro != DialogResult.Yes) return;
 
-                // Opcional: Marca para apagar depois se quiser manter essa lógica
                 _trackRepo.AdicionarParaApagarDepois(_trackEmEdicao.FilePath, _trackEmEdicao.BandName);
             }
 
             // 4. Remove do Banco de Dados
             _trackRepo.RemoverMusicaDefinitivamente(_trackEmEdicao.Id);
 
-            // 5. Atualiza a Interface (A parte que "não aconteceu nada" antes)
-            // Remove da lista em memória
+            // 5. Atualiza a Memória e Interface
             var trackParaRemover = _allTracks.FirstOrDefault(t => t.Id == _trackEmEdicao.Id);
             if (trackParaRemover != null)
             {
                 _allTracks.Remove(trackParaRemover);
             }
 
-            // Força a Grid a redesenhar sem aquela música
             if (lvTracks != null)
             {
                 lvTracks.VirtualListSize = _allTracks.Count;
                 lvTracks.Refresh();
             }
 
-            // Atualiza contadores
             AtualizarContadorDeMusicas();
-
-            // Limpa o painel lateral pois a música não existe mais
             _clbPlaylistsLateral.Items.Clear();
             lblStatus.Text = "Música excluída com sucesso.";
-            _trackEmEdicao = null; // Limpa a referência
+            _trackEmEdicao = null;
+
+            // --- CONTINUAR TOCANDO (O Pulo do Gato) ---
+            // Se a música apagada era a que tocava, inicia a próxima automaticamente
+            if (estavaTocandoEsta && _allTracks.Count > 0)
+            {
+                // Atualiza a lista interna do player, pois ela diminuiu
+                _player.SetPlaylist(_allTracks);
+
+                // Se apagamos a música #5, a antiga #6 virou a #5. 
+                // Então mandamos tocar o mesmo índice.
+                if (indiceParaTocarDepois >= _allTracks.Count) indiceParaTocarDepois = 0; // Volta pro inicio se era a última
+
+                _player.Play(indiceParaTocarDepois);
+            }
         }
 
         private void SalvarEdicaoLateral(string modo)
@@ -831,75 +853,82 @@ namespace XP3.Forms
 
             int? novaListaId = null;
 
-            // 1. Tratamento de Nova Lista: Pergunta o nome apenas no momento do clique
+            // 1. Tratamento de Nova Lista
             if (_clbPlaylistsLateral.GetItemChecked(0))
             {
-                // Usa o seu método ShowInputBox
                 string nome = ShowInputBox("Digite o nome da nova Playlist:", "Nova Lista");
-
-                if (string.IsNullOrWhiteSpace(nome))
-                {
-                    return; // Usuário cancelou ou não digitou nome
-                }
-
-                // Cria a lista no banco
+                if (string.IsNullOrWhiteSpace(nome)) return;
                 novaListaId = _trackRepo.GetOrCreatePlaylist(nome);
             }
 
-            // 2. Lógica MOVER: Remove de todas as listas antes de reinserir nas novas
+            // --- NOVA LÓGICA DE PLAYBACK (Apenas para MOVER) ---
+            bool precisaPular = false;
+            int indiceParaTocarDepois = -1;
+
+            // Se for MOVER e estiver tocando a música atual, preparamos o pulo
+            if (modo == "MOVER" && _player.CurrentTrack != null && _player.CurrentTrack.Id == _trackEmEdicao.Id)
+            {
+                precisaPular = true;
+                indiceParaTocarDepois = _allTracks.IndexOf(_trackEmEdicao);
+
+                // Não precisamos dar Stop forçado aqui pois não vamos deletar o arquivo,
+                // mas o Play() logo abaixo cuidará da transição.
+            }
+            // ----------------------------------------------------
+
+            // 2. Lógica MOVER: Limpa playlists anteriores
             if (modo == "MOVER")
             {
                 _trackRepo.LimparMusicaDeTodasPlaylists(_trackEmEdicao.Id);
             }
 
-            // 3. Processamento das Associações (Checks)
+            // 3. Associações
             for (int i = 0; i < _clbPlaylistsLateral.Items.Count; i++)
             {
-                // Caso A: Nova Lista criada
-                if (i == 0)
+                if (i == 0) // Nova Lista
                 {
                     if (novaListaId.HasValue)
-                    {
                         _trackRepo.AddTrackToPlaylist(novaListaId.Value, _trackEmEdicao.Id);
-                    }
                     continue;
                 }
 
-                // Caso B: Listas existentes marcadas
                 if (_clbPlaylistsLateral.GetItemChecked(i))
                 {
                     if (_clbPlaylistsLateral.Items[i] is Playlist p)
                     {
-                        // No modo MOVER, se o destino for a própria lista atual, ignoramos 
-                        // para garantir que ela saia da visualização da Grid
                         if (modo == "MOVER" && p.Id == _currentPlaylistId) continue;
-
                         _trackRepo.AddTrackToPlaylist(p.Id, _trackEmEdicao.Id);
                     }
                 }
             }
 
-            // 4. Finalização da Interface
+            // 4. Finalização
             if (modo == "MOVER")
             {
-                // O Mover mantém a remoção imediata da Grid
                 _allTracks.Remove(_trackEmEdicao);
                 lvTracks.VirtualListSize = _allTracks.Count;
                 lvTracks.Refresh();
                 AtualizarContadorDeMusicas();
 
                 _clbPlaylistsLateral.Items.Clear();
+
+                // --- CONTINUAR TOCANDO ---
+                if (precisaPular && _allTracks.Count > 0)
+                {
+                    _player.SetPlaylist(_allTracks);
+                    if (indiceParaTocarDepois >= _allTracks.Count) indiceParaTocarDepois = 0;
+                    _player.Play(indiceParaTocarDepois);
+                }
+
                 _trackEmEdicao = null;
             }
             else // MODO COPIAR
             {
                 lblStatus.Text = $"Cópia de '{_trackEmEdicao.Title}' realizada com sucesso.";
                 lblStatus.ForeColor = Color.Cyan;
-
                 AtualizarPainelLateral(_trackEmEdicao);
-
                 _btnCopiarLat.BackColor = Color.Gray;
-
+                _btnCopiarLat.Enabled = false;
             }
         }
 

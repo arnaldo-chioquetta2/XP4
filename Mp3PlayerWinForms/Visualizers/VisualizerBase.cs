@@ -3,6 +3,12 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
+// Olhos
+// Raios
+// Estrenas (viagem)
+// Ondas do mar
+// Coisas a ver com maconha
+
 namespace XP3.Visualizers
 {
     // Esta classe herda de Form, então ela É uma janela

@@ -183,11 +183,15 @@
     <Compile Include="Services\IniFileService.cs" />
     <Compile Include="Services\GlobalHotkeyService.cs" />
     <Compile Include="Services\KeyPollingService.cs" />
+    <Compile Include="Services\LogService.cs" />
     <Compile Include="Services\SampleAggregator.cs" />
     <Compile Include="Visualizers\VisualizerBase.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Visualizers\VisualizerCityscape.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Visualizers\VisualizerCogumelos.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Visualizers\VisualizerFlores.cs">
