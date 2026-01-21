@@ -34,20 +34,20 @@ namespace XP3.Visualizers
             float scale = Math.Min(w, h) / 2.2f;
             _angleOffset += 0.02f; // Faz girar
 
-            // Auditoria (opcional, pode remover depois)
+            // Auditoria
             _logCounter++;
             bool deveLogar = (_logCounter >= 100);
             if (deveLogar) _logCounter = 0;
 
             for (int i = 0; i < _bandCount && i < _fftData.Length; i++)
             {
-                // 1. CÁLCULO (Usando a lógica de Raiz Quadrada que definimos)
+                // 1. CÁLCULO
                 float teto = (_picoReferencia > 0.1f) ? _picoReferencia : 1.0f;
                 float razao = _fftData[i] / teto;
                 float intensity = (float)Math.Sqrt(razao);
-                intensity *= 1.5f; // Ganho visual
+                intensity *= 1.5f;
 
-                // 2. DESENHO
+                // 2. DESENHO DO ESPECTRO RADIAL
                 if (intensity > 0.02f)
                 {
                     if (intensity > 1.0f) intensity = 1.0f;
@@ -70,23 +70,11 @@ namespace XP3.Visualizers
                 }
             }
 
-            // 3. TEXTO (A lógica de fading já está na Base, aqui só desenhamos)
-            if (_textoAlpha > 0 && !string.IsNullOrEmpty(_overlayTitulo))
-            {
-                using (Font fonteTitulo = new Font("Segoe UI", 36, FontStyle.Bold))
-                using (Font fonteBanda = new Font("Segoe UI", 24, FontStyle.Regular))
-                using (Brush brushTexto = new SolidBrush(Color.FromArgb(_textoAlpha, 255, 255, 255)))
-                using (Brush brushSombra = new SolidBrush(Color.FromArgb(_textoAlpha, 0, 0, 0)))
-                {
-                    StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                    g.DrawString(_overlayTitulo, fonteTitulo, brushSombra, cx + 2, cy - 30 + 2, sf);
-                    g.DrawString(_overlayBanda, fonteBanda, brushSombra, cx + 2, cy + 30 + 2, sf);
-                    g.DrawString(_overlayTitulo, fonteTitulo, brushTexto, cx, cy - 30, sf);
-                    g.DrawString(_overlayBanda, fonteBanda, brushTexto, cx, cy + 30, sf);
-                }
-            }
+            // --- CORREÇÃO AQUI ---
+            // Removemos todo o bloco antigo do if (_textoAlpha > 0)
+            // E chamamos a base que agora cuida do tempo de 5s + Fade Out
+            base.DesenharTexto(g, w, h);
         }
-
         public override void UpdateData(float[] data, float maxVol) // Nome corrigido aqui também
         {
             base.UpdateData(data, maxVol);

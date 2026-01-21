@@ -85,7 +85,7 @@ namespace XP3.Visualizers
                     t = Math.Max(0, Math.Min(1, t));
                     int alpha = (int)(255 * t);
 
-                    // --- CHÃO SEGURO ---
+                    // --- CHÃO SEGURO (CORRIGIDO) ---
                     float grave = (dadosDaVez.Length > 3) ? dadosDaVez[1] * 15 : 0;
                     int r = Math.Max(0, Math.Min(255, (int)(_corCampoEscuro.R * (1 - t) + _corCampoClaro.R * t)));
                     int g_val = Math.Max(0, Math.Min(255, (int)(_corCampoEscuro.G * (1 - t) + _corCampoClaro.G * t + grave)));
@@ -105,21 +105,37 @@ namespace XP3.Visualizers
                         int distCentro = Math.Abs((qtdObjetos / 2) - c);
                         int indiceAudio = (int)(distCentro * 2.0f) + 1;
                         float valor = (indiceAudio < dadosDaVez.Length) ? dadosDaVez[indiceAudio] : 0;
-                        float intensidade = (valor / teto) * 1.2f;
-                        if (intensidade > 1.0f) intensidade = 1.0f;
+
+                        // Intensidade base
+                        float intensidade = (valor / teto);
 
                         float xReal = (centroX - (larguraTotal / 2)) + (c * espaco) + (((c * 19 + i * 13) % 60) - 30) * fatorPerspectiva;
 
+                        // --- HIERARQUIA DE ALTURAS REFINADA ---
                         if (intensidade > 0.05f && intensidade < 0.20f)
+                        {
+                            // Bostas de vaca (vão usar a largura nova de 180 no método DesenharBosta)
                             DesenharBostaDeVaca(g, xReal, chaoY, fatorPerspectiva, alpha);
+                        }
                         else if (intensidade >= 0.20f && intensidade < 0.45f)
+                        {
+                            // Psilocibina (Muito baixa: 0.15f)
                             DesenharPsilocibina(g, xReal, chaoY, fatorPerspectiva, alpha, intensidade, h * 0.7f);
+                        }
                         else if (intensidade >= 0.45f && intensidade < 0.75f)
+                        {
+                            // Amanita (Médio porte: 0.8f)
                             DesenharAmanitaMuscaria(g, xReal, chaoY, fatorPerspectiva, alpha, intensidade, h * 0.7f);
+                        }
                         else if (intensidade >= 0.75f)
+                        {
+                            // Cubensis (GIGANTE: 2.2f)
                             DesenharPsilocybeCubensis(g, xReal, chaoY, fatorPerspectiva, alpha, intensidade, h * 0.7f);
+                        }
                     }
                 }
+
+                // --- CHAMADA DA BASE (Faz o texto sumir em 5+5 seg) ---
                 base.DesenharTexto(g, w, h);
             }
             catch (Exception ex)
@@ -129,8 +145,7 @@ namespace XP3.Visualizers
                 else { this.TopMost = false; this.Close(); }
             }
         }
-
-        // --- MÉTODOS DE DESENHO ---
+        
         private void DesenharBostaDeVaca(Graphics g, float x, float chaoY, float escala, int alpha)
         {
             // Quase dobramos a largura anterior para parecer uma "poça" larga no pasto
@@ -175,24 +190,35 @@ namespace XP3.Visualizers
 
         private void DesenharPsilocybeCubensis(Graphics g, float x, float chaoY, float escala, int alpha, float intensidade, float hRef)
         {
-            // Multiplicador agressivo de 2.2f. 
-            // Isso fará o caule "rasgar" a tela para cima nos sons agudos e altos.
-            float alturaTotal = hRef * intensidade * escala * 2.2f;
-            float larguraChapeu = alturaTotal * 0.3f; // Chapéu proporcionalmente menor para parecer ainda mais alto
+            // Reduzido de 2.2f para 1.7f para um tamanho mais equilibrado
+            float alturaTotal = hRef * intensidade * escala * 1.7f;
 
-            using (Brush bC = new SolidBrush(AplicarNeblina(_corCubensisCaule, alpha)))
+            // Mantemos a largura proporcional à nova altura
+            float larguraChapeu = alturaTotal * 0.4f;
+            float larguraCaule = 8 * escala;
+
+            Color corH = AplicarNeblina(_corCubensisChapeu, alpha);
+            Color corC = AplicarNeblina(_corCubensisCaule, alpha);
+            Color corD = AplicarNeblina(_corCubensisDetalhe, alpha);
+
+            // 1. Desenho do Caule
+            using (Brush bC = new SolidBrush(corC))
             {
-                // Caule com espessura variável para parecer orgânico
-                g.FillRectangle(bC, x - (6 * escala), chaoY - alturaTotal, 12 * escala, alturaTotal);
+                g.FillRectangle(bC, x - larguraCaule / 2, chaoY - alturaTotal, larguraCaule, alturaTotal);
             }
 
-            using (Brush bH = new SolidBrush(AplicarNeblina(_corCubensisChapeu, alpha)))
+            // 2. Desenho do Chapéu
+            using (Brush bH = new SolidBrush(corH))
             {
+                // Elipse principal do topo
                 g.FillEllipse(bH, x - larguraChapeu / 2, chaoY - alturaTotal - (larguraChapeu * 0.15f), larguraChapeu, larguraChapeu * 0.4f);
 
-                // "Mamilo" característico no topo
-                using (Brush bD = new SolidBrush(AplicarNeblina(_corCubensisDetalhe, alpha)))
-                    g.FillEllipse(bD, x - (larguraChapeu * 0.2f) / 2, chaoY - alturaTotal - (larguraChapeu * 0.25f), larguraChapeu * 0.2f, larguraChapeu * 0.15f);
+                // "Mamilo" central característico
+                using (Brush bD = new SolidBrush(corD))
+                {
+                    float tamMamilo = larguraChapeu * 0.25f;
+                    g.FillEllipse(bD, x - tamMamilo / 2, chaoY - alturaTotal - (larguraChapeu * 0.25f), tamMamilo, tamMamilo * 0.6f);
+                }
             }
         }
 
