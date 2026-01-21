@@ -42,7 +42,6 @@ namespace XP3.Forms
         private Button btnApagarErro;
         private Track _trackComErroAtual; // Guarda qual música deu pau
 
-        // Controles do Painel Lateral
         private Panel _pnlLateral;
         private CheckedListBox _clbPlaylistsLateral;
         private Button _btnCopiarLat;
@@ -51,23 +50,16 @@ namespace XP3.Forms
         private Track _trackEmEdicao; 
         private bool FazSpectrum = true;
         private bool CarregandoListas = false;
-        //private bool EstouMudandoFaixa=false;
-        //private bool _precisaSalvarMaxVol = false;
+
         private float _picoMaximoDaSessao = 1.0f;
 
-        // --- CONSTANTES DE TAMANHO DE FONTE (Aumentadas) ---
-        // --- CONSTANTES DE TAMANHO DE FONTE (Aumentadas Drasticamente) ---
         private const float FONTE_NORMAL_GRID = 9f;
         private const float FONTE_MAX_GRID = 18f;
 
-        // AQUI ESTÁ O SEGREDO DOS CHECKS LATERAIS:
         private const float FONTE_NORMAL_LATERAL = 14f; // Já começa grande (antes era 11 ou 12)
         private const float FONTE_MAX_LATERAL = 24f;    // Fica GIGANTE ao maximizar (antes era 20)
-        //private const float FONTE_NORMAL_GRID = 9f;
-        //private const float FONTE_MAX_GRID = 18f;      // Aumentado para 18
 
-        //private const float FONTE_NORMAL_LATERAL = 11f;
-        //private const float FONTE_MAX_LATERAL = 20f;    // Aumentado para 20
+        private FormWindowState _estadoAnterior = FormWindowState.Normal;
 
         private List<Type> _visualizerTypes = new List<Type>
         {
@@ -142,10 +134,11 @@ namespace XP3.Forms
             lvTracks.ColumnClick += LvTracks_ColumnClick;
             lvTracks.VirtualMode = true;
             lvTracks.VirtualListSize = 0;
-            lvTracks.RetrieveVirtualItem += LvTracks_RetrieveVirtualItem;
+            lvTracks.RetrieveVirtualItem += lvTracks_RetrieveVirtualItem;
 
             LoadPlaylist();
         }
+
 
         #region Inicializacao
 
@@ -424,23 +417,18 @@ namespace XP3.Forms
                 // 1. LIMPEZA E LÓGICA DA MÚSICA ANTERIOR (Repositório / AEscolher)
                 if (_musicaAnterior != null)
                 {
-                    _trackRepo.Tocou(_musicaAnterior.Id); // Registra que a música foi ouvida
+                    _trackRepo.Tocou(_musicaAnterior.Id);
 
-                    // Se estivermos na playlist de triagem "AESCOLHER"
                     if (lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
                     {
                         int qtdAntes = _allTracks.Count;
-
                         ValidarPermanenciaNaListaAEscolher(_musicaAnterior);
 
-                        // Se a música anterior saiu da lista, precisamos ajustar o índice do player
                         if (_allTracks.Count < qtdAntes)
                         {
                             int novoIndiceReal = _allTracks.FindIndex(t => t.Id == track.Id);
-
                             if (novoIndiceReal >= 0)
                             {
-                                // Sincroniza o ponteiro do serviço de áudio
                                 _player.AtualizarIndiceAposRemocao(novoIndiceReal);
                             }
                         }
@@ -458,26 +446,22 @@ namespace XP3.Forms
 
                 InicializarSpectrumSeNecessario();
 
-                // --- NOVIDADE: ROTAÇÃO AUTOMÁTICA DE VISUALIZAÇÃO ---
-                // Se a tela cheia estiver aberta, passamos para o próximo estilo
+                // ROTAÇÃO AUTOMÁTICA DE VISUALIZAÇÃO
                 if (_visualizerWindow != null && !_visualizerWindow.IsDisposed && _visualizerWindow.Visible)
                 {
-                    // O método AbrirVisualizador fecha a atual e abre a próxima (+1)
-                    // Ele também já chama o MostrarInfoMusica para a nova faixa
                     AbrirVisualizador(_currentVisualizerIndex + 1);
                 }
 
-                // 3. PERSISTÊNCIA (Grava no INI para o próximo boot)
+                // 3. PERSISTÊNCIA
                 try
                 {
                     _iniService.Write("Playback", "LastTrackId", track.Id.ToString());
                 }
-                catch { /* Silencioso se falhar gravação */ }
+                catch { }
 
                 // 4. ATUALIZAÇÃO DA GRID (ListView) E PAINEL LATERAL
                 if (lvTracks != null && _allTracks.Count > 0)
                 {
-                    // Localiza a posição da música na lista atual
                     int index = _allTracks.FindIndex(t => t.Id == track.Id);
                     if (index >= 0)
                     {
@@ -486,10 +470,15 @@ namespace XP3.Forms
                         lvTracks.EnsureVisible(index);
 
                         AtualizarPainelLateral(track);
+
+                        // --- A CORREÇÃO ESTÁ AQUI ---
+                        // Força o ListView a rodar o 'RetrieveVirtualItem' de novo para todas as linhas visíveis.
+                        // Isso faz a música antiga ficar cinza e a nova ficar verde.
+                        lvTracks.Refresh();
                     }
                 }
             }));
-        }        
+        }
 
         private void TratarErroReproducao(Track track, string mensagem)
         {
@@ -1549,27 +1538,50 @@ namespace XP3.Forms
             }
         }
 
-        private void LvTracks_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
+        private void lvTracks_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
-            if (e.ItemIndex >= 0 && e.ItemIndex < _allTracks.Count)
+            // Proteção básica se a lista estiver vazia ou índice inválido
+            if (e.ItemIndex < 0 || e.ItemIndex >= _allTracks.Count) return;
+
+            var track = _allTracks[e.ItemIndex];
+
+            // Cria o item da lista
+            ListViewItem item = new ListViewItem(track.Title);
+            item.SubItems.Add(track.BandName);
+            //item.SubItems.Add(track.Duration);
+            item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
+
+            // --- LÓGICA DE DESTAQUE (VERDE) ---
+            // Verifica se esta linha corresponde à música que está tocando agora
+            bool estaTocando = (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id);
+
+            if (estaTocando)
             {
-                var track = _allTracks[e.ItemIndex];
+                // FUNDO: Um verde claro bonito e suave (PaleGreen)
+                // Você pode trocar por Color.LightGreen se quiser mais forte
+                item.BackColor = Color.FromArgb(152, 251, 152);
 
-                ListViewItem item = new ListViewItem(track.Title);     // Coluna 0: Música
-                item.SubItems.Add(track.BandName);                   // Coluna 1: Banda
-                item.SubItems.Add(track.Duration.ToString(@"mm\:ss")); // Coluna 2: Tempo
+                // TEXTO: Preto (para dar leitura no fundo claro)
+                item.ForeColor = Color.Black;
 
-                // Se você ainda quiser manter o destaque visual (fundo vermelho) 
-                // para músicas com tempo zero, mantemos esta condição simples:
-                if (track.Duration.TotalSeconds <= 0)
-                {
-                    item.BackColor = Color.FromArgb(60, 0, 0);
-                    item.ForeColor = Color.White;
-                }
-
-                e.Item = item;
+                // Estilo: Negrito para destacar mais
+                item.Font = new Font(lvTracks.Font, FontStyle.Bold);
             }
-        }
+            else
+            {
+                // FUNDO: Padrão do seu tema (Escuro)
+                item.BackColor = Color.FromArgb(30, 30, 30);
+
+                // TEXTO: Branco
+                item.ForeColor = Color.White;
+
+                // Fonte normal
+                item.Font = lvTracks.Font;
+            }
+            // ----------------------------------
+
+            e.Item = item;
+        }        
 
         #endregion
 
@@ -1713,9 +1725,15 @@ namespace XP3.Forms
                     _visualizerWindow.Bounds = boundsAntigos;
                     _visualizerWindow.WindowState = estadoAntigo;
                 }
+                // Dentro de AbrirVisualizador...
                 else
                 {
                     this._emTelaCheia = true;
+
+                    // --- SALVAR O ESTADO ANTES DE MINIMIZAR ---
+                    _estadoAnterior = this.WindowState;
+                    // ------------------------------------------
+
                     if (AppSettings.IsDevelopment)
                     {
                         _visualizerWindow.StartPosition = FormStartPosition.CenterScreen;
@@ -1754,17 +1772,16 @@ namespace XP3.Forms
             }
         }
 
-        // Método auxiliar para o evento de fechamento
-        // Método auxiliar para o evento de fechamento da tela cheia
         private void OnVisualizerClosed(object sender, FormClosedEventArgs e)
         {
             _emTelaCheia = false;
             _visualizerWindow = null;
 
-            // Se o player estava minimizado, traz ele de volta ao normal
+            // Se o player estava minimizado, traz ele de volta para o estado ORIGINAL
             if (this.WindowState == FormWindowState.Minimized)
             {
-                this.WindowState = FormWindowState.Normal;
+                // Restaura para Maximizado ou Normal, dependendo de como estava antes
+                this.WindowState = _estadoAnterior;
             }
 
             // Traz o foco para o player e exibe
