@@ -43,7 +43,7 @@ namespace XP3.Forms
         private Track _trackComErroAtual; // Guarda qual música deu pau
 
         private Panel _pnlLateral;
-        private CheckedListBox _clbPlaylistsLateral;
+        private XP3.Controls.BigCheckedListBox _clbPlaylistsLateral;
         private Button _btnCopiarLat;
         private Button _btnMoverLat;
         private Button _btnExcluirLat;
@@ -69,7 +69,8 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerCityscape),
             typeof(XP3.Visualizers.VisualizerFlores),
             typeof(XP3.Visualizers.VisualizerFloresta),
-            typeof(XP3.Visualizers.VisualizerCogumelos)
+            typeof(XP3.Visualizers.VisualizerCogumelos),
+            typeof(XP3.Visualizers.VisualizerEspaco)
         };
 
         //private List<Type> _visualizerTypes = new List<Type>
@@ -634,39 +635,26 @@ namespace XP3.Forms
             _btnExcluirLat.Parent = pnlBotoes;
             _btnExcluirLat.Click += BtnExcluirLat_Click;
 
-            // 3. A Lista de Checkbox
-            _clbPlaylistsLateral = new CheckedListBox();
+            // 3. A Lista de Checkbox Customizada (Checks Gigantes)
+            _clbPlaylistsLateral = new XP3.Controls.BigCheckedListBox();
             _clbPlaylistsLateral.Parent = _pnlLateral;
             _clbPlaylistsLateral.Dock = DockStyle.Fill;
-            _clbPlaylistsLateral.BackColor = Color.FromArgb(30, 30, 30);
-            _clbPlaylistsLateral.ForeColor = Color.White;
-            _clbPlaylistsLateral.BorderStyle = BorderStyle.None;
 
-            // Controle manual total
-            _clbPlaylistsLateral.CheckOnClick = false;
+            _clbPlaylistsLateral.CheckBoxSize = 20;
+            _clbPlaylistsLateral.ItemHeight = 36;
 
-            // Mantemos o evento original por segurança, mas a lógica principal será nos cliques
-            _clbPlaylistsLateral.ItemCheck += _clbPlaylistsLateral_ItemCheck;
+            // Configurações Visuais
+            _clbPlaylistsLateral.DisplayMember = "Name";
+            _clbPlaylistsLateral.Font = new Font("Segoe UI", FONTE_NORMAL_LATERAL, FontStyle.Regular);
+            _clbPlaylistsLateral.IntegralHeight = false;
+            _clbPlaylistsLateral.ScrollAlwaysVisible = true;
 
-            // --- CORREÇÃO: CLIQUE DO MOUSE ---
-            _clbPlaylistsLateral.MouseClick += (s, e) =>
-            {
-                int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
-                if (index != ListBox.NoMatches)
-                {
-                    // 1. Inverte o Check
-                    bool novoEstado = !_clbPlaylistsLateral.GetItemChecked(index);
-                    _clbPlaylistsLateral.SetItemChecked(index, novoEstado);
+            // --- EVENTOS ---
 
-                    // 2. Seleciona visualmente (azul)
-                    _clbPlaylistsLateral.SelectedIndex = index;
+            // Clique do Mouse (Método Separado)
+            _clbPlaylistsLateral.MouseClick += _clbPlaylistsLateral_MouseClick;
 
-                    // 3. Habilita o botão Copiar imediatamente
-                    HabilitarBotaoCopiar();
-                }
-            };
-
-            // --- CORREÇÃO: TECLA ESPAÇO ---
+            // Tecla Espaço (Marcar/Desmarcar via Teclado)
             _clbPlaylistsLateral.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Space)
@@ -674,11 +662,8 @@ namespace XP3.Forms
                     int index = _clbPlaylistsLateral.SelectedIndex;
                     if (index != -1)
                     {
-                        // 1. Inverte o Check
                         bool novoEstado = !_clbPlaylistsLateral.GetItemChecked(index);
                         _clbPlaylistsLateral.SetItemChecked(index, novoEstado);
-
-                        // 2. Habilita o botão Copiar imediatamente
                         HabilitarBotaoCopiar();
 
                         e.Handled = true;
@@ -687,7 +672,7 @@ namespace XP3.Forms
                 }
             };
 
-            // Evento de Duplo Clique (Tocar Playlist)
+            // Duplo Clique (Carregar a Playlist para tocar)
             _clbPlaylistsLateral.MouseDoubleClick += (s, e) =>
             {
                 int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
@@ -701,22 +686,81 @@ namespace XP3.Forms
                 }
             };
 
-            // Configurações Visuais
-            _clbPlaylistsLateral.DisplayMember = "Name";
-
-            // _clbPlaylistsLateral.Font = new Font("Segoe UI", 12f, FontStyle.Regular);            
-            _clbPlaylistsLateral.Font = new Font("Segoe UI", FONTE_NORMAL_LATERAL, FontStyle.Regular);
-
-            _clbPlaylistsLateral.IntegralHeight = false;
-            _clbPlaylistsLateral.ScrollAlwaysVisible = true;
-
             // Z-Order
             pnlBotoes.BringToFront();
             _clbPlaylistsLateral.BringToFront();
             _pnlLateral.BringToFront();
         }
 
-        // --- MÉTODO AUXILIAR NOVO PARA NÃO REPETIR CÓDIGO ---
+        private void _clbPlaylistsLateral_MouseClick(object sender, MouseEventArgs e)
+        {
+            int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
+
+            if (index != ListBox.NoMatches)
+            {
+                // Alterna o estado usando o novo componente
+                bool estadoAtual = _clbPlaylistsLateral.GetItemChecked(index);
+                _clbPlaylistsLateral.SetItemChecked(index, !estadoAtual);
+
+                // Mantém a seleção visual
+                _clbPlaylistsLateral.SelectedIndex = index;
+
+                // Ativa o botão de cópia
+                HabilitarBotaoCopiar();
+            }
+        }
+
+        private void _clbPlaylistsLateral_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0) return;
+
+            CheckedListBox lista = (CheckedListBox)sender;
+            bool isChecked = lista.GetItemChecked(e.Index);
+            bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            string texto = lista.Items[e.Index].ToString();
+
+            // 1. FUNDO DA LINHA
+            Color corFundo = isSelected ? Color.FromArgb(60, 60, 60) : lista.BackColor;
+            using (Brush bFundo = new SolidBrush(corFundo))
+            {
+                e.Graphics.FillRectangle(bFundo, e.Bounds);
+            }
+
+            // 2. DIMENSÕES DO CHECKBOX GIGANTE
+            int tamanhoBox = 38; // Aqui você define o tamanho real do quadrado
+            int margemEsq = 10;
+            int yBox = e.Bounds.Y + (e.Bounds.Height - tamanhoBox) / 2;
+            Rectangle rectBox = new Rectangle(margemEsq, yBox, tamanhoBox, tamanhoBox);
+
+            // 3. DESENHAR O QUADRADO (Borda)
+            using (Pen pBorda = new Pen(Color.Gray, 2))
+            {
+                e.Graphics.DrawRectangle(pBorda, rectBox);
+            }
+
+            // 4. DESENHAR O "CHECK" (Preenchimento quando marcado)
+            if (isChecked)
+            {
+                // Desenha um quadrado interno sólido para ser bem visível
+                using (Brush bCheck = new SolidBrush(Color.LightGreen))
+                {
+                    // Margem interna de 5px para o preenchimento não encostar na borda
+                    e.Graphics.FillRectangle(bCheck, rectBox.X + 5, rectBox.Y + 5, tamanhoBox - 9, tamanhoBox - 9);
+                }
+            }
+
+            // 5. DESENHAR O TEXTO
+            // Mantemos a fonte que você já definiu como constante, sem alterá-la
+            Color corTexto = isSelected ? Color.White : Color.LightGray;
+            using (Brush bTexto = new SolidBrush(corTexto))
+            {
+                float xTexto = rectBox.Right + 15; // Espaço após o check gigante
+                float yTexto = e.Bounds.Y + (e.Bounds.Height - e.Font.Height) / 2.0f;
+
+                e.Graphics.DrawString(texto, e.Font, bTexto, xTexto, yTexto);
+            }
+        }
+
         private void HabilitarBotaoCopiar()
         {
             // Só habilita se não estiver carregando a lista programaticamente
@@ -1472,32 +1516,43 @@ namespace XP3.Forms
             }
         }
 
-        // Adicione o parâmetro opcional 'idParaMarcar'
         private void AtualizarPainelLateral(Track track, int? idParaMarcar = null)
         {
             if (track == null) return;
+
             this.CarregandoListas = true;
             _trackEmEdicao = track;
 
+            // 1. Limpa a lista e reinicia os checks
             _clbPlaylistsLateral.Items.Clear();
-            _clbPlaylistsLateral.Items.Add("Adicionar em nova lista", false);
+            _clbPlaylistsLateral.ClearChecked(); // Método que adicionamos no BigCheckedListBox
 
+            // 2. Adiciona a opção de nova lista (sempre desmarcada por padrão)
+            _clbPlaylistsLateral.Items.Add("Adicionar em nova lista");
+            // Não precisamos chamar SetItemChecked aqui pois o padrão é desmarcado
+
+            // 3. Busca as playlists do banco
             var todas = _trackRepo.GetAllPlaylists().OrderBy(p => p.Name).ToList();
             var atuais = _trackRepo.GetPlaylistsByMusicaId(track.Id);
 
             foreach (var p in todas)
             {
+                // Adiciona o objeto da playlist à lista
+                int index = _clbPlaylistsLateral.Items.Add(p);
+
+                // Verifica se esta playlist deve estar marcada
                 bool deveMarcar = atuais.Any(a => a.Id == p.Id) || (idParaMarcar.HasValue && p.Id == idParaMarcar.Value);
-                _clbPlaylistsLateral.Items.Add(p, deveMarcar);
+
+                if (deveMarcar)
+                {
+                    _clbPlaylistsLateral.SetItemChecked(index, true);
+                }
             }
 
             // --- REGRAS DOS BOTÕES ---
-
-            // Copiar: Nasce desabilitado (cinza)
             _btnCopiarLat.Enabled = false;
             _btnCopiarLat.BackColor = Color.DimGray;
 
-            // Mover e Excluir: Sempre habilitados (conforme pedido)
             _btnMoverLat.Enabled = true;
             _btnMoverLat.BackColor = Color.LightBlue;
 
@@ -1669,19 +1724,25 @@ namespace XP3.Forms
 
         private void AbrirVisualizador(int index)
         {
-            // 1. VERIFICAÇÃO DE ESTADO DO PLAYER
-            bool estavaTocando = _player != null && _player.IsPlaying;
-
-            // Validação do índice
-            if (index >= _visualizerTypes.Count) index = 0;
-            if (index < 0) index = _visualizerTypes.Count - 1;
-            _currentVisualizerIndex = index;
+            // 1. PROTEÇÃO DE THREAD
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => AbrirVisualizador(index)));
+                return;
+            }
 
             Rectangle boundsAntigos = Rectangle.Empty;
             FormWindowState estadoAntigo = FormWindowState.Normal;
             bool estavaAberto = false;
 
-            // 2. FECHAMENTO DA JANELA ANTERIOR
+            // 2. VERIFICAÇÃO DE ESTADO DO PLAYER
+            bool estavaTocando = _player != null && _player.IsPlaying;
+
+            if (index >= _visualizerTypes.Count) index = 0;
+            if (index < 0) index = _visualizerTypes.Count - 1;
+            _currentVisualizerIndex = index;
+
+            // 3. FECHAMENTO DA JANELA ANTERIOR
             if (_visualizerWindow != null && !_visualizerWindow.IsDisposed)
             {
                 estavaAberto = true;
@@ -1692,25 +1753,17 @@ namespace XP3.Forms
                 _visualizerWindow.Close();
                 _visualizerWindow.Dispose();
                 _visualizerWindow = null;
-
-                // REMOVI O Application.DoEvents() AQUI PARA NÃO PERDER O FOCO
             }
 
-            // 3. CRIAÇÃO DA NOVA JANELA
+            // 4. CRIAÇÃO DA NOVA JANELA
             try
             {
                 Type tipoParaCriar = _visualizerTypes[_currentVisualizerIndex];
                 _visualizerWindow = (XP3.Visualizers.VisualizerBase)Activator.CreateInstance(tipoParaCriar);
 
-                // --- CORREÇÃO DO PISCA-PISCA ---
-                // Isso impede que a janela crie um botão na barra de tarefas, evitando o alerta laranja
                 _visualizerWindow.ShowInTaskbar = false;
-
-                // Garante que ela fique no topo sem pedir permissão
                 _visualizerWindow.TopMost = true;
-                // -------------------------------
 
-                // Eventos de Navegação
                 _visualizerWindow.RequestNavigation += (s, direcao) =>
                 {
                     this.BeginInvoke(new Action(() => AbrirVisualizador(_currentVisualizerIndex + direcao)));
@@ -1718,35 +1771,41 @@ namespace XP3.Forms
 
                 _visualizerWindow.FormClosed += OnVisualizerClosed;
 
-                // Posicionamento
+                // 5. POSICIONAMENTO (Com a lógica de DEBUG restaurada)
                 if (estavaAberto)
                 {
+                    // Mantém a posição da janela anterior (transição suave)
                     _visualizerWindow.StartPosition = FormStartPosition.Manual;
                     _visualizerWindow.Bounds = boundsAntigos;
                     _visualizerWindow.WindowState = estadoAntigo;
                 }
-                // Dentro de AbrirVisualizador...
                 else
                 {
+                    // Primeira abertura: Decide onde vai abrir
                     this._emTelaCheia = true;
-
-                    // --- SALVAR O ESTADO ANTES DE MINIMIZAR ---
                     _estadoAnterior = this.WindowState;
-                    // ------------------------------------------
 
-                    if (AppSettings.IsDevelopment)
+                    // --- RECURSO RESTAURADO ---
+                    // Detecta se está rodando pelo Visual Studio (F5)
+                    bool modoDebug = System.Diagnostics.Debugger.IsAttached;
+
+                    if (modoDebug)
                     {
+                        // MODO DEV: Abre na tela principal para facilitar o debug
                         _visualizerWindow.StartPosition = FormStartPosition.CenterScreen;
                         _visualizerWindow.WindowState = FormWindowState.Maximized;
                     }
                     else if (Screen.AllScreens.Length > 1)
                     {
+                        // MODO VJ (Produção): Manda para a segunda tela (Projetor/TV)
                         _visualizerWindow.PosicionarNaSegundaTela();
                     }
                     else
                     {
+                        // MODO MONITOR ÚNICO
                         _visualizerWindow.WindowState = FormWindowState.Maximized;
                     }
+                    // ---------------------------
 
                     this.WindowState = FormWindowState.Minimized;
                 }
@@ -1754,13 +1813,12 @@ namespace XP3.Forms
                 _visualizerWindow.Show();
                 _visualizerWindow.Activate();
 
-                // 4. SINCRONIZAÇÃO DE DADOS
+                // 6. DADOS E PLAYBACK
                 if (_player.CurrentTrack != null)
                 {
                     _visualizerWindow.MostrarInfoMusica(_player.CurrentTrack.Title, _player.CurrentTrack.BandName);
                 }
 
-                // 5. GARANTIA DE PLAYBACK
                 if (estavaTocando && !_player.IsPlaying)
                 {
                     _player.TogglePlayPause();
@@ -1768,7 +1826,7 @@ namespace XP3.Forms
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Erro ao abrir visualizador: " + ex.Message);
+                System.Diagnostics.Debug.WriteLine("Erro ao criar visualizador: " + ex.Message);
             }
         }
 

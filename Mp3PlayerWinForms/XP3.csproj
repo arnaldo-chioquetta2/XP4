@@ -146,6 +146,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AppSettings.cs" />
+    <Compile Include="Controls\BigCheckedListBox.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Helpers\ColorHelper.cs" />
     <Compile Include="Controls\ModernSeekBar.cs">
       <SubType>Component</SubType>
@@ -192,6 +195,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Visualizers\VisualizerCogumelos.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Visualizers\VisualizerEspaco.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Visualizers\VisualizerFlores.cs">

@@ -111,5 +111,13 @@ namespace XP3.Visualizers
             else if (e.KeyCode == Keys.Right) RequestNavigation?.Invoke(this, 1);
             else if (e.KeyCode == Keys.Left) RequestNavigation?.Invoke(this, -1);
         }
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            base.OnMouseDoubleClick(e);
+
+            // Fecha a janela do visualizador ao detectar o duplo clique
+            this.Close();
+        }
+
     }
 }
