@@ -242,7 +242,7 @@ namespace XP3.Visualizers
 
         private void DesenharAsteroide(Graphics g, float x, float y, float escala, int alpha)
         {
-            float tamanho = 45 * escala;
+            float tamanho = TAM_ASTEROIDE * escala;
             if (tamanho < 1f) return;
 
             Color corFinal = Color.FromArgb(alpha, _corAsteroide);
@@ -260,7 +260,7 @@ namespace XP3.Visualizers
 
         private void DesenharLua(Graphics g, float x, float y, float escala, int alpha, float intensidade)
         {
-            float tamanho = (120 * intensidade) * escala;
+            float tamanho = (TAM_LUA * intensidade) * escala;
             if (tamanho < 2f) return;
 
             using (Brush b = CriarBrushEsferico(x, y, tamanho, Color.FromArgb(alpha, _corLua), Color.FromArgb(alpha, 50, 50, 60)))
@@ -271,7 +271,7 @@ namespace XP3.Visualizers
 
         private void DesenharPlaneta(Graphics g, float x, float y, float escala, int alpha, float intensidade, Color corBase)
         {
-            float tamanho = (350 * intensidade) * escala;
+            float tamanho = (TAM_PLANETA * intensidade) * escala;
             if (tamanho < 3f) return;
 
             Color corSombra = Color.FromArgb(corBase.R / 3, corBase.G / 3, corBase.B / 3);
@@ -283,7 +283,7 @@ namespace XP3.Visualizers
 
         private void DesenharEstrela(Graphics g, float x, float y, float escala, int alpha, float intensidade)
         {
-            float tamanho = (650 * intensidade) * escala;
+            float tamanho = (TAM_ESTRELA * intensidade) * escala;
             if (tamanho < 4f) return;
 
             int alphaHalo = alpha / 3;
@@ -299,8 +299,8 @@ namespace XP3.Visualizers
 
         private void DesenharGalaxia(Graphics g, float x, float y, float escala, int alpha, float intensidade, float anguloRotacao)
         {
-            float tamanhoW = (2800 * intensidade) * escala;
-            float tamanhoH = (900 * intensidade) * escala;
+            float tamanhoW = (TAM_GALAXIA * intensidade) * escala;
+            float tamanhoH = (TAM_GALAXIA / 3f * intensidade) * escala;
             if (tamanhoW < 5f) return;
 
             using (GraphicsPath path = new GraphicsPath())
