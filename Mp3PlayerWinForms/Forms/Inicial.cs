@@ -8,8 +8,8 @@ using System.Linq;
 using XP3.Services;
 using XP3.Controls;
 using System.Drawing;
-using XP3.Visualizers;
-using System.Diagnostics;
+//using XP3.Visualizers;
+//using System.Diagnostics;
 using System.Windows.Forms;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -72,6 +72,11 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerCogumelos),
             typeof(XP3.Visualizers.VisualizerEspaco)
         };
+
+        //private List<Type> _visualizerTypes = new List<Type>
+        //{
+        //    typeof(XP3.Visualizers.VisualizerEspaco)
+        //};
 
         //private List<Type> _visualizerTypes = new List<Type>
         //{

@@ -3,20 +3,18 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
-using XP3.Services; // Para o LogService
+using XP3.Services;
 
 namespace XP3.Visualizers
 {
     public class VisualizerCogumelos : VisualizerBase
     {
-
-
         private int _profundidadeMaxima = 40;
         private List<float[]> _historico = new List<float[]>();
         private int _contadorQuadros = 0;
         private const int FATOR_PULO = 10;
 
-        // --- PALETA DE CORES ---
+        // --- PALETA DE CORES (Mantida Original) ---
         private Color _corCeu = Color.FromArgb(135, 206, 235);
         private Color _corCampoClaro = Color.FromArgb(100, 180, 100);
         private Color _corCampoEscuro = Color.FromArgb(70, 150, 70);
@@ -39,33 +37,54 @@ namespace XP3.Visualizers
         {
             this.Name = "Cogumelos";
             this.BackColor = _corCeu;
+            this.DoubleBuffered = true; // Importante para evitar piscadas
         }
 
         public override void UpdateData(float[] data, float maxVol)
         {
-            base.UpdateData(data, maxVol);
-            if (data == null) return;
-
-            _contadorQuadros++;
-            if (_contadorQuadros % FATOR_PULO == 0)
+            // 1. PRIMEIRO: Atualiza a lista (Obrigatório rodar sempre)
+            if (data != null)
             {
-                _contadorQuadros = 0;
-                _historico.Insert(0, (float[])data.Clone());
-                if (_historico.Count > _profundidadeMaxima) _historico.RemoveAt(_historico.Count - 1);
+                _contadorQuadros++;
+                if (_contadorQuadros % FATOR_PULO == 0)
+                {
+                    _contadorQuadros = 0;
+
+                    // Proteção de Escrita
+                    lock (SyncLock)
+                    {
+                        _historico.Insert(0, (float[])data.Clone());
+                        if (_historico.Count > _profundidadeMaxima)
+                        {
+                            _historico.RemoveAt(_historico.Count - 1);
+                        }
+                    }
+                }
             }
+
+            // 2. POR ÚLTIMO: Chama a base para controlar o FPS
+            // Se a base der return aqui, não tem problema, pois a lista já foi atualizada acima.
+            base.UpdateData(data, maxVol);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            try
+            if (this.IsDisposed || this.Disposing) return;
+
+            var g = e.Graphics;
+
+            // Variáveis de Escopo (Declaradas fora do lock)
+            int w = this.Width;
+            int h = this.Height;
+
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(this.BackColor); // Garante limpeza da tela
+
+            // Proteção de Leitura
+            lock (SyncLock)
             {
                 if (_historico.Count == 0) return;
 
-                var g = e.Graphics;
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-
-                int w = this.Width;
-                int h = this.Height;
                 float centroX = w / 2.0f;
                 float teto = (_picoReferencia > 0.01f) ? _picoReferencia : 1.0f;
 
@@ -85,7 +104,7 @@ namespace XP3.Visualizers
                     t = Math.Max(0, Math.Min(1, t));
                     int alpha = (int)(255 * t);
 
-                    // --- CHÃO SEGURO (CORRIGIDO) ---
+                    // --- CHÃO ---
                     float grave = (dadosDaVez.Length > 3) ? dadosDaVez[1] * 15 : 0;
                     int r = Math.Max(0, Math.Min(255, (int)(_corCampoEscuro.R * (1 - t) + _corCampoClaro.R * t)));
                     int g_val = Math.Max(0, Math.Min(255, (int)(_corCampoEscuro.G * (1 - t) + _corCampoClaro.G * t + grave)));
@@ -111,52 +130,40 @@ namespace XP3.Visualizers
 
                         float xReal = (centroX - (larguraTotal / 2)) + (c * espaco) + (((c * 19 + i * 13) % 60) - 30) * fatorPerspectiva;
 
-                        // --- HIERARQUIA DE ALTURAS REFINADA ---
+                        // --- HIERARQUIA DE ALTURAS ---
                         if (intensidade > 0.05f && intensidade < 0.20f)
                         {
-                            // Bostas de vaca (vão usar a largura nova de 180 no método DesenharBosta)
                             DesenharBostaDeVaca(g, xReal, chaoY, fatorPerspectiva, alpha);
                         }
                         else if (intensidade >= 0.20f && intensidade < 0.45f)
                         {
-                            // Psilocibina (Muito baixa: 0.15f)
                             DesenharPsilocibina(g, xReal, chaoY, fatorPerspectiva, alpha, intensidade, h * 0.7f);
                         }
                         else if (intensidade >= 0.45f && intensidade < 0.75f)
                         {
-                            // Amanita (Médio porte: 0.8f)
                             DesenharAmanitaMuscaria(g, xReal, chaoY, fatorPerspectiva, alpha, intensidade, h * 0.7f);
                         }
                         else if (intensidade >= 0.75f)
                         {
-                            // Cubensis (GIGANTE: 2.2f)
                             DesenharPsilocybeCubensis(g, xReal, chaoY, fatorPerspectiva, alpha, intensidade, h * 0.7f);
                         }
                     }
                 }
+            } // Fim do Lock
 
-                // --- CHAMADA DA BASE (Faz o texto sumir em 5+5 seg) ---
-                base.DesenharTexto(g, w, h);
-            }
-            catch (Exception ex)
-            {
-                LogService.GravarErro("VisualizerCogumelos.OnPaint", ex);
-                if (this.InvokeRequired) this.BeginInvoke(new Action(() => { this.TopMost = false; this.Close(); }));
-                else { this.TopMost = false; this.Close(); }
-            }
+            base.DesenharTexto(g, w, h);
         }
-        
+
+        // --- MÉTODOS DE DESENHO (Mantidos Idênticos) ---
+
         private void DesenharBostaDeVaca(Graphics g, float x, float chaoY, float escala, int alpha)
         {
-            // Quase dobramos a largura anterior para parecer uma "poça" larga no pasto
             float largura = 180 * escala;
-            float altura = 12 * escala; // Ainda mais achatada
+            float altura = 12 * escala;
 
             using (Brush b = new SolidBrush(AplicarNeblina(_corBosta, alpha)))
             {
                 g.FillEllipse(b, x - largura / 2, chaoY - altura / 2, largura, altura);
-
-                // Detalhe de textura orgânica
                 using (Brush b2 = new SolidBrush(AplicarNeblina(_corBostaDetalhe, alpha)))
                     g.FillEllipse(b2, x - (largura * 0.2f), chaoY - altura * 0.7f, largura * 0.4f, altura * 0.5f);
             }
@@ -164,7 +171,6 @@ namespace XP3.Visualizers
 
         private void DesenharPsilocibina(Graphics g, float x, float chaoY, float escala, int alpha, float intensidade, float hRef)
         {
-            // Reduzido para 0.15f para criar um contraste gigante com os próximos
             float alturaTotal = hRef * intensidade * escala * 0.15f;
             float larguraChapeu = alturaTotal * 1.5f;
 
@@ -177,7 +183,6 @@ namespace XP3.Visualizers
 
         private void DesenharAmanitaMuscaria(Graphics g, float x, float chaoY, float escala, int alpha, float intensidade, float hRef)
         {
-            // Aumentado para 0.8f para começar a ganhar corpo
             float alturaTotal = hRef * intensidade * escala * 0.8f;
             float larguraChapeu = alturaTotal * 1.0f;
 
@@ -190,10 +195,7 @@ namespace XP3.Visualizers
 
         private void DesenharPsilocybeCubensis(Graphics g, float x, float chaoY, float escala, int alpha, float intensidade, float hRef)
         {
-            // Reduzido de 2.2f para 1.7f para um tamanho mais equilibrado
             float alturaTotal = hRef * intensidade * escala * 1.7f;
-
-            // Mantemos a largura proporcional à nova altura
             float larguraChapeu = alturaTotal * 0.4f;
             float larguraCaule = 8 * escala;
 
@@ -201,19 +203,14 @@ namespace XP3.Visualizers
             Color corC = AplicarNeblina(_corCubensisCaule, alpha);
             Color corD = AplicarNeblina(_corCubensisDetalhe, alpha);
 
-            // 1. Desenho do Caule
             using (Brush bC = new SolidBrush(corC))
             {
                 g.FillRectangle(bC, x - larguraCaule / 2, chaoY - alturaTotal, larguraCaule, alturaTotal);
             }
 
-            // 2. Desenho do Chapéu
             using (Brush bH = new SolidBrush(corH))
             {
-                // Elipse principal do topo
                 g.FillEllipse(bH, x - larguraChapeu / 2, chaoY - alturaTotal - (larguraChapeu * 0.15f), larguraChapeu, larguraChapeu * 0.4f);
-
-                // "Mamilo" central característico
                 using (Brush bD = new SolidBrush(corD))
                 {
                     float tamMamilo = larguraChapeu * 0.25f;

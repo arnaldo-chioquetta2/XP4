@@ -14,126 +14,124 @@ namespace XP3.Visualizers
         private int _contadorQuadros = 0;
         private const int FATOR_PULO = 6; // Velocidade média de cruzeiro
 
-        // Paleta de Cores da Floresta
-        private Color _corCeu = Color.FromArgb(135, 206, 235); // Céu azul claro (SkyBlue)
-        private Color _corCampoClaro = Color.FromArgb(144, 238, 144); // Verde claro (LightGreen)
-        private Color _corTroncoGeral = Color.FromArgb(101, 67, 33); // Marrom escuro
-        private Color _corTroncoSequoia = Color.FromArgb(160, 82, 45); // Marrom avermelhado (Sienna)
-        private Color _corFolhaArbusto = Color.FromArgb(34, 139, 34); // Verde floresta
-        private Color _corFolhaFrondosa = Color.FromArgb(0, 100, 0); // Verde escuro profundo
-        private Color _corFolhaEucalipto = Color.FromArgb(85, 107, 47); // Verde oliva/acinzentado
+        // Paleta de Cores
+        private Color _corCeu = Color.FromArgb(135, 206, 235);
+        private Color _corCampoClaro = Color.FromArgb(144, 238, 144);
+        private Color _corTroncoGeral = Color.FromArgb(101, 67, 33);
+        private Color _corTroncoSequoia = Color.FromArgb(160, 82, 45);
+        private Color _corFolhaArbusto = Color.FromArgb(34, 139, 34);
+        private Color _corFolhaFrondosa = Color.FromArgb(0, 100, 0);
+        private Color _corFolhaEucalipto = Color.FromArgb(85, 107, 47);
 
         public VisualizerFloresta()
         {
             this.Name = "Evolução da Floresta";
-            this.BackColor = _corCeu; // Fundo de dia
+            this.BackColor = _corCeu;
+            this.DoubleBuffered = true; // Essencial para evitar flickering
         }
 
         public override void UpdateData(float[] data, float maxVol)
         {
-            base.UpdateData(data, maxVol);
-            if (data == null) return;
-
-            _contadorQuadros++;
-            if (_contadorQuadros % FATOR_PULO == 0)
+            // 1. Primeiro, fazemos a nossa lógica de histórico (NÃO PODE SER INTERROMPIDA)
+            if (data != null)
             {
-                _contadorQuadros = 0;
-                _historico.Insert(0, (float[])data.Clone());
-                if (_historico.Count > _profundidadeMaxima) _historico.RemoveAt(_historico.Count - 1);
+                _contadorQuadros++;
+                if (_contadorQuadros % FATOR_PULO == 0)
+                {
+                    _contadorQuadros = 0;
+
+                    lock (SyncLock)
+                    {
+                        _historico.Insert(0, (float[])data.Clone());
+                        if (_historico.Count > _profundidadeMaxima)
+                            _historico.RemoveAt(_historico.Count - 1);
+                    }
+                }
             }
+
+            // 2. Por último, chamamos a base para atualizar o volume e o FPS
+            base.UpdateData(data, maxVol);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            if (_historico.Count == 0) return;
+            if (this.IsDisposed || this.Disposing) return;
 
             var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
 
-            int w = this.Width;
-            int h = this.Height;
-            float centroX = w / 2.0f;
-            float teto = (_picoReferencia > 0.1f) ? _picoReferencia : 1.0f;
-
-            float horizonteY = h * 0.45f;
-            float alturaCamera = h * 1.1f;
-
-            for (int i = _historico.Count - 1; i >= 0; i--)
+            // --- PROTEÇÃO DE LEITURA (FIM DA TELA PRETA) ---
+            lock (SyncLock)
             {
-                float[] dadosDaVez = _historico[i];
-                float z = 1.0f + (i * 0.4f);
-                float fatorPerspectiva = 1.0f / z;
-                float chaoY = horizonteY + (alturaCamera * fatorPerspectiva);
+                if (_historico.Count == 0) return;
 
-                if (chaoY > h + 200) continue;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
 
-                float t = 1.0f - ((float)i / _profundidadeMaxima);
-                t = Math.Max(0, Math.Min(1, t));
-                int alpha = (int)(255 * t);
+                int w = this.Width;
+                int h = this.Height;
+                float centroX = w / 2.0f;
+                float teto = (_picoReferencia > 0.1f) ? _picoReferencia : 1.0f;
 
-                // Chão (Campo verde claro)
-                float grave = (dadosDaVez.Length > 3) ? dadosDaVez[1] * 30 : 0;
-                int gCampo = Math.Min(255, _corCampoClaro.G + (int)grave);
-                Color corChaoAtual = Color.FromArgb(alpha, _corCampoClaro.R, gCampo, _corCampoClaro.B);
-                using (Brush bChao = new SolidBrush(corChaoAtual))
+                float horizonteY = h * 0.45f;
+                float alturaCamera = h * 1.1f;
+
+                // Desenha de trás (horizonte) para frente (câmera)
+                for (int i = _historico.Count - 1; i >= 0; i--)
                 {
-                    g.FillRectangle(bChao, -w, chaoY, w * 4, h - chaoY + 200);
-                }
+                    float[] dadosDaVez = _historico[i];
+                    float z = 1.0f + (i * 0.4f);
+                    float fatorPerspectiva = 1.0f / z;
+                    float chaoY = horizonteY + (alturaCamera * fatorPerspectiva);
 
-                int qtdArvores = 20;
-                float larguraTotal = w * 3.5f * fatorPerspectiva;
-                float espaco = larguraTotal / qtdArvores;
+                    if (chaoY > h + 200) continue;
 
-                for (int c = 0; c < qtdArvores; c++)
-                {
-                    int distCentro = Math.Abs((qtdArvores / 2) - c);
-                    int indiceAudio = (int)(distCentro * 2.0f) + 1;
+                    // Cálculo da neblina (Alpha)
+                    float t = 1.0f - ((float)i / _profundidadeMaxima);
+                    t = Math.Max(0, Math.Min(1, t));
+                    int alpha = (int)(255 * t);
 
-                    float valor = (indiceAudio < dadosDaVez.Length) ? dadosDaVez[indiceAudio] : 0;
-
-                    // --- AJUSTE EQUILIBRADO: 1.3x em vez de 1.8x ---
-                    float intensidade = (valor / teto) * 1.3f;
-                    if (intensidade > 1.0f) intensidade = 1.0f;
-
-                    float xBase = (centroX - (qtdArvores * espaco / 2)) + (c * espaco);
-                    float randomOffset = ((c * 19 + i * 13) % 80) - 40;
-                    float xReal = xBase + (randomOffset * fatorPerspectiva);
-
-                    float escala = fatorPerspectiva;
-                    float alturaBaseTela = h * 0.7f;
-
-                    // --- NOVOS LIMIARES DE TRANSIÇÃO ---
-
-                    if (intensidade < 0.12f)
+                    // Desenha o Chão
+                    float grave = (dadosDaVez.Length > 3) ? dadosDaVez[1] * 30 : 0;
+                    int gCampo = Math.Min(255, _corCampoClaro.G + (int)grave);
+                    Color corChaoAtual = Color.FromArgb(alpha, _corCampoClaro.R, gCampo, _corCampoClaro.B);
+                    using (Brush bChao = new SolidBrush(corChaoAtual))
                     {
-                        // Quase silêncio: Fica o campo limpo
+                        g.FillRectangle(bChao, -w, chaoY, w * 4, h - chaoY + 200);
                     }
-                    else if (intensidade < 0.35f)
+
+                    // Desenha as Árvores
+                    int qtdArvores = 20;
+                    float larguraTotal = w * 3.5f * fatorPerspectiva;
+                    float espaco = larguraTotal / qtdArvores;
+
+                    for (int c = 0; c < qtdArvores; c++)
                     {
-                        // Volume Baixo: Arbustos
-                        DesenharArbusto(g, xReal, chaoY, escala, alpha, _corFolhaArbusto);
-                    }
-                    else if (intensidade < 0.65f)
-                    {
-                        // Volume Médio: Árvores Frondosas (Figueiras)
-                        DesenharArvoreFrondosa(g, xReal, chaoY, escala, alpha, intensidade, alturaBaseTela);
-                    }
-                    else if (intensidade < 0.88f)
-                    {
-                        // Volume Alto: Eucaliptos
-                        // Altura normalizada (sem o multiplicador de 1.3x extra)
-                        DesenharEucalipto(g, xReal, chaoY, escala, alpha, intensidade, alturaBaseTela);
-                    }
-                    else
-                    {
-                        // Pico de Volume: Sequoias Gigantes
-                        // Mantivemos um leve bônus de altura (1.2x) para o impacto, mas menor que antes
-                        DesenharSequoia(g, xReal, chaoY, escala, alpha, intensidade, alturaBaseTela * 1.2f);
+                        int distCentro = Math.Abs((qtdArvores / 2) - c);
+                        int indiceAudio = (int)(distCentro * 2.0f) + 1;
+
+                        float valor = (indiceAudio < dadosDaVez.Length) ? dadosDaVez[indiceAudio] : 0;
+                        float intensidade = (valor / teto) * 1.3f;
+                        if (intensidade > 1.0f) intensidade = 1.0f;
+
+                        float xBase = (centroX - (qtdArvores * espaco / 2)) + (c * espaco);
+                        float randomOffset = ((c * 19 + i * 13) % 80) - 40;
+                        float xReal = xBase + (randomOffset * fatorPerspectiva);
+
+                        float escala = fatorPerspectiva;
+                        float alturaBaseTela = h * 0.7f;
+
+                        if (intensidade < 0.12f) { }
+                        else if (intensidade < 0.35f) DesenharArbusto(g, xReal, chaoY, escala, alpha, _corFolhaArbusto);
+                        else if (intensidade < 0.65f) DesenharArvoreFrondosa(g, xReal, chaoY, escala, alpha, intensidade, alturaBaseTela);
+                        else if (intensidade < 0.88f) DesenharEucalipto(g, xReal, chaoY, escala, alpha, intensidade, alturaBaseTela);
+                        else DesenharSequoia(g, xReal, chaoY, escala, alpha, intensidade, alturaBaseTela * 1.2f);
                     }
                 }
-            }
-            base.DesenharTexto(g, w, h);
-        }        
+            } // --- FIM DO LOCK ---
+
+            base.DesenharTexto(g, this.Width, this.Height);
+        }
+
+        // --- MÉTODOS DE DESENHO (Mantidos iguais, apenas encapsulados na classe) ---
 
         private void DesenharArbusto(Graphics g, float x, float chaoY, float escala, int alpha, Color corFolha)
         {
@@ -144,7 +142,6 @@ namespace XP3.Visualizers
             Color corFinal = AplicarNeblina(corFolha, alpha);
             using (Brush b = new SolidBrush(corFinal))
             {
-                // Desenha um conjunto de elipses para parecer uma moita bagunçada
                 g.FillEllipse(b, x - tamanho / 2, yBase - altura, tamanho, altura);
                 g.FillEllipse(b, x - tamanho * 0.8f, yBase - altura * 0.7f, tamanho * 0.8f, altura * 0.8f);
                 g.FillEllipse(b, x + tamanho * 0.1f, yBase - altura * 0.7f, tamanho * 0.8f, altura * 0.8f);
@@ -153,58 +150,39 @@ namespace XP3.Visualizers
 
         private void DesenharArvoreFrondosa(Graphics g, float x, float chaoY, float escala, int alpha, float intensidade, float hRef)
         {
-            // --- MATEMÁTICA DA FIGUEIRA (Larga e Frondosa) ---
-            // Altura controlada (não cresce tanto quanto o eucalipto)
             float alturaTotal = hRef * intensidade * escala * 0.65f;
-
-            // Tronco mais grosso (Figueiras têm bases imponentes)
             float larguraTronco = 25 * escala;
-
-            // COPA LARGA: Antes era 1.2f, agora usamos 2.8f para ela "vazar" para os lados
             float larguraCopa = alturaTotal * 2.8f;
             float alturaCopa = alturaTotal * 0.6f;
 
-            // 1. DESENHAR O TRONCO (Mais robusto)
             Color corTronco = AplicarNeblina(_corTroncoGeral, alpha);
             using (Pen pTronco = new Pen(corTronco, larguraTronco))
             {
-                // Linha do tronco ligeiramente mais curta para a copa começar mais baixo
                 g.DrawLine(pTronco, x, chaoY, x, chaoY - (alturaTotal * 0.4f));
             }
 
-            // 2. DESENHAR A COPA (Múltiplas camadas para parecer orgânico)
             Color corCopa = AplicarNeblina(_corFolhaFrondosa, alpha);
             using (Brush bCopa = new SolidBrush(corCopa))
             {
                 float yCopa = chaoY - alturaTotal;
-
-                // Desenhamos três elipses sobrepostas para criar o efeito de "nuvem de folhas" horizontal
-                // Elipse Central (Principal)
                 g.FillEllipse(bCopa, x - larguraCopa / 2, yCopa, larguraCopa, alturaCopa);
-
-                // Elipse Esquerda (Mais baixa e para o lado)
                 g.FillEllipse(bCopa, x - larguraCopa * 0.6f, yCopa + (alturaCopa * 0.2f), larguraCopa * 0.5f, alturaCopa * 0.8f);
-
-                // Elipse Direita (Mais baixa e para o lado)
                 g.FillEllipse(bCopa, x + larguraCopa * 0.1f, yCopa + (alturaCopa * 0.2f), larguraCopa * 0.5f, alturaCopa * 0.8f);
             }
         }
 
         private void DesenharEucalipto(Graphics g, float x, float chaoY, float escala, int alpha, float intensidade, float hRef)
         {
-            // Altura alta, tronco fino, copa estreita no topo
-            float alturaTotal = hRef * intensidade * escala * 1.2f; // Mais alto
-            float larguraTronco = 8 * escala; // Mais fino
-            float larguraCopa = alturaTotal * 0.35f; // Copa estreita
+            float alturaTotal = hRef * intensidade * escala * 1.2f;
+            float larguraTronco = 8 * escala;
+            float larguraCopa = alturaTotal * 0.35f;
 
-            // Tronco
             Color corTronco = AplicarNeblina(_corTroncoGeral, alpha);
             using (Pen pTronco = new Pen(corTronco, larguraTronco))
             {
                 g.DrawLine(pTronco, x, chaoY, x, chaoY - (alturaTotal * 0.85f));
             }
 
-            // Copa (Forma mais ovalada e alta)
             Color corCopa = AplicarNeblina(_corFolhaEucalipto, alpha);
             using (Brush bCopa = new SolidBrush(corCopa))
             {
@@ -215,13 +193,10 @@ namespace XP3.Visualizers
 
         private void DesenharSequoia(Graphics g, float x, float chaoY, float escala, int alpha, float intensidade, float hRef)
         {
-            // Altura colossal, tronco massivo, copa cônica imponente
-            // O Fator de explosão (Pow) faz ela crescer muito nos últimos % de volume
             float fatorExplosao = (float)Math.Pow(intensidade, 4);
-            float alturaTotal = hRef * 1.8f * escala * fatorExplosao; // Muito alta
-            float larguraTroncoBase = 45 * escala * fatorExplosao; // Tronco muito grosso
+            float alturaTotal = hRef * 1.8f * escala * fatorExplosao;
+            float larguraTroncoBase = 45 * escala * fatorExplosao;
 
-            // Tronco (Desenhado como um trapézio para afinar levemente)
             Color corTronco = AplicarNeblina(_corTroncoSequoia, alpha);
             using (Brush bTronco = new SolidBrush(corTronco))
             {
@@ -234,26 +209,23 @@ namespace XP3.Visualizers
                 g.FillPolygon(bTronco, pontosTronco);
             }
 
-            // Copa (Forma cônica/triangular gigante)
-            Color corCopa = AplicarNeblina(_corFolhaFrondosa, alpha); // Usa um verde escuro nobre
+            Color corCopa = AplicarNeblina(_corFolhaFrondosa, alpha);
             using (Brush bCopa = new SolidBrush(corCopa))
             {
                 float larguraCopaBase = larguraTroncoBase * 3.0f;
                 PointF[] pontosCopa = {
                     new PointF(x - larguraCopaBase/2, chaoY - alturaTotal * 0.5f),
                     new PointF(x + larguraCopaBase/2, chaoY - alturaTotal * 0.5f),
-                    new PointF(x, chaoY - alturaTotal * 1.1f) // Topo pontudo
+                    new PointF(x, chaoY - alturaTotal * 1.1f)
                 };
                 g.FillPolygon(bCopa, pontosCopa);
             }
         }
 
-        // Helper para aplicar a neblina branca do horizonte nas cores
         private Color AplicarNeblina(Color corBase, int alpha)
         {
-            // Cor da neblina (Branco/Azulado do céu)
             Color corNeblina = Color.FromArgb(200, 220, 255);
-            float t = alpha / 255.0f; // 1.0 = Frente (cor pura), 0.0 = Fundo (neblina)
+            float t = alpha / 255.0f;
 
             int r = (int)(corNeblina.R + (corBase.R - corNeblina.R) * t);
             int g = (int)(corNeblina.G + (corBase.G - corNeblina.G) * t);
