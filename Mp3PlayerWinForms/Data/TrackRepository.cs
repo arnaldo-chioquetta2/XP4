@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using XP3.Models;
 using System.Diagnostics;
-using System.Data.SQLite; 
+using System.Data.SQLite;
 using System.Collections.Generic;
 
 namespace XP3.Data
@@ -10,26 +10,8 @@ namespace XP3.Data
     public class TrackRepository
     {
 
-        // --- MÉTODO NOVO QUE ESTAVA FALTANDO ---
-        //public string GetPlaylistName(int playlistId)
-        //{
-        //    using (var conn = Database.GetConnection())
-        //    {
-        //        conn.Open();
-        //        using (var cmd = conn.CreateCommand())
-        //        {
-        //            cmd.CommandText = "SELECT Nome FROM Lista WHERE ID = @id";
-        //            cmd.Parameters.AddWithValue("@id", playlistId);
-
-        //            var result = cmd.ExecuteScalar();
-        //            return result != null ? result.ToString() : "Lista Desconhecida";
-        //        }
-        //    }
-        //}
-        // ----------------------------------------
         public string GetPlaylistName(int playlistId)
         {
-            Debug.WriteLine($"[REPO] Buscando nome da playlist ID: {playlistId}");
             try
             {
                 using (var conn = Database.GetConnection())
@@ -39,17 +21,13 @@ namespace XP3.Data
                     {
                         cmd.CommandText = "SELECT Nome FROM Lista WHERE ID = @id";
                         cmd.Parameters.AddWithValue("@id", playlistId);
-
                         var result = cmd.ExecuteScalar();
-                        string nome = result != null ? result.ToString() : "Lista Desconhecida";
-                        Debug.WriteLine($"[REPO] Nome encontrado: {nome}");
-                        return nome;
+                        return result != null ? result.ToString() : "Lista Desconhecida";
                     }
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                Debug.WriteLine($"[REPO_ERRO] Falha em GetPlaylistName: {ex.Message}");
                 return "Erro ao carregar";
             }
         }
@@ -78,11 +56,29 @@ namespace XP3.Data
             }
         }
 
+        // --- CORREÇÃO CRÍTICA 1: IMPEDIR CRIAÇÃO DE ID DUPLICADO ---
         public int AddTrack(Track track)
         {
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
+
+                // 1. Verifica se esse arquivo JÁ ESTÁ CADASTRADO
+                using (var checkCmd = conn.CreateCommand())
+                {
+                    checkCmd.CommandText = "SELECT ID FROM Musica WHERE Lugar = @lugar";
+                    checkCmd.Parameters.AddWithValue("@lugar", track.FilePath);
+                    var existingId = checkCmd.ExecuteScalar();
+
+                    if (existingId != null)
+                    {
+                        // Se já existe, NÃO cria novo. Retorna o ID existente.
+                        Debug.WriteLine($"[REPO] Arquivo já existe no banco (ID {existingId}). Reutilizando.");
+                        return Convert.ToInt32(existingId);
+                    }
+                }
+
+                // 2. Se não existe, cria novo
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"
@@ -107,15 +103,72 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
+
+                // Verifica vínculo existente
+                string checkSql = "SELECT COUNT(*) FROM LisMus WHERE Lista = @lista AND Musica = @musica";
+                using (var checkCmd = new SQLiteCommand(checkSql, conn))
+                {
+                    checkCmd.Parameters.AddWithValue("@lista", playlistId);
+                    checkCmd.Parameters.AddWithValue("@musica", trackId);
+                    if (Convert.ToInt32(checkCmd.ExecuteScalar()) > 0) return;
+                }
+
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO LisMus (Lista, Musica, JaTocou, PosLista) 
                                         VALUES (@lista, @musica, 0, 0)";
-
                     cmd.Parameters.AddWithValue("@lista", playlistId);
                     cmd.Parameters.AddWithValue("@musica", trackId);
-
                     try { cmd.ExecuteNonQuery(); } catch { }
+                }
+            }
+        }
+
+        // --- CORREÇÃO CRÍTICA 2: LIMPEZA PROFUNDA ---
+        public void LimparDuplicatasNoBanco()
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        // ETAPA A: Limpar duplicatas na tabela de Vínculos (LisMus)
+                        // (Mesma música na mesma lista várias vezes)
+                        string sqlLink = @"
+                            DELETE FROM LisMus 
+                            WHERE rowid NOT IN (
+                                SELECT MIN(rowid) 
+                                FROM LisMus 
+                                GROUP BY Lista, Musica
+                            )";
+                        using (var cmd = new SQLiteCommand(sqlLink, conn, transaction)) { cmd.ExecuteNonQuery(); }
+
+                        // ETAPA B: Limpar duplicatas na tabela de Arquivos (Musica)
+                        // (Mesmo arquivo cadastrado com IDs diferentes)
+                        // ATENÇÃO: Mantemos o MENOR ID (o mais antigo) e deletamos os novos duplicados
+                        string sqlMusica = @"
+                            DELETE FROM Musica 
+                            WHERE ID NOT IN (
+                                SELECT MIN(ID) 
+                                FROM Musica 
+                                GROUP BY Lugar
+                            )";
+                        using (var cmd = new SQLiteCommand(sqlMusica, conn, transaction)) { cmd.ExecuteNonQuery(); }
+
+                        // ETAPA C: Limpar Vínculos Órfãos
+                        // (Links na playlist que apontavam para os IDs que acabamos de deletar na Etapa B)
+                        string sqlOrf = "DELETE FROM LisMus WHERE Musica NOT IN (SELECT ID FROM Musica)";
+                        using (var cmd = new SQLiteCommand(sqlOrf, conn, transaction)) { cmd.ExecuteNonQuery(); }
+
+                        transaction.Commit();
+                        Debug.WriteLine("[REPO] Limpeza Completa (Links e Arquivos) executada.");
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                    }
                 }
             }
         }
@@ -123,38 +176,29 @@ namespace XP3.Data
         public List<Track> GetTracksByPlaylist(int playlistId)
         {
             var tracks = new List<Track>();
-            Debug.WriteLine($"[REPO] Iniciando GetTracksByPlaylist para ID: {playlistId}");
-
             try
             {
                 using (var conn = Database.GetConnection())
                 {
-                    Debug.WriteLine("[REPO] Abrindo conexão com o banco...");
                     conn.Open();
-                    Debug.WriteLine("[REPO] Conexão aberta com sucesso.");
-
+                    // Query otimizada
                     string sql = @"
                         SELECT 
-                            m.ID, 
-                            m.Nome, 
-                            m.Lugar, 
-                            m.Tempo, 
-                            b.ID as BandId, 
-                            b.Nome as BandName
+                            m.ID, m.Nome, m.Lugar, m.Tempo, 
+                            b.ID as BandId, b.Nome as BandName
                         FROM Musica m
                         LEFT JOIN Banda b ON m.Banda = b.ID
                         JOIN LisMus lm ON m.ID = lm.Musica
-                        WHERE lm.Lista = @listaId";
+                        WHERE lm.Lista = @listaId
+                        GROUP BY m.ID
+                        ORDER BY b.Nome, m.Nome";
 
                     using (var cmd = conn.CreateCommand())
                     {
                         cmd.CommandText = sql;
                         cmd.Parameters.AddWithValue("@listaId", playlistId);
-
-                        Debug.WriteLine("[REPO] Executando Reader...");
                         using (var reader = cmd.ExecuteReader())
                         {
-                            int count = 0;
                             while (reader.Read())
                             {
                                 var t = new Track();
@@ -171,81 +215,24 @@ namespace XP3.Data
                                 t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
 
                                 tracks.Add(t);
-                                count++;
                             }
-                            Debug.WriteLine($"[REPO] Reader finalizado. {count} músicas encontradas no banco.");
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("=================================================");
-                Debug.WriteLine($"[REPO_CRITICAL] ERRO AO ACESSAR MUSICAS: {ex.Message}");
-                Debug.WriteLine($"[REPO_CRITICAL] STACK: {ex.StackTrace}");
-                Debug.WriteLine("=================================================");
+                Debug.WriteLine($"[REPO_ERRO] GetTracksByPlaylist: {ex.Message}");
             }
 
             return tracks;
         }
-        //public List<Track> GetTracksByPlaylist(int playlistId)
-        //{
-        //    var tracks = new List<Track>();
-        //    using (var conn = Database.GetConnection())
-        //    {
-        //        conn.Open();
-
-        //        string sql = @"
-        //            SELECT 
-        //                m.ID, 
-        //                m.Nome, 
-        //                m.Lugar, 
-        //                m.Tempo, 
-        //                b.ID as BandId, 
-        //                b.Nome as BandName
-        //            FROM Musica m
-        //            LEFT JOIN Banda b ON m.Banda = b.ID
-        //            JOIN LisMus lm ON m.ID = lm.Musica
-        //            WHERE lm.Lista = @listaId";
-
-        //        using (var cmd = conn.CreateCommand())
-        //        {
-        //            cmd.CommandText = sql;
-        //            cmd.Parameters.AddWithValue("@listaId", playlistId);
-
-        //            using (var reader = cmd.ExecuteReader())
-        //            {
-        //                while (reader.Read())
-        //                {
-        //                    var t = new Track();
-        //                    t.Id = reader.GetInt32(0);
-        //                    t.Title = reader.IsDBNull(1) ? "Sem Título" : reader.GetString(1);
-        //                    t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
-
-        //                    string tempoStr = reader.IsDBNull(3) ? "00:00:00" : reader.GetString(3);
-        //                    TimeSpan ts;
-        //                    if (TimeSpan.TryParse(tempoStr, out ts))
-        //                        t.Duration = ts;
-        //                    else
-        //                        t.Duration = TimeSpan.Zero;
-
-        //                    t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
-        //                    t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
-
-        //                    tracks.Add(t);
-        //                }
-        //            }
-        //        }
-        //    }
-        //    return tracks;
-        //}
 
         public int GetOrCreatePlaylist(string nomeLista)
         {
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT ID FROM Lista WHERE Nome = @nome";
@@ -253,12 +240,10 @@ namespace XP3.Data
                     var result = cmd.ExecuteScalar();
                     if (result != null) return Convert.ToInt32(result);
                 }
-
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO Lista (Nome, AutoDel, SempreRandom, NaoRepetir, MaxVol, ProxLista, Usu, MenosTocadasPrimeiro, DesabProg) 
-                                        VALUES (@nome, 0, 0, 0, 100, 0, 0, 0, 0);
-                                        SELECT last_insert_rowid();";
+                                        VALUES (@nome, 0, 0, 0, 100, 0, 0, 0, 0); SELECT last_insert_rowid();";
                     cmd.Parameters.AddWithValue("@nome", nomeLista);
                     return Convert.ToInt32(cmd.ExecuteScalar());
                 }
@@ -291,7 +276,8 @@ namespace XP3.Data
             return null;
         }
 
-        public void Tocou(int id) {
+        public void Tocou(int id)
+        {
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
@@ -329,7 +315,6 @@ namespace XP3.Data
             {
                 connection.Open();
                 string sql = "INSERT INTO ApagarMusicas (Lugar, Banda) VALUES (@Lugar, @Banda)";
-
                 using (var command = new SQLiteCommand(sql, connection))
                 {
                     command.Parameters.AddWithValue("@Lugar", caminho);
@@ -344,9 +329,9 @@ namespace XP3.Data
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
-
-                // 1. Antes de apagar, guardamos o ID da Banda
                 int bandaId = -1;
+
+                // 1. Busca Banda ID
                 using (var cmdBusca = new SQLiteCommand("SELECT Banda FROM Musica WHERE ID = @Id", connection))
                 {
                     cmdBusca.Parameters.AddWithValue("@Id", trackId);
@@ -358,7 +343,7 @@ namespace XP3.Data
                 {
                     try
                     {
-                        // 2. Remove da tabela de ligação (LisMus) - Coluna 'Musica' é o ID da faixa
+                        // 2. Remove Links
                         using (var cmd1 = connection.CreateCommand())
                         {
                             cmd1.Transaction = transaction;
@@ -367,7 +352,7 @@ namespace XP3.Data
                             cmd1.ExecuteNonQuery();
                         }
 
-                        // 3. Remove da tabela principal (Musica)
+                        // 3. Remove Musica
                         using (var cmd2 = connection.CreateCommand())
                         {
                             cmd2.Transaction = transaction;
@@ -376,7 +361,7 @@ namespace XP3.Data
                             cmd2.ExecuteNonQuery();
                         }
 
-                        // 4. Verifica se ainda restam músicas dessa banda
+                        // 4. Limpeza de Banda e Pasta Vazia
                         if (bandaId != -1)
                         {
                             using (var cmdCheck = new SQLiteCommand("SELECT COUNT(*) FROM Musica WHERE Banda = @BandaId", connection, transaction))
@@ -386,7 +371,6 @@ namespace XP3.Data
 
                                 if (restante == 0)
                                 {
-                                    // Tenta obter o caminho da pasta antes de apagar o registro da banda
                                     string caminhoPastaBanda = string.Empty;
                                     using (var cmdPath = new SQLiteCommand("SELECT Lugar FROM Banda WHERE ID = @BandaId", connection, transaction))
                                     {
@@ -394,27 +378,24 @@ namespace XP3.Data
                                         caminhoPastaBanda = cmdPath.ExecuteScalar()?.ToString();
                                     }
 
-                                    // Apaga o registro da banda (Supondo que a tabela se chama 'Banda')
                                     using (var cmdDelBanda = new SQLiteCommand("DELETE FROM Banda WHERE ID = @BandaId", connection, transaction))
                                     {
                                         cmdDelBanda.Parameters.AddWithValue("@BandaId", bandaId);
                                         cmdDelBanda.ExecuteNonQuery();
                                     }
 
-                                    // 5. Tentativa de apagar a pasta física (Fora da transação SQL, após o commit)
                                     transaction.Commit();
                                     TentarApagarPastaBanda(caminhoPastaBanda);
-                                    return; // Sai pois já deu commit
+                                    return;
                                 }
                             }
                         }
 
                         transaction.Commit();
                     }
-                    catch (Exception ex)
+                    catch
                     {
                         transaction.Rollback();
-                        System.Windows.Forms.MessageBox.Show($"Erro ao processar exclusão: {ex.Message}");
                         throw;
                     }
                 }
@@ -424,27 +405,15 @@ namespace XP3.Data
         private void TentarApagarPastaBanda(string caminho)
         {
             if (string.IsNullOrWhiteSpace(caminho) || !Directory.Exists(caminho)) return;
-
             try
             {
-                // Só apaga se a pasta estiver vazia
-                if (Directory.GetFileSystemEntries(caminho).Length == 0)
-                {
-                    Directory.Delete(caminho);
-                }
+                if (Directory.GetFileSystemEntries(caminho).Length == 0) Directory.Delete(caminho);
             }
-            catch
-            {
-                // Silencioso conforme solicitado se não der para apagar
-            }
+            catch { }
         }
-
-
         #endregion
 
         #region Copiar/Mover
-
-        // Retorna todas as listas cadastradas ordenadas por nome
         public List<Playlist> GetAllPlaylists()
         {
             var list = new List<Playlist>();
@@ -463,7 +432,6 @@ namespace XP3.Data
             return list;
         }
 
-        // Retorna as listas às quais uma música específica já pertence
         public List<Playlist> GetPlaylistsByMusicaId(int musicaId)
         {
             var list = new List<Playlist>();
@@ -471,8 +439,8 @@ namespace XP3.Data
             {
                 conn.Open();
                 string sql = @"SELECT l.ID, l.Nome FROM Lista l 
-                       JOIN LisMus lm ON l.ID = lm.Lista 
-                       WHERE lm.Musica = @musId";
+                        JOIN LisMus lm ON l.ID = lm.Lista 
+                        WHERE lm.Musica = @musId";
                 using (var cmd = new SQLiteCommand(sql, conn))
                 {
                     cmd.Parameters.AddWithValue("@musId", musicaId);
@@ -514,8 +482,6 @@ namespace XP3.Data
                 }
             }
         }
-
         #endregion
-
     }
 }

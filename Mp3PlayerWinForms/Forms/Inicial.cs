@@ -71,8 +71,8 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerEspaco)
         };
 
-        private int _currentVisualizerIndex = 0;    
-
+        private int _currentVisualizerIndex = 0;
+        private List<Track> _tracks = new List<Track>();
         public Inicial()
         {
             InitializeComponent();
@@ -145,6 +145,7 @@ namespace XP3.Forms
             btnNext.Click += (s, e) => _player.Next();
 
             // Botão SCAN
+            // Botão SCAN
             btnScan.Click += (s, e) =>
             {
                 var frm = new XP3.Forms.ScannerForm();
@@ -152,20 +153,83 @@ namespace XP3.Forms
                 {
                     try
                     {
+                        // 1. Guarda a música atual antes de mexer na lista
+                        var musicaTocandoAgora = _player.CurrentTrack;
+                        bool estavaTocando = _player.IsPlaying;
+
                         // Limpa e recarrega após o scan
                         int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
                         _currentPlaylistId = idAEscolher;
                         _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
 
+                        // 2. Recarrega a lista visual (lvTracks) e a lista interna (_tracks)
                         LoadPlaylist();
 
-                        // Toca a primeira se houver algo novo
-                        if (lvTracks.Items.Count > 0)
-                            _player.Play(0);
+                        // 3. Lógica de Recuperação de Posição
+                        if (musicaTocandoAgora != null)
+                        {
+                            // Procura onde a música foi parar na nova lista
+                            // Usamos o ID que é único
+                            int novoIndice = -1;
+                            for (int i = 0; i < _tracks.Count; i++)
+                            {
+                                if (_tracks[i].Id == musicaTocandoAgora.Id)
+                                {
+                                    novoIndice = i;
+                                    break;
+                                }
+                            }
+
+                            if (novoIndice != -1)
+                            {
+                                // ACHAMOS! A música ainda existe na lista, mas mudou de lugar.
+                                // Avisamos o player para atualizar o índice interno SEM parar a música.
+                                _player.AtualizarIndiceAposRemocao(novoIndice);
+
+                                // Seleciona ela na lista visual para o usuário ver
+                                lvTracks.Items[novoIndice].Selected = true;
+                                lvTracks.EnsureVisible(novoIndice);
+                            }
+                            else
+                            {
+                                // A música sumiu da lista?? (Raro, mas possível se foi deletada no scan)
+                                // Nesse caso, tocamos a primeira da nova lista
+                                if (lvTracks.Items.Count > 0) _player.Play(0);
+                            }
+                        }
+                        else
+                        {
+                            // Se não estava tocando nada antes, toca a primeira se houver algo novo
+                            // MAS SÓ SE O USUÁRIO QUISER (Geralmente Scan não deve dar Play sozinho se estava parado)
+                            // Se quiser manter o comportamento original de dar play:
+                            if (lvTracks.Items.Count > 0 && !estavaTocando)
+                                _player.Play(0);
+                        }
                     }
                     catch { }
                 }
             };
+            //btnScan.Click += (s, e) =>
+            //{
+            //    var frm = new XP3.Forms.ScannerForm();
+            //    if (frm.ShowDialog() == DialogResult.OK)
+            //    {
+            //        try
+            //        {
+            //            // Limpa e recarrega após o scan
+            //            int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
+            //            _currentPlaylistId = idAEscolher;
+            //            _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
+
+            //            LoadPlaylist();
+
+            //            // Toca a primeira se houver algo novo
+            //            if (lvTracks.Items.Count > 0)
+            //                _player.Play(0);
+            //        }
+            //        catch { }
+            //    }
+            //};
 
             // Duplo clique na lista para tocar
             lvTracks.DoubleClick += (s, e) =>
@@ -1232,10 +1296,52 @@ namespace XP3.Forms
                 if (lblPlaylistTitle != null)
                     lblPlaylistTitle.Text = nomeLista.ToUpper();
 
-                // 1. Busca os dados do banco
+                // 1. Busca os dados brutos do banco
                 var tracksDoBanco = _trackRepo.GetTracksByPlaylist(_currentPlaylistId);
 
-                // 2. Filtra apenas pelo tempo (conforme sua regra)
+                // --- INÍCIO DA CHECAGEM DE DUPLICATAS ---
+                bool duplicataDetectada = false;
+                if (tracksDoBanco != null && tracksDoBanco.Count > 1)
+                {
+                    // Como a lista será ordenada por tempo/nome, duplicatas de arquivos tendem a ficar próximas
+                    // Comparamos o caminho do arquivo (Lugar) de cada música com a anterior
+                    for (int i = 1; i < tracksDoBanco.Count; i++)
+                    {
+                        if (tracksDoBanco[i].FilePath == tracksDoBanco[i - 1].FilePath)
+                        {
+                            duplicataDetectada = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (duplicataDetectada)
+                {
+                    var result = MessageBox.Show(
+                        "Foram detectadas músicas duplicadas nesta lista.\n\nDeseja executar o procedimento de limpeza agora?",
+                        "Confirmação de Limpeza",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        // Executa a limpeza no banco de dados (Removendo IDs duplicados para o mesmo arquivo)
+                        _trackRepo.LimparDuplicatasNoBanco();
+
+                        // Recarrega a lista do zero após a limpeza
+                        LoadPlaylist();
+
+                        // Toca a primeira música da lista limpa
+                        if (_allTracks.Count > 0 && _player != null)
+                        {
+                            _player.Play(0);
+                        }
+                        return; // Sai da execução atual pois o LoadPlaylist recursivo já tratou o restante
+                    }
+                }
+                // --- FIM DA CHECAGEM DE DUPLICATAS ---
+
+                // 2. Filtra e ordena (Regra: menores primeiro)
                 _allTracks = tracksDoBanco?
                     .Where(t => t.Duration.TotalSeconds > 0)
                     .OrderBy(t => t.Duration)
@@ -1245,10 +1351,10 @@ namespace XP3.Forms
                 if (_player != null)
                     _player.SetPlaylist(_allTracks);
 
-                // 4. Configuração Visual da Grid
+                // 4. Configuração Visual da Grid (Virtual Mode)
                 if (lvTracks != null)
                 {
-                    ConfigurarColunasGrid(); // Garante que as colunas estejam certas
+                    ConfigurarColunasGrid();
                     lvTracks.VirtualListSize = _allTracks.Count;
                     lvTracks.Invalidate();
                 }
