@@ -27,6 +27,8 @@
             this.btnPause = new System.Windows.Forms.Button();
             this.btnPlay = new System.Windows.Forms.Button();
             this.pnlHeader = new System.Windows.Forms.Panel();
+            this.chkToggleProg = new System.Windows.Forms.CheckBox();
+            this.button1 = new System.Windows.Forms.Button();
             this.lblTrackCount = new System.Windows.Forms.Label();
             this.lblPlaylistTitle = new System.Windows.Forms.Label();
             this.timerProgresso = new System.Windows.Forms.Timer(this.components);
@@ -145,6 +147,8 @@
             // pnlHeader
             // 
             this.pnlHeader.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(35)))), ((int)(((byte)(35)))), ((int)(((byte)(38)))));
+            this.pnlHeader.Controls.Add(this.chkToggleProg);
+            this.pnlHeader.Controls.Add(this.button1);
             this.pnlHeader.Controls.Add(this.lblTrackCount);
             this.pnlHeader.Controls.Add(this.lblPlaylistTitle);
             this.pnlHeader.Dock = System.Windows.Forms.DockStyle.Top;
@@ -152,6 +156,35 @@
             this.pnlHeader.Name = "pnlHeader";
             this.pnlHeader.Size = new System.Drawing.Size(800, 41);
             this.pnlHeader.TabIndex = 6;
+            // 
+            // chkToggleProg
+            // 
+            this.chkToggleProg.Appearance = System.Windows.Forms.Appearance.Button;
+            this.chkToggleProg.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
+            this.chkToggleProg.FlatAppearance.CheckedBackColor = System.Drawing.Color.DarkGreen;
+            this.chkToggleProg.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.chkToggleProg.ForeColor = System.Drawing.Color.White;
+            this.chkToggleProg.Location = new System.Drawing.Point(12, 5);
+            this.chkToggleProg.Name = "chkToggleProg";
+            this.chkToggleProg.Size = new System.Drawing.Size(50, 30);
+            this.chkToggleProg.TabIndex = 4;
+            this.chkToggleProg.Text = "Auto";
+            this.chkToggleProg.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            this.chkToggleProg.UseVisualStyleBackColor = false;
+            this.chkToggleProg.CheckedChanged += new System.EventHandler(this.chkToggleProg_CheckedChanged);
+            // 
+            // button1
+            // 
+            this.button1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
+            this.button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.button1.ForeColor = System.Drawing.Color.White;
+            this.button1.Location = new System.Drawing.Point(67, 5);
+            this.button1.Name = "button1";
+            this.button1.Size = new System.Drawing.Size(80, 30);
+            this.button1.TabIndex = 3;
+            this.button1.Text = "Programação";
+            this.button1.UseVisualStyleBackColor = false;
+            this.button1.Click += new System.EventHandler(this.button1_Click);
             // 
             // lblTrackCount
             // 
@@ -169,7 +202,7 @@
             this.lblPlaylistTitle.AutoSize = true;
             this.lblPlaylistTitle.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.lblPlaylistTitle.ForeColor = System.Drawing.Color.White;
-            this.lblPlaylistTitle.Location = new System.Drawing.Point(17, 10);
+            this.lblPlaylistTitle.Location = new System.Drawing.Point(153, 10);
             this.lblPlaylistTitle.Name = "lblPlaylistTitle";
             this.lblPlaylistTitle.Size = new System.Drawing.Size(156, 25);
             this.lblPlaylistTitle.TabIndex = 0;
@@ -211,5 +244,7 @@
         private System.Windows.Forms.Label lblPlaylistTitle;
         private System.Windows.Forms.Label lblTrackCount;
         private System.Windows.Forms.Timer timerProgresso;
+        private System.Windows.Forms.Button button1;
+        private System.Windows.Forms.CheckBox chkToggleProg;
     }
 }

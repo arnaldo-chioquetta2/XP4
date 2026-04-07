@@ -73,6 +73,7 @@ namespace XP3.Forms
 
         private int _currentVisualizerIndex = 0;
         private List<Track> _tracks = new List<Track>();
+
         public Inicial()
         {
             InitializeComponent();
@@ -101,7 +102,7 @@ namespace XP3.Forms
             {
                 modernSeekBar1 = new ModernSeekBar(); // Certifique-se que o namespace XP3.Controls está no using
                 modernSeekBar1.ProgressColor = Color.Cyan;
-                modernSeekBar1.TrackColor = Color.FromArgb(40, 40, 40);                
+                modernSeekBar1.TrackColor = Color.FromArgb(40, 40, 40);
 
                 int margemInferior = 130;
 
@@ -109,7 +110,7 @@ namespace XP3.Forms
                 modernSeekBar1.Size = new Size(this.ClientSize.Width - 24, 15);
                 modernSeekBar1.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
-                this.Controls.Add(modernSeekBar1);                
+                this.Controls.Add(modernSeekBar1);
                 modernSeekBar1.BringToFront();
                 modernSeekBar1.Visible = false;
             }
@@ -121,6 +122,14 @@ namespace XP3.Forms
             ConfigurarMenuDeContexto();
 
             SetupServices();
+
+            // --- ADIÇÃO FASE 3.3: Assinatura do evento de troca automática ---
+            if (_player != null)
+            {
+                _player.SolicitarTrocaDePlaylist += Player_SolicitarTrocaDePlaylist;
+            }
+            // -----------------------------------------------------------------
+
             ConfigurarEventosDeTela();
             ConfigurarBotaoApagar();
 
@@ -129,9 +138,17 @@ namespace XP3.Forms
             lvTracks.VirtualListSize = 0;
             lvTracks.RetrieveVirtualItem += lvTracks_RetrieveVirtualItem;
 
-            LoadPlaylist();
-        }
+            chkToggleProg.Checked = _player.ProgramacaoAtiva;
+            AtualizarVisualBotaoAuto();
 
+            if (chkToggleProg.Checked)
+            {
+                _player.ForcarVerificacaoProgramacao();
+            } else
+            {
+                LoadPlaylist();
+            }                
+        }
 
         #region Inicializacao
 
@@ -209,27 +226,6 @@ namespace XP3.Forms
                     catch { }
                 }
             };
-            //btnScan.Click += (s, e) =>
-            //{
-            //    var frm = new XP3.Forms.ScannerForm();
-            //    if (frm.ShowDialog() == DialogResult.OK)
-            //    {
-            //        try
-            //        {
-            //            // Limpa e recarrega após o scan
-            //            int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
-            //            _currentPlaylistId = idAEscolher;
-            //            _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
-
-            //            LoadPlaylist();
-
-            //            // Toca a primeira se houver algo novo
-            //            if (lvTracks.Items.Count > 0)
-            //                _player.Play(0);
-            //        }
-            //        catch { }
-            //    }
-            //};
 
             // Duplo clique na lista para tocar
             lvTracks.DoubleClick += (s, e) =>
@@ -396,14 +392,6 @@ namespace XP3.Forms
                         spectrum.BeginInvoke(new Action(() => spectrum.UpdateData(data)));
                     }
                 }
-
-                //if (this.WindowState != FormWindowState.Minimized)
-                //{
-                //    if (spectrum != null && !spectrum.IsDisposed)
-                //    {
-                //        spectrum.BeginInvoke(new Action(() => spectrum.UpdateData(data)));
-                //    }
-                //}
 
                 // Se a janela de tela cheia existir e estiver visível, ela recebe os dados
                 if (_visualizerWindow != null && !_visualizerWindow.IsDisposed)
@@ -1291,6 +1279,14 @@ namespace XP3.Forms
             try
             {
                 _currentPlaylistId = _iniService.ReadInt("Player", "LastPlaylistId", 1);
+
+                // --- ADIÇÃO FASE 3.3: Informar ao player em qual lista estamos ---
+                if (_player != null)
+                {
+                    _player.CurrentPlaylistId = _currentPlaylistId;
+                }
+                // -----------------------------------------------------------------
+
                 string nomeLista = _trackRepo.GetPlaylistName(_currentPlaylistId);
 
                 if (lblPlaylistTitle != null)
@@ -1430,6 +1426,7 @@ namespace XP3.Forms
 
             // Removida definitivamente a coluna Operação conforme solicitado anteriormente
         }
+
         #endregion
 
         #region Botões de ação
@@ -1519,6 +1516,34 @@ namespace XP3.Forms
         }
 
         #endregion
+
+        // METODO: Player_SolicitarTrocaDePlaylist
+        // VERSÃO: 1.0
+        // DATA: 2026-04-03
+        // MOTIVO: Recebe o ID da nova playlist sugerida pela programação e executa a troca em tempo real na interface.
+
+        private void Player_SolicitarTrocaDePlaylist(object sender, int novaListaId)
+        {
+            // Garante que a atualização da interface (ListView) ocorra na thread principal do Windows Forms
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => Player_SolicitarTrocaDePlaylist(sender, novaListaId)));
+                return;
+            }
+
+            // 1. Atualiza o ID da playlist atual e grava no INI
+            _currentPlaylistId = novaListaId;
+            _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
+
+            // 2. Recarrega a lista visualmente
+            LoadPlaylist();
+
+            // 3. Inicia a reprodução da primeira música da nova lista
+            if (_allTracks.Count > 0 && _player != null)
+            {
+                _player.Play(0);
+            }
+        }
 
         private void AddTrack(string filePath)
         {
@@ -1943,6 +1968,39 @@ namespace XP3.Forms
             // Traz o foco para o player e exibe
             this.Show();
             this.Activate();
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            XP3.Programacao frm = new XP3.Programacao();
+            frm.ShowDialog();
+        }
+
+        private void chkToggleProg_CheckedChanged(object sender, EventArgs e)
+        {
+            // 1. Atualiza o estado no serviço de áudio
+            // O 'set' da propriedade ProgramacaoAtiva no AudioPlayerService já chama o _progRepo.SalvarEstadoProgramacao.
+            if (_player != null)
+            {
+                _player.ProgramacaoAtiva = chkToggleProg.Checked;
+            }
+
+            // 2. Atualiza o visual do botão (Texto e Cor)
+            AtualizarVisualBotaoAuto();
+        }
+
+        private void AtualizarVisualBotaoAuto()
+        {
+            if (chkToggleProg.Checked)
+            {
+                chkToggleProg.Text = "ON";
+                chkToggleProg.BackColor = System.Drawing.Color.DarkGreen;
+            }
+            else
+            {
+                chkToggleProg.Text = "OFF";
+                chkToggleProg.BackColor = System.Drawing.Color.FromArgb(60, 60, 60);
+            }
         }
 
     }
