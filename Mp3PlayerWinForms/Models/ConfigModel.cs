@@ -12,5 +12,7 @@ namespace XP3.Models
 
         // Corresponde ao campo 'UltLista'
         public int UltimaPlaylistId { get; set; }
+        public int TempoMudaLista { get; set; }
+
     }
 }

@@ -39,6 +39,8 @@
             this.label5 = new System.Windows.Forms.Label();
             this.panel5 = new System.Windows.Forms.Panel();
             this.button1 = new System.Windows.Forms.Button();
+            this.comboBoxTempo = new System.Windows.Forms.ComboBox();
+            this.label6 = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
             // panel1
@@ -153,11 +155,33 @@
             this.button1.UseVisualStyleBackColor = true;
             this.button1.Click += new System.EventHandler(this.button1_Click);
             // 
+            // comboBoxTempo
+            // 
+            this.comboBoxTempo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.comboBoxTempo.FormattingEnabled = true;
+            this.comboBoxTempo.Location = new System.Drawing.Point(183, 455);
+            this.comboBoxTempo.Name = "comboBoxTempo";
+            this.comboBoxTempo.Size = new System.Drawing.Size(130, 21);
+            this.comboBoxTempo.TabIndex = 10;
+            this.comboBoxTempo.Click += new System.EventHandler(this.comboBoxTempo_Click);
+            // 
+            // label6
+            // 
+            this.label6.AutoSize = true;
+            this.label6.Location = new System.Drawing.Point(12, 458);
+            this.label6.Name = "label6";
+            this.label6.Size = new System.Drawing.Size(165, 13);
+            this.label6.TabIndex = 11;
+            this.label6.Text = "Impedir a repetição da musica em";
+            this.label6.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // 
             // Programacao
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1032, 479);
+            this.Controls.Add(this.label6);
+            this.Controls.Add(this.comboBoxTempo);
             this.Controls.Add(this.button1);
             this.Controls.Add(this.label5);
             this.Controls.Add(this.panel5);
@@ -177,6 +201,7 @@
             this.Load += new System.EventHandler(this.Programacao_Load);
             this.KeyUp += new System.Windows.Forms.KeyEventHandler(this.Programacao_KeyUp);
             this.ResumeLayout(false);
+            this.PerformLayout();
 
         }
 
@@ -193,5 +218,7 @@
         private System.Windows.Forms.Label label5;
         private System.Windows.Forms.Panel panel5;
         private System.Windows.Forms.Button button1;
+        private System.Windows.Forms.ComboBox comboBoxTempo;
+        private System.Windows.Forms.Label label6;
     }
 }

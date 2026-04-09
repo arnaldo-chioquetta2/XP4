@@ -43,7 +43,11 @@ namespace XP3.Data
             return lista;
         }
 
-        public void SalvarProgramacao(List<ProgramacaoModel> programacoes)
+        // METODO: SalvarProgramacao
+        // VERSÃO: 3.0
+        // MOTIVO: Agora salva os horários (Prog) e a configuração de espera (Config) 
+        // em uma única transação atômica.
+        public void SalvarProgramacao(List<ProgramacaoModel> programacoes, int tempoMudaLista)
         {
             using (var conn = Database.GetConnection())
             {
@@ -52,17 +56,18 @@ namespace XP3.Data
                 {
                     try
                     {
-                        // Limpa a programação atual para sobrescrever com a nova (do editor visual)
+                        // 1. Limpa a programação atual (tabela Prog)
                         using (var delCmd = new SQLiteCommand("DELETE FROM Prog", conn, trans))
                         {
                             delCmd.ExecuteNonQuery();
                         }
 
+                        // 2. Insere os novos botões/horários
                         foreach (var p in programacoes)
                         {
-                            string sql = @"INSERT INTO Prog (HorIn, Lista, Periodicidade) 
-                                           VALUES (@hor, @lista, @per)";
-                            using (var cmd = new SQLiteCommand(sql, conn, trans))
+                            string sqlProg = @"INSERT INTO Prog (HorIn, Lista, Periodicidade) 
+                                     VALUES (@hor, @lista, @per)";
+                            using (var cmd = new SQLiteCommand(sqlProg, conn, trans))
                             {
                                 cmd.Parameters.AddWithValue("@hor", p.HorarioInicio);
                                 cmd.Parameters.AddWithValue("@lista", p.PlaylistId);
@@ -70,11 +75,24 @@ namespace XP3.Data
                                 cmd.ExecuteNonQuery();
                             }
                         }
+
+                        // 3. Atualiza a configuração global (tabela Config)
+                        // Aqui salvamos o valor que veio do seu novo Combo
+                        string sqlConfig = "UPDATE Config SET TempoMudaLista = @tempo";
+                        using (var cmdCfg = new SQLiteCommand(sqlConfig, conn, trans))
+                        {
+                            cmdCfg.Parameters.AddWithValue("@tempo", tempoMudaLista);
+                            cmdCfg.ExecuteNonQuery();
+                        }
+
+                        // Se chegou aqui sem erros, confirma tudo no arquivo de banco
                         trans.Commit();
+                        System.Diagnostics.Debug.WriteLine($"[REPO] Programação e Tempo de Espera ({tempoMudaLista} min) salvos com sucesso.");
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         trans.Rollback();
+                        System.Diagnostics.Debug.WriteLine($"[REPO - ERRO] Falha crítica ao salvar: {ex.Message}");
                         throw;
                     }
                 }
@@ -86,7 +104,7 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand("SELECT Progr, UltLista FROM Config LIMIT 1", conn))
+                using (var cmd = new SQLiteCommand("SELECT Progr, UltLista, TempoMudaLista FROM Config LIMIT 1", conn))
                 using (var reader = cmd.ExecuteReader())
                 {
                     if (reader.Read())
@@ -94,7 +112,8 @@ namespace XP3.Data
                         return new ConfigModel
                         {
                             ProgramacaoAtiva = reader.GetBoolean(0),
-                            UltimaPlaylistId = reader.GetInt32(1)
+                            UltimaPlaylistId = reader.GetInt32(1),
+                            TempoMudaLista = Convert.ToInt32(reader["TempoMudaLista"])
                         };
                     }
                 }

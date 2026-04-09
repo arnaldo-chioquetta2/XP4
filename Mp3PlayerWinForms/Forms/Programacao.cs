@@ -13,7 +13,7 @@ namespace XP3 // Atualizado para o namespace do novo projeto
         private Rectangle dragBoxFromMouseDown;
         private int XX;
         private int YY;
-        private bool Entrou = false;
+        //private bool Entrou = false;
         private string TextoBtSelecionado = "";
         private string Tague = "";
         private object Cont;
@@ -33,8 +33,37 @@ namespace XP3 // Atualizado para o namespace do novo projeto
             this.panel3.DragOver += new DragEventHandler(this.Paineis_DragOver);
             this.panel4.DragOver += new DragEventHandler(this.Paineis_DragOver);
             this.panel5.DragOver += new DragEventHandler(this.Paineis_DragOver);
-
+            ConfigurarComboTempo();
             Listas();
+        }
+
+        private void ConfigurarComboTempo()
+        {
+            // Criamos um dicionário com as opções que você listou
+            var opcoes = new Dictionary<string, int>
+            {
+                { "Sem Controle", 0 },
+                { "5 Minutos", 5 },
+                { "10 Minutos", 10 },
+                { "30 Minutos", 30 },
+                { "1 Hora", 60 },
+                { "2 Horas", 120 },
+                { "3 Horas", 180 },
+                { "6 Horas", 360 },
+                { "12 Horas", 720 },
+                { "1 Dia", 1440 },
+                { "2 Dias", 2880 },
+                { "3 Dias", 4320 },
+                { "7 Dias", 10080 }
+            };
+
+            comboBoxTempo.DataSource = new BindingSource(opcoes, null);
+            comboBoxTempo.DisplayMember = "Key";
+            comboBoxTempo.ValueMember = "Value";
+
+            // Carrega o valor atual do banco
+            var config = _progRepo.ObterConfiguracao();
+            comboBoxTempo.SelectedValue = config.TempoMudaLista;
         }
 
         private void Programacao_Load(object sender, EventArgs e)
@@ -244,7 +273,7 @@ namespace XP3 // Atualizado para o namespace do novo projeto
         {
             this.XX = button1.Left + e.X;
             this.YY = button1.Top + e.Y;
-            this.Entrou = true;
+            // this.Entrou = true;
         }
 
         private void Paineis_DragEnter(object sender, DragEventArgs e)
@@ -335,8 +364,10 @@ namespace XP3 // Atualizado para o namespace do novo projeto
             this.ContProgs(ref Progrs, ref this.panel4, 3);
             this.ContProgs(ref Progrs, ref this.panel5, 4);
 
-            // Usa o método limpo e transacional que fizemos na Fase 1
-            _progRepo.SalvarProgramacao(Progrs);
+            int tempoSelecionado = (int)comboBoxTempo.SelectedValue;
+
+            // Chama o método atualizado passando a lista e o tempo
+            _progRepo.SalvarProgramacao(Progrs, tempoSelecionado);
 
             this.DialogResult = DialogResult.OK;
             this.Cursor = Cursors.Default;
@@ -481,6 +512,10 @@ namespace XP3 // Atualizado para o namespace do novo projeto
             }
         }
 
+        private void comboBoxTempo_Click(object sender, EventArgs e)
+        {
+            button1.Enabled = true;
+        }
     }
 
     // Mantido pois gerencia os estados internos da tela de forma muito eficiente

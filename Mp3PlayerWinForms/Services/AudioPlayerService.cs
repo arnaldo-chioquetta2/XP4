@@ -203,13 +203,24 @@ namespace XP3.Services
 
                 _volumeProvider = new VolumeSampleProvider(_aggregator);
 
-#if DEBUG
-                // Em modo Debug, o som de saída é limitado a 1% do volume selecionado
-                _volumeProvider.Volume = _volume * 0.01f;
-                GravarLog($"[DEBUG] Volume de saída limitado por segurança: {_volumeProvider.Volume}");
-#else
-                _volumeProvider.Volume = _volume;
-#endif
+                if (System.Diagnostics.Debugger.IsAttached)
+                {
+                    // Se o Visual Studio estiver "espiando" o código (F5), o volume baixa
+                    _volumeProvider.Volume = _volume * 0.01f;
+                    GravarLog($"[DEBUG] Visual Studio detectado: Volume limitado por segurança: {_volumeProvider.Volume}");
+                }
+                else
+                {
+                    // Se o programa estiver rodando solto (mesmo sendo a versão Debug), o volume é o normal
+                    _volumeProvider.Volume = _volume;
+                }
+
+                //#if DEBUG
+                //                _volumeProvider.Volume = _volume * 0.01f;
+                //                GravarLog($"[DEBUG] Volume de saída limitado por segurança: {_volumeProvider.Volume}");
+                //#else
+                //                _volumeProvider.Volume = _volume;
+                //#endif
 
                 var finalWaveProvider = new SampleToWaveProvider16(_volumeProvider);
 
