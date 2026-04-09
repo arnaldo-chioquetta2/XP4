@@ -176,27 +176,78 @@ namespace XP3.Data
         public List<Track> GetTracksByPlaylist(int playlistId)
         {
             var tracks = new List<Track>();
+            var progRepo = new ProgrammingRepository();
+            var config = progRepo.ObterConfiguracao();
+
             try
             {
                 using (var conn = Database.GetConnection())
                 {
                     conn.Open();
-                    // Query otimizada
-                    string sql = @"
-                        SELECT 
-                            m.ID, m.Nome, m.Lugar, m.Tempo, 
-                            b.ID as BandId, b.Nome as BandName
-                        FROM Musica m
-                        LEFT JOIN Banda b ON m.Banda = b.ID
-                        JOIN LisMus lm ON m.ID = lm.Musica
-                        WHERE lm.Lista = @listaId
-                        GROUP BY m.ID
-                        ORDER BY b.Nome, m.Nome";
 
+                    // 1. Descobrimos o nome da lista para tratar a exceção da AESCOLHER
+                    string nomeLista = "";
+                    using (var cmdName = new SQLiteCommand("SELECT Nome FROM Lista WHERE ID = @id", conn))
+                    {
+                        cmdName.Parameters.AddWithValue("@id", playlistId);
+                        nomeLista = cmdName.ExecuteScalar()?.ToString() ?? "";
+                    }
+
+                    // Regra da Ordenação:
+                    bool usarOrdenacaoOriginal = (!config.ProgramacaoAtiva && nomeLista.ToUpper() == "AESCOLHER");
+
+                    string sql;
+                    DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
+
+                    if (usarOrdenacaoOriginal)
+                    {
+                        // MODO MANUAL: AESCOLHER
+                        sql = @"
+                    SELECT 
+                        m.ID, m.Nome, m.Lugar, m.Tempo, 
+                        b.ID as BandId, b.Nome as BandName
+                    FROM Musica m
+                    LEFT JOIN Banda b ON m.Banda = b.ID
+                    JOIN LisMus lm ON m.ID = lm.Musica
+                    WHERE lm.Lista = @listaId
+                    GROUP BY m.ID
+                    ORDER BY b.Nome ASC, m.Nome ASC";
+                    }
+                    else
+                    {
+                        // MODO INTELIGENTE: Pular / Pulado + Filtro de Tempo
+                        string filtroTempo = config.ProgramacaoAtiva
+                            ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)"
+                            : "";
+
+                        sql = $@"
+                    SELECT 
+                        m.ID, m.Nome, m.Lugar, m.Tempo, 
+                        b.ID as BandId, b.Nome as BandName
+                    FROM Musica m
+                    LEFT JOIN Banda b ON m.Banda = b.ID
+                    JOIN LisMus lm ON m.ID = lm.Musica
+                    WHERE lm.Lista = @listaId
+                    {filtroTempo}
+                    
+                    -- AQUI ENTRA A REGRA DO PULAR: 
+                    -- Toca se não tem restrição (Pular=0) OU se já cumpriu a cota (Pular=Pulado)
+                    AND (COALESCE(m.Pular, 0) = 0 OR COALESCE(m.Pular, 0) = COALESCE(m.Pulado, 0))
+                    
+                    GROUP BY m.ID
+                    ORDER BY m.vez ASC, m.TocadoEmG ASC";
+                    }
+
+                    // EXECUTAR A LEITURA DAS MÚSICAS
                     using (var cmd = conn.CreateCommand())
                     {
                         cmd.CommandText = sql;
                         cmd.Parameters.AddWithValue("@listaId", playlistId);
+                        if (sql.Contains("@dataLimite"))
+                        {
+                            cmd.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
+                        }
+
                         using (var reader = cmd.ExecuteReader())
                         {
                             while (reader.Read())
@@ -207,8 +258,7 @@ namespace XP3.Data
                                 t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
 
                                 string tempoStr = reader.IsDBNull(3) ? "00:00:00" : reader.GetString(3);
-                                TimeSpan ts;
-                                if (TimeSpan.TryParse(tempoStr, out ts)) t.Duration = ts;
+                                if (TimeSpan.TryParse(tempoStr, out TimeSpan ts)) t.Duration = ts;
                                 else t.Duration = TimeSpan.Zero;
 
                                 t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
@@ -218,11 +268,70 @@ namespace XP3.Data
                             }
                         }
                     }
+
+                    // ------------------------------------------------------------------
+                    // PÓS-PROCESSAMENTO: INCREMENTAR OS PULOS E ZERAR QUEM TOCOU
+                    // ------------------------------------------------------------------
+                    if (!usarOrdenacaoOriginal && tracks.Count > 0)
+                    {
+                        string filtroTempoUpdate = config.ProgramacaoAtiva
+                            ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)"
+                            : "";
+
+                        // Ação A: Incrementar +1 no 'Pulado' de quem estava elegível mas ficou de fora
+                        string sqlIncrementar = $@"
+                    UPDATE Musica 
+                    SET Pulado = COALESCE(Pulado, 0) + 1
+                    WHERE ID IN (
+                        SELECT m.ID FROM Musica m
+                        JOIN LisMus lm ON m.ID = lm.Musica
+                        WHERE lm.Lista = @listaId
+                        {filtroTempoUpdate}
+                    )
+                    AND COALESCE(Pular, 0) > 0 
+                    AND COALESCE(Pulado, 0) < COALESCE(Pular, 0)";
+
+                        // Ação B: Zerar o 'Pulado' de quem acabou de entrar na lista (cota atingida)
+                        string sqlZerar = $@"
+                    UPDATE Musica 
+                    SET Pulado = 0
+                    WHERE ID IN (
+                        SELECT m.ID FROM Musica m
+                        JOIN LisMus lm ON m.ID = lm.Musica
+                        WHERE lm.Lista = @listaId
+                        {filtroTempoUpdate}
+                    )
+                    AND COALESCE(Pular, 0) > 0 
+                    AND COALESCE(Pulado, 0) = COALESCE(Pular, 0)";
+
+                        using (var cmdInc = conn.CreateCommand())
+                        {
+                            cmdInc.CommandText = sqlIncrementar;
+                            cmdInc.Parameters.AddWithValue("@listaId", playlistId);
+                            if (sqlIncrementar.Contains("@dataLimite"))
+                                cmdInc.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                            cmdInc.ExecuteNonQuery();
+                        }
+
+                        using (var cmdZerar = conn.CreateCommand())
+                        {
+                            cmdZerar.CommandText = sqlZerar;
+                            cmdZerar.Parameters.AddWithValue("@listaId", playlistId);
+                            if (sqlZerar.Contains("@dataLimite"))
+                                cmdZerar.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                            cmdZerar.ExecuteNonQuery();
+                        }
+                    }
+
+                    string modo = usarOrdenacaoOriginal ? "MANUAL" : "INTELIGENTE (Rodízio)";
+                    System.Diagnostics.Debug.WriteLine($"[REPO] Lista '{nomeLista}' lida. Músicas: {tracks.Count}. Modo: {modo}");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[REPO_ERRO] GetTracksByPlaylist: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[REPO_ERRO] GetTracksByPlaylist: {ex.Message}");
             }
 
             return tracks;
