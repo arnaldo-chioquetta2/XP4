@@ -199,6 +199,7 @@
     <Compile Include="Services\KeyPollingService.cs" />
     <Compile Include="Services\LogService.cs" />
     <Compile Include="Services\SampleAggregator.cs" />
+    <Compile Include="Services\SilenceDetector.cs" />
     <Compile Include="Visualizers\VisualizerBase.cs">
       <SubType>Form</SubType>
     </Compile>

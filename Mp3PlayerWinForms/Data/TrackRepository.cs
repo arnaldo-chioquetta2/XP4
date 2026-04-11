@@ -185,7 +185,7 @@ namespace XP3.Data
                 {
                     conn.Open();
 
-                    // 1. Descobrimos o nome da lista para tratar a exceção da AESCOLHER
+                    // 1. Buscamos o nome da lista para a regra da AESCOLHER
                     string nomeLista = "";
                     using (var cmdName = new SQLiteCommand("SELECT Nome FROM Lista WHERE ID = @id", conn))
                     {
@@ -193,60 +193,37 @@ namespace XP3.Data
                         nomeLista = cmdName.ExecuteScalar()?.ToString() ?? "";
                     }
 
-                    // Regra da Ordenação:
                     bool usarOrdenacaoOriginal = (!config.ProgramacaoAtiva && nomeLista.ToUpper() == "AESCOLHER");
-
-                    string sql;
                     DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
+
+                    // 2. ATUALIZAMOS O SELECT: Incluímos m.CutIni e m.CutFim no final
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim";
+                    string sql;
 
                     if (usarOrdenacaoOriginal)
                     {
-                        // MODO MANUAL: AESCOLHER
-                        sql = @"
-                    SELECT 
-                        m.ID, m.Nome, m.Lugar, m.Tempo, 
-                        b.ID as BandId, b.Nome as BandName
-                    FROM Musica m
-                    LEFT JOIN Banda b ON m.Banda = b.ID
-                    JOIN LisMus lm ON m.ID = lm.Musica
-                    WHERE lm.Lista = @listaId
-                    GROUP BY m.ID
-                    ORDER BY b.Nome ASC, m.Nome ASC";
+                        sql = $@"SELECT {colunas} FROM Musica m 
+                        LEFT JOIN Banda b ON m.Banda = b.ID 
+                        JOIN LisMus lm ON m.ID = lm.Musica 
+                        WHERE lm.Lista = @listaId 
+                        GROUP BY m.ID ORDER BY b.Nome ASC, m.Nome ASC";
                     }
                     else
                     {
-                        // MODO INTELIGENTE: Pular / Pulado + Filtro de Tempo
-                        string filtroTempo = config.ProgramacaoAtiva
-                            ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)"
-                            : "";
-
-                        sql = $@"
-                    SELECT 
-                        m.ID, m.Nome, m.Lugar, m.Tempo, 
-                        b.ID as BandId, b.Nome as BandName
-                    FROM Musica m
-                    LEFT JOIN Banda b ON m.Banda = b.ID
-                    JOIN LisMus lm ON m.ID = lm.Musica
-                    WHERE lm.Lista = @listaId
-                    {filtroTempo}
-                    
-                    -- AQUI ENTRA A REGRA DO PULAR: 
-                    -- Toca se não tem restrição (Pular=0) OU se já cumpriu a cota (Pular=Pulado)
-                    AND (COALESCE(m.Pular, 0) = 0 OR COALESCE(m.Pular, 0) = COALESCE(m.Pulado, 0))
-                    
-                    GROUP BY m.ID
-                    ORDER BY m.vez ASC, m.TocadoEmG ASC";
+                        string filtroTempo = config.ProgramacaoAtiva ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)" : "";
+                        sql = $@"SELECT {colunas} FROM Musica m 
+                        LEFT JOIN Banda b ON m.Banda = b.ID 
+                        JOIN LisMus lm ON m.ID = lm.Musica 
+                        WHERE lm.Lista = @listaId {filtroTempo}
+                        AND (COALESCE(m.Pular, 0) = 0 OR COALESCE(m.Pular, 0) = COALESCE(m.Pulado, 0))
+                        GROUP BY m.ID ORDER BY m.vez ASC, m.TocadoEmG ASC";
                     }
 
-                    // EXECUTAR A LEITURA DAS MÚSICAS
                     using (var cmd = conn.CreateCommand())
                     {
                         cmd.CommandText = sql;
                         cmd.Parameters.AddWithValue("@listaId", playlistId);
-                        if (sql.Contains("@dataLimite"))
-                        {
-                            cmd.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
-                        }
+                        if (sql.Contains("@dataLimite")) cmd.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
 
                         using (var reader = cmd.ExecuteReader())
                         {
@@ -257,76 +234,23 @@ namespace XP3.Data
                                 t.Title = reader.IsDBNull(1) ? "Sem Título" : reader.GetString(1);
                                 t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
 
+                                // Tempo
                                 string tempoStr = reader.IsDBNull(3) ? "00:00:00" : reader.GetString(3);
                                 if (TimeSpan.TryParse(tempoStr, out TimeSpan ts)) t.Duration = ts;
-                                else t.Duration = TimeSpan.Zero;
 
+                                // Banda
                                 t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
                                 t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
+
+                                // --- NOVOS CAMPOS: CutIni (Índice 6) e CutFim (Índice 7) ---
+                                // Usamos -1 como fallback caso o banco retorne NULL por algum motivo
+                                t.CutIni = reader.IsDBNull(6) ? -1 : Convert.ToInt32(reader["CutIni"]);
+                                t.CutFim = reader.IsDBNull(7) ? -1 : Convert.ToInt32(reader["CutFim"]);
 
                                 tracks.Add(t);
                             }
                         }
                     }
-
-                    // ------------------------------------------------------------------
-                    // PÓS-PROCESSAMENTO: INCREMENTAR OS PULOS E ZERAR QUEM TOCOU
-                    // ------------------------------------------------------------------
-                    if (!usarOrdenacaoOriginal && tracks.Count > 0)
-                    {
-                        string filtroTempoUpdate = config.ProgramacaoAtiva
-                            ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)"
-                            : "";
-
-                        // Ação A: Incrementar +1 no 'Pulado' de quem estava elegível mas ficou de fora
-                        string sqlIncrementar = $@"
-                    UPDATE Musica 
-                    SET Pulado = COALESCE(Pulado, 0) + 1
-                    WHERE ID IN (
-                        SELECT m.ID FROM Musica m
-                        JOIN LisMus lm ON m.ID = lm.Musica
-                        WHERE lm.Lista = @listaId
-                        {filtroTempoUpdate}
-                    )
-                    AND COALESCE(Pular, 0) > 0 
-                    AND COALESCE(Pulado, 0) < COALESCE(Pular, 0)";
-
-                        // Ação B: Zerar o 'Pulado' de quem acabou de entrar na lista (cota atingida)
-                        string sqlZerar = $@"
-                    UPDATE Musica 
-                    SET Pulado = 0
-                    WHERE ID IN (
-                        SELECT m.ID FROM Musica m
-                        JOIN LisMus lm ON m.ID = lm.Musica
-                        WHERE lm.Lista = @listaId
-                        {filtroTempoUpdate}
-                    )
-                    AND COALESCE(Pular, 0) > 0 
-                    AND COALESCE(Pulado, 0) = COALESCE(Pular, 0)";
-
-                        using (var cmdInc = conn.CreateCommand())
-                        {
-                            cmdInc.CommandText = sqlIncrementar;
-                            cmdInc.Parameters.AddWithValue("@listaId", playlistId);
-                            if (sqlIncrementar.Contains("@dataLimite"))
-                                cmdInc.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
-
-                            cmdInc.ExecuteNonQuery();
-                        }
-
-                        using (var cmdZerar = conn.CreateCommand())
-                        {
-                            cmdZerar.CommandText = sqlZerar;
-                            cmdZerar.Parameters.AddWithValue("@listaId", playlistId);
-                            if (sqlZerar.Contains("@dataLimite"))
-                                cmdZerar.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
-
-                            cmdZerar.ExecuteNonQuery();
-                        }
-                    }
-
-                    string modo = usarOrdenacaoOriginal ? "MANUAL" : "INTELIGENTE (Rodízio)";
-                    System.Diagnostics.Debug.WriteLine($"[REPO] Lista '{nomeLista}' lida. Músicas: {tracks.Count}. Modo: {modo}");
                 }
             }
             catch (Exception ex)
@@ -335,6 +259,34 @@ namespace XP3.Data
             }
 
             return tracks;
+        }
+
+        // Dentro do seu arquivo TrackRepository.cs
+
+        public void AtualizarCortesMusica(int musicaId, int cutIni, int cutFim)
+        {
+            try
+            {
+                using (var conn = Database.GetConnection())
+                {
+                    conn.Open();
+                    string sql = "UPDATE Musica SET CutIni = @cutIni, CutFim = @cutFim WHERE ID = @id";
+
+                    using (var cmd = new SQLiteCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@cutIni", cutIni);
+                        cmd.Parameters.AddWithValue("@cutFim", cutFim);
+                        cmd.Parameters.AddWithValue("@id", musicaId);
+
+                        cmd.ExecuteNonQuery();
+                        System.Diagnostics.Debug.WriteLine($"[REPO] Cortes atualizados para Música ID {musicaId}: Ini={cutIni}, Fim={cutFim}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[REPO_ERRO] Falha ao atualizar cortes: {ex.Message}");
+            }
         }
 
         public int GetOrCreatePlaylist(string nomeLista)

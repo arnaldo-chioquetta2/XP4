@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Media;
 using XP3.Data;
 using XP3.Features.Programming;
@@ -45,6 +46,15 @@ namespace XP3.Services
         private readonly ProgrammingService _progService = new ProgrammingService();
 
         public event EventHandler<int> SolicitarTrocaDePlaylist;
+
+        private readonly SilenceDetector _silenceDetector = new SilenceDetector();
+        private readonly TrackRepository _trackRepo = new TrackRepository();
+
+        // Limiar de silêncio: 0.01f costuma ser excelente para ignorar chiados e 
+        // detectar o início real da música.
+        private const float SilenceThreshold = 0.01f;
+
+        public event Action<string> OnStatusCueChanged;
 
         public bool ProgramacaoAtiva
         {
@@ -169,10 +179,6 @@ namespace XP3.Services
             }
         }
 
-
-        // METODO: Play
-        // VERSÃO: 5.0
-        // MOTIVO: Uso do Mp3FileReader (Modo ACM/VB6) para compatibilidade com placa USB.
         public void Play(int index)
         {
             if (index < 0 || index >= _playlist.Count) return;
@@ -181,12 +187,13 @@ namespace XP3.Services
             _currentIndex = index;
             var track = _playlist[_currentIndex];
 
-            GravarLog($"Iniciando Play (Modo Legado VB6 / ACM): {track.Title}");
+            GravarLog($"Iniciando Play (Modo Auto-Cue): {track.Title}");
 
             try
             {
                 WaveStream reader;
 
+                // 1. Inicialização do Reader (Compatibilidade MP3/WAV/ACM)
                 if (track.FilePath.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
                 {
                     reader = new Mp3FileReader(track.FilePath);
@@ -198,30 +205,74 @@ namespace XP3.Services
 
                 _audioFile = reader;
 
+                // --- ETAPA 4 e 5: AUTO-CUE E FEEDBACK ---
+
+                if (track.CutIni == -1)
+                {
+                    // Sinaliza para a interface que a auditoria começou
+                    OnStatusCueChanged?.Invoke("Analisando Silêncio...");
+                    GravarLog($"[AUTO-CUE] Analisando silêncio para: {track.Title}");
+
+                    // Análise de Início: Síncrona (Imediata para o Play)
+                    track.CutIni = _silenceDetector.AnalisarCutIni(track.FilePath);
+
+                    // Análise de Fim e Gravação: Assíncrona (Segundo plano)
+                    Task.Run(() =>
+                    {
+                        try
+                        {
+                            track.CutFim = _silenceDetector.AnalisarCutFim(track.FilePath);
+
+                            // Salva no banco de dados SQLite
+                            _trackRepo.AtualizarCortesMusica(track.Id, track.CutIni, track.CutFim);
+
+                            // Atualiza o Label na tela com o resultado final
+                            string feedback = $"Auto-Cue: Início {track.CutIni}s | Fim {track.CutFim}s";
+                            OnStatusCueChanged?.Invoke(feedback);
+                            GravarLog($"[AUTO-CUE] " + feedback);
+                        }
+                        catch (Exception exTask)
+                        {
+                            OnStatusCueChanged?.Invoke("Erro na análise de fim.");
+                            GravarLog($"[AUTO-CUE_ERRO] {exTask.Message}");
+                        }
+                    });
+                }
+                else
+                {
+                    // Se já está avaliado, apenas informa os valores que serão usados
+                    string msg = (track.CutIni == 0 && track.CutFim == 0)
+                        ? "Sem cortes (Início/Fim OK)"
+                        : $"Auto-Cue Ativo: {track.CutIni}s / {track.CutFim}s";
+
+                    OnStatusCueChanged?.Invoke(msg);
+                }
+
+                // 2. Aplicação do Corte Inicial
+                if (track.CutIni > 0)
+                {
+                    _audioFile.CurrentTime = TimeSpan.FromSeconds(track.CutIni);
+                    GravarLog($"[AUDIO] Saltando para {track.CutIni}s");
+                }
+
+                // 3. Configuração do Aggregator (Espectro Visual)
                 _aggregator = new SampleAggregator(reader.ToSampleProvider(), 256);
                 _aggregator.FftCalculated += (s, args) => FftDataReceived?.Invoke(this, args.Result);
 
+                // 4. Configuração do Volume e Proteção para Programação (VS)
                 _volumeProvider = new VolumeSampleProvider(_aggregator);
 
                 if (System.Diagnostics.Debugger.IsAttached)
                 {
-                    // Se o Visual Studio estiver "espiando" o código (F5), o volume baixa
-                    _volumeProvider.Volume = _volume * 0.01f;
-                    GravarLog($"[DEBUG] Visual Studio detectado: Volume limitado por segurança: {_volumeProvider.Volume}");
+                    _volumeProvider.Volume = _volume * 0.01f; // Volume baixo em modo Debug
+                    GravarLog($"[DEBUG] Volume limitado a 1% por segurança.");
                 }
                 else
                 {
-                    // Se o programa estiver rodando solto (mesmo sendo a versão Debug), o volume é o normal
                     _volumeProvider.Volume = _volume;
                 }
 
-                //#if DEBUG
-                //                _volumeProvider.Volume = _volume * 0.01f;
-                //                GravarLog($"[DEBUG] Volume de saída limitado por segurança: {_volumeProvider.Volume}");
-                //#else
-                //                _volumeProvider.Volume = _volume;
-                //#endif
-
+                // 5. Preparação da Saída Final
                 var finalWaveProvider = new SampleToWaveProvider16(_volumeProvider);
 
                 _waveOut = new WaveOutEvent();
@@ -230,19 +281,20 @@ namespace XP3.Services
                 _waveOut.NumberOfBuffers = 2;
 
                 _waveOut.Init(finalWaveProvider);
-                GravarLog("WaveOut Init OK (Modo ACM).");
-
                 _waveOut.PlaybackStopped += OnPlaybackStopped;
-                _waveOut.Play();
-                GravarLog("Playback Iniciado com sucesso.");
 
+                // 6. EXECUÇÃO
+                _waveOut.Play();
+
+                GravarLog("Playback iniciado.");
                 TrackChanged?.Invoke(this, track);
             }
             catch (Exception ex)
             {
-                GravarLog($"ERRO FATAL: {ex.Message}\n{ex.StackTrace}");
+                OnStatusCueChanged?.Invoke("Erro ao carregar áudio.");
+                GravarLog($"ERRO FATAL: {ex.Message}");
                 RegistrarLogErro(track, ex);
-                PlaybackError?.Invoke(this, new Tuple<Track, string>(track, $"Erro: {ex.Message}"));
+                PlaybackError?.Invoke(this, new Tuple<Track, string>(track, ex.Message));
             }
         }
 

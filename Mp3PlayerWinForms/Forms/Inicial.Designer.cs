@@ -16,11 +16,14 @@
         {
             this.components = new System.ComponentModel.Container();
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Inicial));
+            this.colPular = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.colPulado = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.lvTracks = new System.Windows.Forms.ListView();
             this.colMusica = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.colBanda = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.colDuracao = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.pnlControls = new System.Windows.Forms.Panel();
+            this.lblStatusCue = new System.Windows.Forms.Label();
             this.btnScan = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
             this.btnNext = new System.Windows.Forms.Button();
@@ -36,6 +39,16 @@
             this.pnlHeader.SuspendLayout();
             this.SuspendLayout();
             // 
+            // colPular
+            // 
+            this.colPular.Text = "";
+            this.colPular.Width = 25;
+            // 
+            // colPulado
+            // 
+            this.colPulado.Text = "";
+            this.colPulado.Width = 25;
+            // 
             // lvTracks
             // 
             this.lvTracks.AllowDrop = true;
@@ -44,7 +57,9 @@
             this.lvTracks.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
             this.colMusica,
             this.colBanda,
-            this.colDuracao});
+            this.colDuracao,
+            this.colPular,
+            this.colPulado});
             this.lvTracks.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lvTracks.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.lvTracks.ForeColor = System.Drawing.Color.White;
@@ -60,12 +75,12 @@
             // colMusica
             // 
             this.colMusica.Text = "Música";
-            this.colMusica.Width = 350;
+            this.colMusica.Width = 310;
             // 
             // colBanda
             // 
             this.colBanda.Text = "Banda";
-            this.colBanda.Width = 250;
+            this.colBanda.Width = 220;
             // 
             // colDuracao
             // 
@@ -75,6 +90,7 @@
             // pnlControls
             // 
             this.pnlControls.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(45)))), ((int)(((byte)(48)))));
+            this.pnlControls.Controls.Add(this.lblStatusCue);
             this.pnlControls.Controls.Add(this.btnScan);
             this.pnlControls.Controls.Add(this.lblStatus);
             this.pnlControls.Controls.Add(this.btnNext);
@@ -86,6 +102,16 @@
             this.pnlControls.Size = new System.Drawing.Size(800, 60);
             this.pnlControls.TabIndex = 1;
             this.pnlControls.Resize += new System.EventHandler(this.pnlControls_Resize);
+            // 
+            // lblStatusCue
+            // 
+            this.lblStatusCue.AutoSize = true;
+            this.lblStatusCue.ForeColor = System.Drawing.Color.DarkGreen;
+            this.lblStatusCue.Location = new System.Drawing.Point(255, 3);
+            this.lblStatusCue.Name = "lblStatusCue";
+            this.lblStatusCue.Size = new System.Drawing.Size(35, 13);
+            this.lblStatusCue.TabIndex = 6;
+            this.lblStatusCue.Text = "label1";
             // 
             // btnScan
             // 
@@ -99,6 +125,7 @@
             this.btnScan.TabIndex = 5;
             this.btnScan.Text = "Scanear";
             this.btnScan.UseVisualStyleBackColor = false;
+            this.btnScan.Click += new System.EventHandler(this.btnScan_Click_1);
             // 
             // lblStatus
             // 
@@ -119,6 +146,7 @@
             this.btnNext.TabIndex = 2;
             this.btnNext.Text = ">>";
             this.btnNext.UseVisualStyleBackColor = false;
+            this.btnNext.Click += new System.EventHandler(this.btnNext_Click);
             // 
             // btnPause
             // 
@@ -188,6 +216,7 @@
             // 
             // lblTrackCount
             // 
+            this.lblTrackCount.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.lblTrackCount.AutoSize = true;
             this.lblTrackCount.Font = new System.Drawing.Font("Segoe UI", 9.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.lblTrackCount.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(192)))), ((int)(((byte)(192)))));
@@ -222,6 +251,7 @@
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "XP3 Player";
             this.pnlControls.ResumeLayout(false);
+            this.pnlControls.PerformLayout();
             this.pnlHeader.ResumeLayout(false);
             this.pnlHeader.PerformLayout();
             this.ResumeLayout(false);
@@ -246,5 +276,9 @@
         private System.Windows.Forms.Timer timerProgresso;
         private System.Windows.Forms.Button button1;
         private System.Windows.Forms.CheckBox chkToggleProg;
+
+        private System.Windows.Forms.ColumnHeader colPular;
+        private System.Windows.Forms.ColumnHeader colPulado;
+        private System.Windows.Forms.Label lblStatusCue;
     }
 }

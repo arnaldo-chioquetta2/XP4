@@ -159,73 +159,7 @@ namespace XP3.Forms
             // Botões de controle
             btnPlay.Click += (s, e) => _player.TogglePlayPause();
             btnPause.Click += (s, e) => _player.TogglePlayPause();
-            btnNext.Click += (s, e) => _player.Next();
-
-            // Botão SCAN
-            // Botão SCAN
-            btnScan.Click += (s, e) =>
-            {
-                var frm = new XP3.Forms.ScannerForm();
-                if (frm.ShowDialog() == DialogResult.OK)
-                {
-                    try
-                    {
-                        // 1. Guarda a música atual antes de mexer na lista
-                        var musicaTocandoAgora = _player.CurrentTrack;
-                        bool estavaTocando = _player.IsPlaying;
-
-                        // Limpa e recarrega após o scan
-                        int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
-                        _currentPlaylistId = idAEscolher;
-                        _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
-
-                        // 2. Recarrega a lista visual (lvTracks) e a lista interna (_tracks)
-                        LoadPlaylist();
-
-                        // 3. Lógica de Recuperação de Posição
-                        if (musicaTocandoAgora != null)
-                        {
-                            // Procura onde a música foi parar na nova lista
-                            // Usamos o ID que é único
-                            int novoIndice = -1;
-                            for (int i = 0; i < _tracks.Count; i++)
-                            {
-                                if (_tracks[i].Id == musicaTocandoAgora.Id)
-                                {
-                                    novoIndice = i;
-                                    break;
-                                }
-                            }
-
-                            if (novoIndice != -1)
-                            {
-                                // ACHAMOS! A música ainda existe na lista, mas mudou de lugar.
-                                // Avisamos o player para atualizar o índice interno SEM parar a música.
-                                _player.AtualizarIndiceAposRemocao(novoIndice);
-
-                                // Seleciona ela na lista visual para o usuário ver
-                                lvTracks.Items[novoIndice].Selected = true;
-                                lvTracks.EnsureVisible(novoIndice);
-                            }
-                            else
-                            {
-                                // A música sumiu da lista?? (Raro, mas possível se foi deletada no scan)
-                                // Nesse caso, tocamos a primeira da nova lista
-                                if (lvTracks.Items.Count > 0) _player.Play(0);
-                            }
-                        }
-                        else
-                        {
-                            // Se não estava tocando nada antes, toca a primeira se houver algo novo
-                            // MAS SÓ SE O USUÁRIO QUISER (Geralmente Scan não deve dar Play sozinho se estava parado)
-                            // Se quiser manter o comportamento original de dar play:
-                            if (lvTracks.Items.Count > 0 && !estavaTocando)
-                                _player.Play(0);
-                        }
-                    }
-                    catch { }
-                }
-            };
+            // btnNext.Click += (s, e) => _player.Next();
 
             // Duplo clique na lista para tocar
             lvTracks.DoubleClick += (s, e) =>
@@ -373,6 +307,16 @@ namespace XP3.Forms
             _trackRepo = new TrackRepository();
             _iniService = new IniFileService();
 
+            // --- NOVO: Captura o status do Auto-Cue ---
+            _player.OnStatusCueChanged += (msg) =>
+            {
+                // Usamos BeginInvoke porque a análise de fim vem de uma Task em background
+                if (lblStatusCue != null && !lblStatusCue.IsDisposed)
+                {
+                    lblStatusCue.BeginInvoke(new Action(() => lblStatusCue.Text = msg));
+                }
+            };
+
             _player.TrackChanged += (s, track) => TratarMudancaDeFaixa(track);
 
             if (spectrum != null)
@@ -383,8 +327,6 @@ namespace XP3.Forms
             _player.FftDataReceived += (s, data) =>
             {
                 // REGRA: Se o form principal estiver minimizado, NÃO atualizamos o spectrum pequeno
-                // Isso economiza processamento enquanto você vê a tela cheia
-                
                 if (this.FazSpectrum)
                 {
                     if (spectrum != null && !spectrum.IsDisposed)
@@ -393,13 +335,10 @@ namespace XP3.Forms
                     }
                 }
 
-                // Se a janela de tela cheia existir e estiver visível, ela recebe os dados
                 if (_visualizerWindow != null && !_visualizerWindow.IsDisposed)
                 {
-                    // _visualizerWindow.BeginInvoke(new Action(() => _visualizerWindow.UpdateData(data)));
                     _visualizerWindow.BeginInvoke(new Action(() =>
                     {
-                        // Adicionamos a variável _picoMaximoDaSessao como segundo argumento
                         _visualizerWindow.UpdateData(data, _picoMaximoDaSessao);
                     }));
                 }
@@ -409,46 +348,26 @@ namespace XP3.Forms
 
             timerProgresso.Tick += TimerProgresso_Tick;
             timerProgresso.Start();
+
             modernSeekBar1.SeekChanged += (s, porcentagem) =>
             {
-                // O usuário clicou, mandamos o player pular
                 _player.SetPosition(porcentagem);
             };
 
             _hotkeyService = new GlobalHotkeyService(this.Handle);
-
-            // TENTATIVA 1: Tecla "Pause/Break" (Canto superior direito, antiga)
-            bool reg1 = _hotkeyService.Register(Keys.Pause);
-
-            // TENTATIVA 2: Tecla Multimídia (Play/Pause de teclados modernos)
-            bool reg2 = _hotkeyService.Register(Keys.MediaPlayPause);
-
-            // Se ambos falharem, avisa para debugarmos
-            if (!reg1 && !reg2)
-            {
-                System.Diagnostics.Debug.WriteLine("AVISO: O Windows bloqueou o registro das teclas de atalho.");
-                // MessageBox.Show("Não foi possível registrar as teclas globais (Pause). Feche outras instâncias.");
-            }
+            _hotkeyService.Register(Keys.Pause);
+            _hotkeyService.Register(Keys.MediaPlayPause);
 
             _pollingService = new KeyPollingService();
-
-            // O que fazer quando detectar o Pause?
             _pollingService.KeyPausePressed += () =>
             {
-                // O evento vem de outra thread, então precisamos usar Invoke para mexer na tela/player
                 this.BeginInvoke(new Action(() =>
                 {
-                    // Simplesmente alterna
                     _player.TogglePlayPause();
-
-                    // Opcional: Efeito visual ou log
-                    // System.Diagnostics.Debug.WriteLine("Pause detectado via Polling!");
                 }));
             };
 
-            // Inicia o loop infinito em background
             _pollingService.Start();
-
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
         }
 
@@ -1254,24 +1173,52 @@ namespace XP3.Forms
 
         private void TimerProgresso_Tick(object sender, EventArgs e)
         {
-            // Só atualiza se tiver música tocando e se o player tiver duração válida
+            // 1. Verificação de segurança: se o player ou a track atual sumirem, não faz nada
+            if (_player == null || _player.CurrentTrack == null)
+            {
+                modernSeekBar1.Value = 0;
+                return;
+            }
+
+            var trackAtual = _player.CurrentTrack;
+
+            // 2. Só processa se o player tiver uma duração válida (maior que zero)
             if (_player.TotalTime.TotalSeconds > 0)
             {
-                // Calcula a porcentagem atual
-                double porcentagem = _player.CurrentTime.TotalSeconds / _player.TotalTime.TotalSeconds;
+                double posicaoAtual = _player.CurrentTime.TotalSeconds;
+
+                // --- LÓGICA DE CORTE FINAL (AUTO-CUE) ---
+                // Se CutFim for maior que 0 (já avaliado) e a posição atual passar do limite...
+                if (trackAtual.CutFim > 0 && posicaoAtual >= trackAtual.CutFim)
+                {
+                    // _player.GravarLog($"[AUTO-CUE] Ponto de corte final atingido: {trackAtual.CutFim}s. Pulando...");
+
+                    // Chama o método para tocar a próxima música da lista
+                    // (Ajuste o nome do método conforme o que você usa: PlayNext, ProximaMusica, etc.)
+                    _player.Next();
+
+                    return; // Encerra o Tick aqui para evitar cálculos desnecessários
+                }
+
+                // --- ATUALIZAÇÃO VISUAL ---
+                // Calcula a porcentagem atual para o SeekBar
+                double porcentagem = posicaoAtual / _player.TotalTime.TotalSeconds;
+
+                // Garante que a porcentagem não passe de 1 (100%) por erro de arredondamento
+                if (porcentagem > 1) porcentagem = 1;
 
                 // Atualiza a barra visualmente
                 modernSeekBar1.Value = porcentagem;
 
-                // Opcional: Atualizar um Label de tempo texto (ex: 02:30 / 04:00)
-                // lblTempo.Text = $"{_player.CurrentTime:mm\\:ss} / {_player.TotalTime:mm\\:ss}";
+                // Opcional: Se quiser mostrar o tempo atualizado em algum Label:
+                // lblTempo.Text = $"{_player.CurrentTime:mm\\:ss} / {TimeSpan.FromSeconds(trackAtual.CutFim > 0 ? trackAtual.CutFim : _player.TotalTime.TotalSeconds):mm\\:ss}";
             }
             else
             {
                 modernSeekBar1.Value = 0;
             }
         }
-
+        
         #region Grid
 
         private void LoadPlaylist()
@@ -1414,19 +1361,21 @@ namespace XP3.Forms
         {
             lvTracks.Columns.Clear();
 
-            // Música: Ocupa a maior parte do espaço
-            lvTracks.Columns.Add("Música", 420);
+            // Música: Ajustada para caber as novas colunas
+            lvTracks.Columns.Add("Música", 375);
 
-            // Banda: Espaço médio
-            lvTracks.Columns.Add("Banda", 200); // 220);
+            // Banda: Mantida em 200
+            lvTracks.Columns.Add("Banda", 200);
 
-            // Tempo: Alinhado à direita (fica mais elegante para números) 
-            // e com largura fixa pequena, já que o formato "00:00" é constante.
+            // Tempo: 70px, alinhado à direita
             lvTracks.Columns.Add("Tempo", 70, HorizontalAlignment.Right);
 
-            // Removida definitivamente a coluna Operação conforme solicitado anteriormente
-        }
+            // Pular: Coluna para o peso da música
+            lvTracks.Columns.Add("", 25, HorizontalAlignment.Center);
 
+            // Pulado: Coluna para o contador de pulos atual
+            lvTracks.Columns.Add("", 25, HorizontalAlignment.Center);
+        }
         #endregion
 
         #region Botões de ação
@@ -1729,6 +1678,9 @@ namespace XP3.Forms
             //item.SubItems.Add(track.Duration);
             item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
 
+            item.SubItems.Add(track.Pular.ToString());
+            item.SubItems.Add(track.Pulado.ToString());
+
             // --- LÓGICA DE DESTAQUE (VERDE) ---
             // Verifica se esta linha corresponde à música que está tocando agora
             bool estaTocando = (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id);
@@ -2001,6 +1953,76 @@ namespace XP3.Forms
                 chkToggleProg.Text = "OFF";
                 chkToggleProg.BackColor = System.Drawing.Color.FromArgb(60, 60, 60);
             }
+        }
+
+        private void btnNext_Click(object sender, EventArgs e)
+        {
+            _player.Next();
+        }
+
+        private void btnScan_Click_1(object sender, EventArgs e)
+        {
+            var frm = new XP3.Forms.ScannerForm();
+            if (frm.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    // 1. Guarda a música atual antes de mexer na lista
+                    var musicaTocandoAgora = _player.CurrentTrack;
+                    bool estavaTocando = _player.IsPlaying;
+
+                    // Limpa e recarrega após o scan
+                    int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
+                    _currentPlaylistId = idAEscolher;
+                    _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
+
+                    // 2. Recarrega a lista visual (lvTracks) e a lista interna (_tracks)
+                    LoadPlaylist();
+
+                    // 3. Lógica de Recuperação de Posição
+                    if (musicaTocandoAgora != null)
+                    {
+                        // Procura onde a música foi parar na nova lista
+                        // Usamos o ID que é único
+                        int novoIndice = -1;
+                        for (int i = 0; i < _tracks.Count; i++)
+                        {
+                            if (_tracks[i].Id == musicaTocandoAgora.Id)
+                            {
+                                novoIndice = i;
+                                break;
+                            }
+                        }
+
+                        if (novoIndice != -1)
+                        {
+                            // ACHAMOS! A música ainda existe na lista, mas mudou de lugar.
+                            // Avisamos o player para atualizar o índice interno SEM parar a música.
+                            _player.AtualizarIndiceAposRemocao(novoIndice);
+
+                            // Seleciona ela na lista visual para o usuário ver
+                            lvTracks.Items[novoIndice].Selected = true;
+                            lvTracks.EnsureVisible(novoIndice);
+                        }
+                        else
+                        {
+                            // A música sumiu da lista?? (Raro, mas possível se foi deletada no scan)
+                            // Nesse caso, tocamos a primeira da nova lista
+                            if (lvTracks.Items.Count > 0) _player.Play(0);
+                        }
+                    }
+                    else
+                    {
+                        // Se não estava tocando nada antes, toca a primeira se houver algo novo
+                        // MAS SÓ SE O USUÁRIO QUISER (Geralmente Scan não deve dar Play sozinho se estava parado)
+                        // Se quiser manter o comportamento original de dar play:
+                        if (lvTracks.Items.Count > 0 && !estavaTocando)
+                            _player.Play(0);
+                    }
+                }
+                catch { }
+            }
+
         }
 
     }
