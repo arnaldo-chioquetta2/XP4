@@ -74,6 +74,11 @@ namespace XP3.Forms
         private int _currentVisualizerIndex = 0;
         private List<Track> _tracks = new List<Track>();
 
+        // Variáveis para desenhar as zonas de Auto-Cue na barra
+        private double _trackTotalSeconds = 0;
+        private double _trackCutIni = 0;
+        private double _trackCutFim = 0;
+
         public Inicial()
         {
             InitializeComponent();
@@ -103,6 +108,8 @@ namespace XP3.Forms
                 modernSeekBar1 = new ModernSeekBar(); // Certifique-se que o namespace XP3.Controls está no using
                 modernSeekBar1.ProgressColor = Color.Cyan;
                 modernSeekBar1.TrackColor = Color.FromArgb(40, 40, 40);
+
+                modernSeekBar1.Paint += ModernSeekBar1_Paint;
 
                 int margemInferior = 130;
 
@@ -148,6 +155,38 @@ namespace XP3.Forms
             {
                 LoadPlaylist();
             }                
+        }
+
+        private void ModernSeekBar1_Paint(object sender, PaintEventArgs e)
+        {
+            // Só desenha se tivermos uma música válida carregada
+            if (_trackTotalSeconds <= 0) return;
+
+            var bar = (ModernSeekBar)sender;
+            int w = bar.Width;
+            int h = bar.Height;
+
+            // Cor Laranja/Dourada (Goldenrod) com um pouco de transparência
+            using (var brushDourado = new SolidBrush(Color.FromArgb(180, 218, 165, 32)))
+            {
+                // DESENHO DO INÍCIO (Silêncio inicial)
+                if (_trackCutIni > 0)
+                {
+                    float ratioIni = (float)(_trackCutIni / _trackTotalSeconds);
+                    int widthIni = (int)(w * ratioIni);
+                    e.Graphics.FillRectangle(brushDourado, 0, 0, widthIni, h);
+                }
+
+                // DESENHO DO FIM (Silêncio final / Próxima música)
+                // O CutFim é o ponto onde a música PARA. Então a área dourada é do CutFim até o Total.
+                if (_trackCutFim > 0 && _trackCutFim < _trackTotalSeconds)
+                {
+                    float ratioFim = (float)(_trackCutFim / _trackTotalSeconds);
+                    int xFim = (int)(w * ratioFim);
+                    int widthFim = w - xFim;
+                    e.Graphics.FillRectangle(brushDourado, xFim, 0, widthFim, h);
+                }
+            }
         }
 
         #region Inicializacao
@@ -378,6 +417,11 @@ namespace XP3.Forms
             // O BeginInvoke gerencia a fila da UI de forma segura
             this.BeginInvoke(new Action(() =>
             {
+                // --- NOVO: Captura dados para o visual da barra ---
+                _trackTotalSeconds = track.Duration.TotalSeconds;
+                _trackCutIni = track.CutIni > 0 ? track.CutIni : 0;
+                _trackCutFim = track.CutFim > 0 ? track.CutFim : 0;
+
                 // 1. LIMPEZA E LÓGICA DA MÚSICA ANTERIOR (Repositório / AEscolher)
                 if (_musicaAnterior != null)
                 {
@@ -406,7 +450,11 @@ namespace XP3.Forms
                 lblStatus.ForeColor = Color.LightGreen;
                 this.Text = $"{track.Title} - Mp3 Player XP3";
 
-                if (modernSeekBar1 != null) modernSeekBar1.Visible = true;
+                if (modernSeekBar1 != null)
+                {
+                    modernSeekBar1.Visible = true;
+                    modernSeekBar1.Invalidate(); // Força a barra a se repintar com as zonas douradas
+                }
 
                 InicializarSpectrumSeNecessario();
 
@@ -435,9 +483,7 @@ namespace XP3.Forms
 
                         AtualizarPainelLateral(track);
 
-                        // --- A CORREÇÃO ESTÁ AQUI ---
-                        // Força o ListView a rodar o 'RetrieveVirtualItem' de novo para todas as linhas visíveis.
-                        // Isso faz a música antiga ficar cinza e a nova ficar verde.
+                        // Força o ListView a rodar o 'RetrieveVirtualItem' de novo
                         lvTracks.Refresh();
                     }
                 }
@@ -1678,8 +1724,12 @@ namespace XP3.Forms
             //item.SubItems.Add(track.Duration);
             item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
 
-            item.SubItems.Add(track.Pular.ToString());
-            item.SubItems.Add(track.Pulado.ToString());
+            // No while(reader.Read()) do Repository:
+            int ipular = track.Pular != DBNull.Value ? Convert.ToInt32(track.Pular) : 0;
+            int ipulado = track.Pulado != DBNull.Value ? Convert.ToInt32(track.Pulado) : 0;
+
+            item.SubItems.Add(ipular.ToString());
+            item.SubItems.Add(ipulado.ToString()); ;
 
             // --- LÓGICA DE DESTAQUE (VERDE) ---
             // Verifica se esta linha corresponde à música que está tocando agora
