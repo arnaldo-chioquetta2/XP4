@@ -33,6 +33,14 @@ namespace XP3.Services
 
         private readonly ProgrammingRepository _progRepo;
         private bool _programacaoAtiva;
+
+        // --- ADICIONAR ESTES CAMPOS ---
+        private SilenceDetector _silenceDetector;
+        private TrackRepository _trackRepo;
+
+        // --- ADICIONAR ESTE EVENTO ---
+        public event Action<string> OnStatusCueChanged;
+
         public int CurrentPlaylistId { get; set; } = -1;
 
         public TimeSpan CurrentTime => _audioFile?.CurrentTime ?? TimeSpan.Zero;
@@ -47,14 +55,14 @@ namespace XP3.Services
 
         public event EventHandler<int> SolicitarTrocaDePlaylist;
 
-        private readonly SilenceDetector _silenceDetector = new SilenceDetector();
-        private readonly TrackRepository _trackRepo = new TrackRepository();
+        //private readonly SilenceDetector _silenceDetector = new SilenceDetector();
+        //private readonly TrackRepository _trackRepo = new TrackRepository();
 
         // Limiar de silêncio: 0.01f costuma ser excelente para ignorar chiados e 
         // detectar o início real da música.
         private const float SilenceThreshold = 0.01f;
 
-        public event Action<string> OnStatusCueChanged;
+        //public event Action<string> OnStatusCueChanged;
 
         public bool ProgramacaoAtiva
         {
@@ -69,16 +77,22 @@ namespace XP3.Services
 
         public AudioPlayerService()
         {
+            // 1. O que já era seu (Git)
             _mediaPlayer = new MediaPlayer();
             _playlist = new List<Track>();
             _mediaPlayer.MediaEnded += _mediaPlayer_MediaEnded;
 
-            // --- INICIALIZAÇÃO FASE 3.1 ---
+            // 2. Os motores para o AUTO-CUE (Essenciais para o que fizemos hoje)
+            _silenceDetector = new SilenceDetector(); // O "ouvido" do programa
+            _trackRepo = new TrackRepository();       // O "escritor" do banco
+
+            // 3. Sua lógica de programação (Fase 3.1)
             _progRepo = new ProgrammingRepository();
             SincronizarConfiguracoesIniciais();
 
+            // 4. Logs e Debug
             try { File.Delete("debug_audio_log.txt"); } catch { }
-            GravarLog("=== INICIANDO SERVIÇO DE ÁUDIO (MÓDULO WAVEOUT LEGACY) ===");
+            GravarLog("=== INICIANDO SERVIÇO DE ÁUDIO (WAVEOUT + AUTO-CUE) ===");
         }
 
         private void SincronizarConfiguracoesIniciais()
@@ -187,46 +201,29 @@ namespace XP3.Services
             _currentIndex = index;
             var track = _playlist[_currentIndex];
 
-            GravarLog($"Iniciando Play (Modo Auto-Cue): {track.Title}");
+            GravarLog($"Iniciando Play (WaveOut + AutoCue): {track.Title}");
 
             try
             {
-                WaveStream reader;
-
-                // 1. Inicialização do Reader (Compatibilidade MP3/WAV/ACM)
-                if (track.FilePath.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
-                {
-                    reader = new Mp3FileReader(track.FilePath);
-                }
-                else
-                {
-                    reader = new MediaFoundationReader(track.FilePath);
-                }
-
+                // 1. Leitor
+                var reader = new MediaFoundationReader(track.FilePath);
                 _audioFile = reader;
 
-                // --- ETAPA 4 e 5: AUTO-CUE E FEEDBACK ---
-
+                // --- 2. LÓGICA DO AUTO-CUE ---
                 if (track.CutIni == -1)
                 {
-                    // Sinaliza para a interface que a auditoria começou
                     OnStatusCueChanged?.Invoke("Analisando Silêncio...");
                     GravarLog($"[AUTO-CUE] Analisando silêncio para: {track.Title}");
 
-                    // Análise de Início: Síncrona (Imediata para o Play)
                     track.CutIni = _silenceDetector.AnalisarCutIni(track.FilePath);
 
-                    // Análise de Fim e Gravação: Assíncrona (Segundo plano)
                     Task.Run(() =>
                     {
                         try
                         {
                             track.CutFim = _silenceDetector.AnalisarCutFim(track.FilePath);
-
-                            // Salva no banco de dados SQLite
                             _trackRepo.AtualizarCortesMusica(track.Id, track.CutIni, track.CutFim);
 
-                            // Atualiza o Label na tela com o resultado final
                             string feedback = $"Auto-Cue: Início {track.CutIni}s | Fim {track.CutFim}s";
                             OnStatusCueChanged?.Invoke(feedback);
                             GravarLog($"[AUTO-CUE] " + feedback);
@@ -240,61 +237,63 @@ namespace XP3.Services
                 }
                 else
                 {
-                    // Se já está avaliado, apenas informa os valores que serão usados
                     string msg = (track.CutIni == 0 && track.CutFim == 0)
-                        ? "Sem cortes (Início/Fim OK)"
+                        ? "Sem cortes"
                         : $"Auto-Cue Ativo: {track.CutIni}s / {track.CutFim}s";
-
                     OnStatusCueChanged?.Invoke(msg);
                 }
 
-                // 2. Aplicação do Corte Inicial
+                // Aplicação do Corte Inicial
                 if (track.CutIni > 0)
                 {
                     _audioFile.CurrentTime = TimeSpan.FromSeconds(track.CutIni);
                     GravarLog($"[AUDIO] Saltando para {track.CutIni}s");
                 }
+                // ---------------------------------
 
-                // 3. Configuração do Aggregator (Espectro Visual)
+                // 3. Aggregator
                 _aggregator = new SampleAggregator(reader.ToSampleProvider(), 256);
                 _aggregator.FftCalculated += (s, args) => FftDataReceived?.Invoke(this, args.Result);
 
-                // 4. Configuração do Volume e Proteção para Programação (VS)
+                // 4. Volume e Proteção do Visual Studio
                 _volumeProvider = new VolumeSampleProvider(_aggregator);
 
                 if (System.Diagnostics.Debugger.IsAttached)
                 {
-                    _volumeProvider.Volume = _volume * 0.01f; // Volume baixo em modo Debug
-                    GravarLog($"[DEBUG] Volume limitado a 1% por segurança.");
+                    _volumeProvider.Volume = _volume * 0.02f; // Baixinho enquanto programa
+                    GravarLog($"[DEBUG] Volume IDE limitado.");
                 }
                 else
                 {
                     _volumeProvider.Volume = _volume;
                 }
 
-                // 5. Preparação da Saída Final
+                // 5. O pulo do gato para drivers genéricos (Retorno para 16-bit)
                 var finalWaveProvider = new SampleToWaveProvider16(_volumeProvider);
 
+                // 6. Seleção Dinâmica do Dispositivo (A sua inteligência do Git)
+                int deviceId = ObterIndiceDispositivoWaveOut();
+
+                // 7. Inicialização WaveOutEvent
                 _waveOut = new WaveOutEvent();
-                _waveOut.DeviceNumber = -1;
+                _waveOut.DeviceNumber = deviceId;
                 _waveOut.DesiredLatency = 200;
                 _waveOut.NumberOfBuffers = 2;
 
                 _waveOut.Init(finalWaveProvider);
+                GravarLog("WaveOut Init OK.");
+
                 _waveOut.PlaybackStopped += OnPlaybackStopped;
-
-                // 6. EXECUÇÃO
                 _waveOut.Play();
+                GravarLog("Playback Iniciado.");
 
-                GravarLog("Playback iniciado.");
                 TrackChanged?.Invoke(this, track);
             }
             catch (Exception ex)
             {
-                OnStatusCueChanged?.Invoke("Erro ao carregar áudio.");
-                GravarLog($"ERRO FATAL: {ex.Message}");
+                GravarLog($"ERRO FATAL: {ex.Message}\n{ex.StackTrace}");
                 RegistrarLogErro(track, ex);
-                PlaybackError?.Invoke(this, new Tuple<Track, string>(track, ex.Message));
+                PlaybackError?.Invoke(this, new Tuple<Track, string>(track, $"Erro: {ex.Message}"));
             }
         }
 

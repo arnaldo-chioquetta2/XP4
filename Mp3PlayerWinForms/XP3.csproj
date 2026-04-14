@@ -151,6 +151,12 @@
     </Compile>
     <Compile Include="Data\ProgrammingRepository.cs" />
     <Compile Include="Features\Programming\ProgrammingService.cs" />
+    <Compile Include="Forms\FrmEditaMusica.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\FrmEditaMusica.Designer.cs">
+      <DependentUpon>FrmEditaMusica.cs</DependentUpon>
+    </Compile>
     <Compile Include="Forms\Programacao.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -235,6 +241,9 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Forms\FrmEditaMusica.resx">
+      <DependentUpon>FrmEditaMusica.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="Forms\Inicial.resx">
       <DependentUpon>Inicial.cs</DependentUpon>
     </EmbeddedResource>

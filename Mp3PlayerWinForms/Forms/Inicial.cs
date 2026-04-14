@@ -78,7 +78,7 @@ namespace XP3.Forms
         private double _trackTotalSeconds = 0;
         private double _trackCutIni = 0;
         private double _trackCutFim = 0;
-
+        private ContextMenuStrip menuMusica;
         public Inicial()
         {
             InitializeComponent();
@@ -406,8 +406,92 @@ namespace XP3.Forms
                 }));
             };
 
+            menuMusica = new ContextMenuStrip();
+
+            // Criando os itens
+            var itemTocarMenos = new ToolStripMenuItem("Tocar menos") { Enabled = false };
+            var itemMudarBanda = new ToolStripMenuItem("Mudar de banda") { Enabled = false };
+            var itemAjustarTempo = new ToolStripMenuItem("Ajustar o tempo") { Enabled = true }; // Único ativo
+            var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica") { Enabled = false };
+            var itemRenomear = new ToolStripMenuItem("Renomear musica") { Enabled = false };
+            var itemMudarLista = new ToolStripMenuItem("Mudar a lista ao terminar") { Enabled = false };
+
+            // Adicionando ao menu
+            menuMusica.Items.Add(itemTocarMenos);
+            menuMusica.Items.Add(itemMudarBanda);
+            menuMusica.Items.Add(itemAjustarTempo);
+            menuMusica.Items.Add(new ToolStripSeparator()); // Uma linha divisória para organizar
+            menuMusica.Items.Add(itemAbrirPasta);
+            menuMusica.Items.Add(itemRenomear);
+            menuMusica.Items.Add(itemMudarLista);
+
+            // Vinculando o menu ao ListView
+            lvTracks.ContextMenuStrip = menuMusica;
+
+            // Evento de clique para o "Ajustar o tempo"
+            itemAjustarTempo.Click += (s, e) =>
+            {
+                if (lvTracks.SelectedIndices.Count > 0)
+                {
+                    int index = lvTracks.SelectedIndices[0];
+                    var track = _allTracks[index];
+                }
+            };
+
+            // Adicione isso também no seu SetupServices ou no construtor
+            lvTracks.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Right)
+                {
+                    var item = lvTracks.GetItemAt(e.X, e.Y);
+                    if (item == null)
+                    {
+                        // Se clicou no vazio, cancela a exibição do menu
+                        lvTracks.ContextMenuStrip = null;
+                    }
+                    else
+                    {
+                        // Se clicou em uma música, garante que o menu esteja lá
+                        lvTracks.ContextMenuStrip = menuMusica;
+                    }
+                }
+            };
+
+            // Dentro do SetupServices no seu Inicial.cs
+
+            itemAjustarTempo.Click += (s, e) => ChamaAjusarTempo();
+
             _pollingService.Start();
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
+        }
+
+        private void ChamaAjusarTempo()
+        {
+            // 1. Verifica se há algo selecionado na lista de músicas
+            if (lvTracks.SelectedIndices.Count > 0)
+            {
+                // 2. Pega a música através do índice selecionado
+                int index = lvTracks.SelectedIndices[0];
+                var trackSelecionada = _allTracks[index];
+
+                // 3. Abre o formulário de edição passando a música 
+                // E a ação para parar o player principal () => _player.Stop()
+                using (var frm = new FrmEditaMusica(trackSelecionada, () => _player.Stop()))
+                {
+                    if (frm.ShowDialog() == DialogResult.OK)
+                    {
+                        // Salva definitivamente no banco de dados
+                        _trackRepo.AtualizarCortesMusica(trackSelecionada.Id, trackSelecionada.CutIni, trackSelecionada.CutFim);
+
+                        // Atualiza a visualização na ListView (Colunas 6 e 7)
+                        lvTracks.Items[index].SubItems[6].Text = trackSelecionada.CutIni.ToString();
+                        lvTracks.Items[index].SubItems[7].Text = trackSelecionada.CutFim.ToString();
+
+                        // Força o redesenho da barra para mostrar as novas marcações douradas
+                        modernSeekBar1.Invalidate();
+                    }
+                }
+            }
         }
 
         private void TratarMudancaDeFaixa(Track track)
