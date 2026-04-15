@@ -544,5 +544,20 @@ namespace XP3.Data
             }
         }
         #endregion
+
+        public void TocaMenos(int trackId)
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+                string sql = "UPDATE Musica SET Pular = COALESCE(Pular, 0) + 10 WHERE ID = @Id";
+                using (var command = new SQLiteCommand(sql, connection))
+                {
+                    command.Parameters.AddWithValue("@Id", trackId);
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
     }
 }

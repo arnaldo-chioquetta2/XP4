@@ -1,16 +1,17 @@
-using System;
-using System;
-using XP3.Data;
 using SQLitePCL;
-using System.IO;
-using XP3.Models;
-using System.Linq;
-using XP3.Services;
-using XP3.Controls;
-using System.Drawing;
-using System.Windows.Forms;
-using System.Threading.Tasks;
+using System;
+using System;
 using System.Collections.Generic;
+using System.Data.SQLite;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using XP3.Controls;
+using XP3.Data;
+using XP3.Models;
+using XP3.Services;
 
 namespace XP3.Forms
 {
@@ -409,7 +410,7 @@ namespace XP3.Forms
             menuMusica = new ContextMenuStrip();
 
             // Criando os itens
-            var itemTocarMenos = new ToolStripMenuItem("Tocar menos") { Enabled = false };
+            var itemTocarMenos = new ToolStripMenuItem("Tocar menos") { Enabled = true };
             var itemMudarBanda = new ToolStripMenuItem("Mudar de banda") { Enabled = false };
             var itemAjustarTempo = new ToolStripMenuItem("Ajustar o tempo") { Enabled = true }; // Único ativo
             var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica") { Enabled = false };
@@ -427,6 +428,8 @@ namespace XP3.Forms
 
             // Vinculando o menu ao ListView
             lvTracks.ContextMenuStrip = menuMusica;
+
+            itemTocarMenos.Click += (s, e) => TocaMenos();
 
             // Evento de clique para o "Ajustar o tempo"
             itemAjustarTempo.Click += (s, e) =>
@@ -463,6 +466,34 @@ namespace XP3.Forms
 
             _pollingService.Start();
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
+        }
+
+        private void TocaMenos()
+        {
+            // 1. Verifica se há seleção no ListView
+            if (lvTracks.SelectedIndices.Count == 0) return;
+
+            // 2. Identifica a música selecionada
+            int index = lvTracks.SelectedIndices[0];
+            var track = _allTracks[index];
+
+            // 3. Executa a lógica no banco através do repositório
+            _trackRepo.TocaMenos(track.Id);
+
+            // 4. Atualiza a memória para a tela não ficar "mentindo"
+            track.Pular += 1;
+
+            // 5. Feedback visual e inteligência de pulo
+            lblStatus.Text = $"Penalidade aplicada: {track.Title} tocará menos.";
+            lblStatus.ForeColor = Color.Orange;
+
+            if (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
+            {
+                _player.Next(); // Se é a que está tocando agora, já pula
+            }
+
+            // 6. Atualiza a lista na tela
+            lvTracks.Refresh();
         }
 
         private void ChamaAjusarTempo()
@@ -1808,12 +1839,9 @@ namespace XP3.Forms
             //item.SubItems.Add(track.Duration);
             item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
 
-            // No while(reader.Read()) do Repository:
-            int ipular = track.Pular != DBNull.Value ? Convert.ToInt32(track.Pular) : 0;
-            int ipulado = track.Pulado != DBNull.Value ? Convert.ToInt32(track.Pulado) : 0;
 
-            item.SubItems.Add(ipular.ToString());
-            item.SubItems.Add(ipulado.ToString()); ;
+            item.SubItems.Add(track.Pular.ToString());
+            item.SubItems.Add(track.Pulado.ToString()); ;
 
             // --- LÓGICA DE DESTAQUE (VERDE) ---
             // Verifica se esta linha corresponde à música que está tocando agora
@@ -2091,6 +2119,29 @@ namespace XP3.Forms
 
         private void btnNext_Click(object sender, EventArgs e)
         {
+            // 1. Identifica a música que estava tocando no momento do clique
+            var trackAtual = _player.CurrentTrack;
+
+            if (trackAtual != null)
+            {
+                try
+                {
+                    // 2. Incrementa o contador no banco de dados
+                    _trackRepo.TocaMenos(trackAtual.Id);
+
+                    // 3. Incrementa no objeto em memória (opcional, mas bom para manter a grid atualizada)
+                    trackAtual.Pular++;
+
+                    // Se você quiser ver o contador subindo na Grid imediatamente:
+                    // lvTracks.Refresh(); 
+                }
+                catch (Exception ex)
+                {
+                    // Log silencioso se houver erro no banco, para não travar o Play
+                }
+            }
+
+            // 4. Segue para a próxima música normalmente
             _player.Next();
         }
 

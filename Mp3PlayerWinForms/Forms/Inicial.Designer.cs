@@ -107,7 +107,7 @@
             // 
             this.lblStatusCue.AutoSize = true;
             this.lblStatusCue.ForeColor = System.Drawing.Color.GreenYellow;
-            this.lblStatusCue.Location = new System.Drawing.Point(255, 3);
+            this.lblStatusCue.Location = new System.Drawing.Point(269, 3);
             this.lblStatusCue.Name = "lblStatusCue";
             this.lblStatusCue.Size = new System.Drawing.Size(35, 13);
             this.lblStatusCue.TabIndex = 6;

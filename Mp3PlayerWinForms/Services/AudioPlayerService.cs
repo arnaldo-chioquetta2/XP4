@@ -150,47 +150,49 @@ namespace XP3.Services
 
         private int ObterIndiceDispositivoWaveOut()
         {
-            GravarLog("--- Listando Dispositivos WaveOut (Legado) ---");
-
+            GravarLog("--- Buscando Caixas de Som Definitivas ---");
             int waveOutCount = WaveOut.DeviceCount;
-            int dispositivoEscolhido = -1;
 
+            // TENTATIVA 1: O Tiro Certo (Procura estritamente por USB ou Alto-falantes)
             for (int i = 0; i < waveOutCount; i++)
             {
                 try
                 {
                     var caps = WaveOut.GetCapabilities(i);
-                    string nome = caps.ProductName;
-                    string nomeLower = nome.ToLower();
+                    string nomeLower = caps.ProductName.ToLower();
 
-                    GravarLog($"ID {i}: {nome}");
-
-                    if ((nomeLower.Contains("high definition") ||
-                         nomeLower.Contains("high def") ||
-                         nomeLower.Contains("usb") ||
-                         nomeLower.Contains("pnp"))
-                        && !nomeLower.Contains("nvidia"))
+                    // Se tem "usb" ou "alto-falante" no nome, não tem erro, é a sua caixa de som!
+                    if (nomeLower.Contains("usb") || nomeLower.Contains("alto-falante"))
                     {
-                        GravarLog($" -> ALVO DETECTADO (ID {i}): {nome}");
-                        dispositivoEscolhido = i;
+                        GravarLog($" -> ALVO DETECTADO COM SUCESSO (ID {i}): {caps.ProductName}");
+                        return i;
                     }
                 }
-                catch (Exception ex)
-                {
-                    GravarLog($"Erro ao ler caps do device {i}: {ex.Message}");
-                }
+                catch { }
             }
 
-            if (dispositivoEscolhido != -1)
+            // TENTATIVA 2: Se por acaso o USB for desconectado, pega qualquer coisa que NÃO seja TV
+            for (int i = 0; i < waveOutCount; i++)
             {
-                GravarLog($"*** USANDO DISPOSITIVO ID {dispositivoEscolhido} ***");
-                return dispositivoEscolhido;
+                try
+                {
+                    var caps = WaveOut.GetCapabilities(i);
+                    string nomeLower = caps.ProductName.ToLower();
+
+                    // Rejeita ativamente Philips, placas de vídeo (Nvidia/AMD) e cabos Display/HDMI
+                    if (!nomeLower.Contains("nvidia") && !nomeLower.Contains("philips")
+                        && !nomeLower.Contains("amd") && !nomeLower.Contains("display"))
+                    {
+                        GravarLog($" -> USANDO POR ELIMINAÇÃO (ID {i}): {caps.ProductName}");
+                        return i;
+                    }
+                }
+                catch { }
             }
-            else
-            {
-                GravarLog("*** NENHUM ESPECÍFICO ENCONTRADO. USANDO MAPPER (-1) ***");
-                return -1;
-            }
+
+            // TENTATIVA 3: Se der pane total, usa o Padrão do Windows
+            GravarLog("*** CAIXAS NÃO ENCONTRADAS. USANDO PADRÃO DO WINDOWS (-1) ***");
+            return -1;
         }
 
         public void Play(int index)
