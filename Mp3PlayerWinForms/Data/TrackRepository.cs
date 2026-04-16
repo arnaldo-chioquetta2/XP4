@@ -1,9 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Data.SQLite;
+using System.Diagnostics;
 using System.IO;
 using XP3.Models;
-using System.Diagnostics;
-using System.Data.SQLite;
-using System.Collections.Generic;
+using XP3.Services;
 
 namespace XP3.Data
 {
@@ -555,6 +556,166 @@ namespace XP3.Data
                 {
                     command.Parameters.AddWithValue("@Id", trackId);
                     command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public bool RenomearMusica(Track track, string novoNome)
+        {
+            try
+            {
+                // 1. Prepara os caminhos físicos
+                string diretorio = System.IO.Path.GetDirectoryName(track.FilePath);
+                string extensao = System.IO.Path.GetExtension(track.FilePath);
+
+                // Remove caracteres inválidos que o usuário possa ter digitado (ex: ? \ / : *)
+                string nomeLimpo = string.Join("_", novoNome.Split(System.IO.Path.GetInvalidFileNameChars()));
+
+                string novoCaminhoFisico = System.IO.Path.Combine(diretorio, nomeLimpo + extensao);
+
+                // 2. Renomeia fisicamente no Windows
+                if (track.FilePath != novoCaminhoFisico)
+                {
+                    if (System.IO.File.Exists(novoCaminhoFisico))
+                    {
+                        throw new Exception("Já existe uma música com este nome na pasta.");
+                    }
+                    System.IO.File.Move(track.FilePath, novoCaminhoFisico);
+                }
+
+                // 3. Atualiza no Banco de Dados (Nome da música e o novo Caminho/Lugar)
+                using (var connection = Database.GetConnection())
+                {
+                    connection.Open();
+                    string sql = "UPDATE Musica SET Nome = @Nome, Lugar = @Lugar WHERE ID = @Id";
+
+                    using (var command = new SQLiteCommand(sql, connection))
+                    {
+                        command.Parameters.AddWithValue("@Nome", novoNome);
+                        command.Parameters.AddWithValue("@Lugar", novoCaminhoFisico);
+                        command.Parameters.AddWithValue("@Id", track.Id);
+                        command.ExecuteNonQuery();
+                    }
+                }
+
+                // 4. Atualiza o objeto em memória para não precisar recarregar o banco
+                track.Title = novoNome;
+                track.FilePath = novoCaminhoFisico;
+
+                return true; // Sucesso!
+            }
+            catch (System.IO.IOException)
+            {
+                // Erro clássico: O arquivo está em uso (ex: sendo tocado agora mesmo)
+                System.Windows.Forms.MessageBox.Show("Não é possível renomear a música enquanto ela está tocando.", "Arquivo em uso");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                System.Windows.Forms.MessageBox.Show($"Erro ao renomear: {ex.Message}", "Erro");
+                return false;
+            }
+        }
+
+        // MÉTODO 1: Chamado quando o usuário dá ENTER na Grid
+        public void AgendarRenomeacao(int trackId, string novoNome)
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                // 1. Atualiza o NOME no banco principal para a interface do rádio já refletir a mudança
+                string sqlUpdate = "UPDATE Musica SET Nome = @Nome WHERE ID = @Id";
+                using (var cmd = new SQLiteCommand(sqlUpdate, connection))
+                {
+                    cmd.Parameters.AddWithValue("@Nome", novoNome);
+                    cmd.Parameters.AddWithValue("@Id", trackId);
+                    cmd.ExecuteNonQuery();
+                }
+
+                // 2. Coloca na fila para o arquivo físico ser renomeado no próximo boot
+                string sqlInsert = "INSERT INTO Renomear (ID, Nome) VALUES (@Id, @Nome)";
+                using (var cmd = new SQLiteCommand(sqlInsert, connection))
+                {
+                    cmd.Parameters.AddWithValue("@Id", trackId);
+                    cmd.Parameters.AddWithValue("@Nome", novoNome);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        // MÉTODO 2: Chamado quando o rádio abre (equivalente ao RenomearArquivos do VB6)
+        public void ProcessarRenomeacoesPendentes()
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                // Fazemos um JOIN para pegar o Lugar atual da música
+                string sqlSelect = "SELECT r.ID, r.Nome, m.Lugar FROM Renomear r INNER JOIN Musica m ON r.ID = m.ID";
+                var idsConcluidos = new System.Collections.Generic.List<int>();
+
+                using (var command = new SQLiteCommand(sqlSelect, connection))
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        int id = Convert.ToInt32(reader["ID"]);
+                        string novoNome = reader["Nome"].ToString();
+                        string lugarAtual = reader["Lugar"].ToString();
+
+                        if (System.IO.File.Exists(lugarAtual))
+                        {
+                            try
+                            {
+                                // Prepara o novo caminho físico
+                                string diretorio = System.IO.Path.GetDirectoryName(lugarAtual);
+                                string extensao = System.IO.Path.GetExtension(lugarAtual);
+                                string nomeLimpo = string.Join("_", novoNome.Split(System.IO.Path.GetInvalidFileNameChars()));
+                                string novoCaminho = System.IO.Path.Combine(diretorio, nomeLimpo + extensao);
+
+                                if (lugarAtual != novoCaminho && !System.IO.File.Exists(novoCaminho))
+                                {
+                                    // Move o arquivo fisicamente
+                                    System.IO.File.Move(lugarAtual, novoCaminho);
+
+                                    // Atualiza o novo 'Lugar' na tabela Musica
+                                    string sqlUpdate = "UPDATE Musica SET Lugar = @Lugar WHERE ID = @Id";
+                                    using (var cmdUpdate = new SQLiteCommand(sqlUpdate, connection))
+                                    {
+                                        cmdUpdate.Parameters.AddWithValue("@Lugar", novoCaminho);
+                                        cmdUpdate.Parameters.AddWithValue("@Id", id);
+                                        cmdUpdate.ExecuteNonQuery();
+                                    }
+                                }
+
+                                // Marca como sucesso para deletar da fila
+                                idsConcluidos.Add(id);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogService.GravarErro($"Processar Fila Renomear (ID: {id})", ex);
+                                // Se falhar (ex: bloqueado), ele NÃO entra na lista de concluídos
+                                // e tenta de novo no próximo boot.
+                            }
+                        }
+                        else
+                        {
+                            // Se o arquivo original não existe mais no disco, tira da fila para não travar
+                            idsConcluidos.Add(id);
+                        }
+                    }
+                }
+
+                // Limpa as tarefas concluídas da tabela Renomear
+                foreach (int id in idsConcluidos)
+                {
+                    string sqlDelete = "DELETE FROM Renomear WHERE ID = @Id";
+                    using (var cmdDel = new SQLiteCommand(sqlDelete, connection))
+                    {
+                        cmdDel.Parameters.AddWithValue("@Id", id);
+                        cmdDel.ExecuteNonQuery();
+                    }
                 }
             }
         }

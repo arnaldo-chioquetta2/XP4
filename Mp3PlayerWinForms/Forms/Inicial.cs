@@ -33,6 +33,8 @@ namespace XP3.Forms
 
         // Mantenha apenas UMA declaração aqui.
         private SpectrumControl spectrum;
+        private TextBox txtEditorGrid;
+
         private XP3.Visualizers.VisualizerBase _visualizerWindow;
         private List<Track> _allTracks = new List<Track>();
 
@@ -80,9 +82,15 @@ namespace XP3.Forms
         private double _trackCutIni = 0;
         private double _trackCutFim = 0;
         private ContextMenuStrip menuMusica;
+
         public Inicial()
         {
             InitializeComponent();
+
+            txtEditorGrid = new TextBox { Visible = false, BorderStyle = BorderStyle.FixedSingle };
+            txtEditorGrid.KeyDown += TxtEditorGrid_KeyDown;
+            txtEditorGrid.LostFocus += (s, e) => { txtEditorGrid.Visible = false; };
+            this.lvTracks.Controls.Add(txtEditorGrid); // Ele mora dentro da Grid
 
             this.Height = 750;
 
@@ -144,10 +152,16 @@ namespace XP3.Forms
             lvTracks.ColumnClick += LvTracks_ColumnClick;
             lvTracks.VirtualMode = true;
             lvTracks.VirtualListSize = 0;
+
+            lvTracks.LabelEdit = true; // Permite a edição da label
+            lvTracks.AfterLabelEdit += lvTracks_AfterLabelEdit;
+
             lvTracks.RetrieveVirtualItem += lvTracks_RetrieveVirtualItem;
 
             chkToggleProg.Checked = _player.ProgramacaoAtiva;
             AtualizarVisualBotaoAuto();
+
+            _trackRepo.ProcessarRenomeacoesPendentes();
 
             if (chkToggleProg.Checked)
             {
@@ -156,6 +170,48 @@ namespace XP3.Forms
             {
                 LoadPlaylist();
             }                
+        }
+
+        private void TxtEditorGrid_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+
+                int index = (int)txtEditorGrid.Tag;
+                string novoNome = txtEditorGrid.Text.Trim();
+                var track = _allTracks[index];
+
+                if (!string.IsNullOrEmpty(novoNome) && novoNome != track.Title)
+                {
+                    try
+                    {
+                        // 1. Coloca na fila de tarefas!
+                        _trackRepo.AgendarRenomeacao(track.Id, novoNome);
+
+                        // 2. Atualiza a memória para a Grid ficar bonita na hora
+                        track.Title = novoNome;
+
+                        txtEditorGrid.Visible = false;
+                        lvTracks.Invalidate(); // Redesenha
+
+                        lblStatus.Text = "Nome atualizado! (Arquivo físico será renomeado no próximo boot)";
+                        lblStatus.ForeColor = Color.Yellow;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.GravarErro("Agendar Renomeacao UI", ex);
+                    }
+                }
+                else
+                {
+                    txtEditorGrid.Visible = false;
+                }
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                txtEditorGrid.Visible = false;
+            }
         }
 
         private void ModernSeekBar1_Paint(object sender, PaintEventArgs e)
@@ -413,8 +469,8 @@ namespace XP3.Forms
             var itemTocarMenos = new ToolStripMenuItem("Tocar menos") { Enabled = true };
             var itemMudarBanda = new ToolStripMenuItem("Mudar de banda") { Enabled = false };
             var itemAjustarTempo = new ToolStripMenuItem("Ajustar o tempo") { Enabled = true }; // Único ativo
-            var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica") { Enabled = false };
-            var itemRenomear = new ToolStripMenuItem("Renomear musica") { Enabled = false };
+            var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica") { Enabled = true };
+            var itemRenomear = new ToolStripMenuItem("Renomear musica") { Enabled = true };
             var itemMudarLista = new ToolStripMenuItem("Mudar a lista ao terminar") { Enabled = false };
 
             // Adicionando ao menu
@@ -430,6 +486,10 @@ namespace XP3.Forms
             lvTracks.ContextMenuStrip = menuMusica;
 
             itemTocarMenos.Click += (s, e) => TocaMenos();
+
+            itemAbrirPasta.Click += (s, e) => AbrirPasta();
+
+            itemRenomear.Click += (s, e) => Renomear();
 
             // Evento de clique para o "Ajustar o tempo"
             itemAjustarTempo.Click += (s, e) =>
@@ -466,6 +526,36 @@ namespace XP3.Forms
 
             _pollingService.Start();
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
+        }
+
+        private void AbrirPasta()
+        {
+            // 1. Verifica se há uma música selecionada na lista
+            if (lvTracks.SelectedIndices.Count == 0) return;
+
+            // 2. Identifica a música
+            int index = lvTracks.SelectedIndices[0];
+            var track = _allTracks[index];
+
+            // 3. Verifica se o caminho do arquivo é válido e existe
+            if (!string.IsNullOrEmpty(track.FilePath) && System.IO.File.Exists(track.FilePath))
+            {
+                try
+                {
+                    // O comando "explorer.exe /select, [caminho]" abre a pasta 
+                    // e já deixa o arquivo realçado/selecionado para o usuário.
+                    string argumento = $"/select, \"{track.FilePath}\"";
+                    System.Diagnostics.Process.Start("explorer.exe", argumento);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Não foi possível abrir a pasta: {ex.Message}", "Erro");
+                }
+            }
+            else
+            {
+                MessageBox.Show("O arquivo da música não foi encontrado no local registrado.", "Arquivo Ausente");
+            }
         }
 
         private void TocaMenos()
@@ -1159,7 +1249,7 @@ namespace XP3.Forms
             return btn;
         }
 
-        #endregion
+        #endregion  
 
         #region Maximizado
 
@@ -2209,6 +2299,72 @@ namespace XP3.Forms
             }
 
         }
+
+        #region EdiçãoDaGrid
+
+        private void AtivarModoEdicaoGrid()
+        {
+            if (lvTracks.SelectedItems.Count > 0)
+            {
+                // Faz a célula da música selecionada virar uma caixinha de texto piscando
+                lvTracks.SelectedItems[0].BeginEdit();
+            }
+        }
+
+        private void Renomear()
+        {
+            if (lvTracks.SelectedIndices.Count == 0) return;
+
+            int index = lvTracks.SelectedIndices[0];
+            var track = _allTracks[index];
+
+            LogService.GravarInfo("Renomear UI", $"Tentando abrir editor para a música índice {index}: {track.Title}");
+
+            // 1. Pega o retângulo (posição) da célula
+            Rectangle rect = lvTracks.GetItemRect(index, ItemBoundsPortion.Label);
+
+            LogService.GravarInfo("Renomear UI", $"Coordenadas do TextBox -> X:{rect.X}, Y:{rect.Y}, Largura:{rect.Width}, Altura:{rect.Height}");
+
+            // 2. Posiciona e exibe o TextBox
+            txtEditorGrid.Bounds = rect;
+            txtEditorGrid.Text = track.Title;
+            txtEditorGrid.Tag = index;
+            txtEditorGrid.Visible = true;
+            txtEditorGrid.Focus();
+            txtEditorGrid.SelectAll();
+        }
+
+        private void lvTracks_AfterLabelEdit(object sender, LabelEditEventArgs e)
+        {
+            // Se e.Label for null, o usuário deu ESC ou não mudou nada
+            if (e.Label == null) return;
+
+            string novoNome = e.Label.Trim();
+            if (string.IsNullOrEmpty(novoNome))
+            {
+                e.CancelEdit = true;
+                return;
+            }
+
+            // Pega a track que está sendo editada
+            var track = _allTracks[e.Item];
+
+            // Tenta renomear no banco e no disco (método que criamos no post anterior)
+            bool sucesso = _trackRepo.RenomearMusica(track, novoNome);
+
+            if (!sucesso)
+            {
+                e.CancelEdit = true; // Se deu erro (arquivo em uso), volta o nome antigo na tela
+            }
+            else
+            {
+                // Se deu certo, atualizamos a lista virtual
+                _allTracks[e.Item].Title = novoNome;
+                lvTracks.Invalidate(); // Força a grid a se redesenhar com o nome novo
+            }
+        }
+
+        #endregion
 
     }
 }
