@@ -515,6 +515,65 @@ namespace XP3.Data
             }
         }
 
+        /// <summary>
+        /// Obt‚m todas as bandas cadastradas, ordenadas alfabeticamente
+        /// </summary>
+        public List<Band> GetAllBands()
+        {
+            var bands = new List<Band>();
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome FROM Banda ORDER BY Nome", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        bands.Add(new Band 
+                        { 
+                            Id = reader.GetInt32(0), 
+                            Name = reader.IsDBNull(1) ? "Desconhecida" : reader.GetString(1) 
+                        });
+                    }
+                }
+            }
+            return bands;
+        }
+
+        /// <summary>
+        /// Atualiza a banda de uma m£sica espec¡fica no banco de dados
+        /// </summary>
+        public void UpdateTrackBand(int trackId, int newBandId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("UPDATE Musica SET Banda = @banda WHERE ID = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@banda", newBandId);
+                    cmd.Parameters.AddWithValue("@id", trackId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>
+        /// ObtŽm o nome da banda pelo ID
+        /// </summary>
+        public string GetBandNameById(int bandId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("SELECT Nome FROM Banda WHERE ID = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@id", bandId);
+                    var result = cmd.ExecuteScalar();
+                    return result != null ? result.ToString() : "Desconhecida";
+                }
+            }
+        }
+
         #endregion
 
     }
