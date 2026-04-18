@@ -48,7 +48,8 @@ namespace XP3.Forms
         private Button _btnCopiarLat;
         private Button _btnMoverLat;
         private Button _btnExcluirLat;
-        private Track _trackEmEdicao; 
+        private Track _trackEmEdicao;
+        private Label _lblTituloLateral;
         private bool FazSpectrum = true;
         private bool CarregandoListas = false;
 
@@ -82,6 +83,21 @@ namespace XP3.Forms
         private double _trackCutIni = 0;
         private double _trackCutFim = 0;
         private ContextMenuStrip menuMusica;
+
+        // --- VARIÁVEIS DE CONTROLE DE FLUXO (ESTILO VB6 MudarLista) ---
+
+        // Armazena o ID da lista que deve entrar a seguir (0 = Nenhuma)
+        private int _proximaListaPendenteId = 0;
+
+        // Flag que indica se o painel lateral está em "Modo de Seleção Agendada"
+        private bool _modoTrocaProgramadaAtivo = false;
+
+        // Guarda o ID da lista que está tocando agora para podermos filtrá-la da visão
+        private int _listaAtualId = 0;
+
+        // Adicione estas linhas junto com as outras declarações de 'private'
+        private bool _modoEscolhendoProximaLista = false;
+        private ProgrammingRepository _progRepo; // O motor de busca de listas
 
         public Inicial()
         {
@@ -213,7 +229,6 @@ namespace XP3.Forms
                 txtEditorGrid.Visible = false;
             }
         }
-
         private void ModernSeekBar1_Paint(object sender, PaintEventArgs e)
         {
             // Só desenha se tivermos uma música válida carregada
@@ -403,6 +418,8 @@ namespace XP3.Forms
             _trackRepo = new TrackRepository();
             _iniService = new IniFileService();
 
+            _progRepo = new ProgrammingRepository();
+
             // --- NOVO: Captura o status do Auto-Cue ---
             _player.OnStatusCueChanged += (msg) =>
             {
@@ -471,7 +488,7 @@ namespace XP3.Forms
             var itemAjustarTempo = new ToolStripMenuItem("Ajustar o tempo") { Enabled = true }; // Único ativo
             var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica") { Enabled = true };
             var itemRenomear = new ToolStripMenuItem("Renomear musica") { Enabled = true };
-            var itemMudarLista = new ToolStripMenuItem("Mudar a lista ao terminar") { Enabled = false };
+            var itemMudarLista = new ToolStripMenuItem("Mudar a lista ao terminar") { Enabled = true };
 
             // Adicionando ao menu
             menuMusica.Items.Add(itemTocarMenos);
@@ -490,6 +507,8 @@ namespace XP3.Forms
             itemAbrirPasta.Click += (s, e) => AbrirPasta();
 
             itemRenomear.Click += (s, e) => Renomear();
+
+            itemMudarLista.Click += (s, e) => MudarAoTerminar();
 
             // Evento de clique para o "Ajustar o tempo"
             itemAjustarTempo.Click += (s, e) =>
@@ -526,6 +545,80 @@ namespace XP3.Forms
 
             _pollingService.Start();
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
+        }
+
+        private void MudarAoTerminar()
+        {
+            _modoEscolhendoProximaLista = true;
+
+            // 1. Visual
+            _clbPlaylistsLateral.BackColor = Color.FromArgb(40, 40, 30);
+            _lblTituloLateral.Text = "SELECIONE A PRÓXIMA (ESC)";
+            _lblTituloLateral.BackColor = Color.Gold;
+            _lblTituloLateral.ForeColor = Color.Black;
+
+            // 2. Carrega as listas limpando qualquer marcação (Check) anterior
+            LoadPlaylistsLateral(filtrarAtual: true);
+
+            // IMPORTANTE: Desmarca todos os itens para não confundir com a edição de rádio
+            for (int i = 0; i < _clbPlaylistsLateral.Items.Count; i++)
+            {
+                _clbPlaylistsLateral.SetItemChecked(i, false);
+            }
+
+            // 3. O PULO DO GATO: Traz o foco para a lista para o ESC funcionar na hora
+            _clbPlaylistsLateral.Focus();
+
+            LogService.GravarInfo("Interface", "Modo Mudar ao Terminar ativado e focado.");
+        }
+
+        private void CarregarListasParaAgendamento()
+        {
+            CarregandoListas = true;
+            _clbPlaylistsLateral.Items.Clear();
+
+            // Vamos buscar todas as listas, exceto a que está tocando agora (_listaAtualId)
+            // Usando o seu ProgrammingRepository ou TrackRepository
+            var listas = _progRepo.ObterTodasAsPlaylists();
+
+            foreach (var lista in listas)
+            {
+                // REGRA: Não mostra a lista que já está carregada no rádio
+                if (lista.Id != _listaAtualId)
+                {
+                    _clbPlaylistsLateral.Items.Add(lista);
+                }
+            }
+            CarregandoListas = false;
+        }
+
+        private void LoadPlaylistsLateral(bool filtrarAtual = false)
+        {
+            try
+            {
+                CarregandoListas = true;
+                _clbPlaylistsLateral.Items.Clear();
+
+                // Agora o _progRepo já tem o método!
+                var listas = _progRepo.ObterTodasAsPlaylists();
+
+                foreach (var p in listas)
+                {
+                    // Se filtrarAtual for true, não mostra a lista que está tocando agora
+                    if (filtrarAtual && p.Id == _currentPlaylistId)
+                        continue;
+
+                    _clbPlaylistsLateral.Items.Add(p);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.GravarErro("Erro ao carregar playlists lateral", ex);
+            }
+            finally
+            {
+                CarregandoListas = false;
+            }
         }
 
         private void AbrirPasta()
@@ -827,7 +920,17 @@ namespace XP3.Forms
             _pnlLateral.BackColor = Color.FromArgb(45, 45, 48);
             _pnlLateral.Padding = new Padding(0);
 
-            // 2. Painel de Botões
+            // --- NOVO: Label de Título / Status de Seleção ---
+            _lblTituloLateral = new Label();
+            _lblTituloLateral.Parent = _pnlLateral;
+            _lblTituloLateral.Dock = DockStyle.Top;
+            _lblTituloLateral.Height = 40;
+            _lblTituloLateral.Text = "Playlists";
+            _lblTituloLateral.ForeColor = Color.White;
+            _lblTituloLateral.TextAlign = ContentAlignment.MiddleCenter;
+            _lblTituloLateral.Font = new Font("Segoe UI", 12f, FontStyle.Bold);
+
+            // 2. Painel de Botões (Fica no rodapé)
             Panel pnlBotoes = new Panel();
             pnlBotoes.Parent = _pnlLateral;
             pnlBotoes.Dock = DockStyle.Bottom;
@@ -849,7 +952,7 @@ namespace XP3.Forms
             _btnExcluirLat.Parent = pnlBotoes;
             _btnExcluirLat.Click += BtnExcluirLat_Click;
 
-            // 3. A Lista de Checkbox Customizada (Checks Gigantes)
+            // 3. A Lista de Checkbox Customizada (Preenche o centro)
             _clbPlaylistsLateral = new XP3.Controls.BigCheckedListBox();
             _clbPlaylistsLateral.Parent = _pnlLateral;
             _clbPlaylistsLateral.Dock = DockStyle.Fill;
@@ -863,15 +966,21 @@ namespace XP3.Forms
             _clbPlaylistsLateral.IntegralHeight = false;
             _clbPlaylistsLateral.ScrollAlwaysVisible = true;
 
-            // --- EVENTOS ---
+            // --- EVENTOS ATUALIZADOS ---
 
             // Clique do Mouse (Método Separado)
             _clbPlaylistsLateral.MouseClick += _clbPlaylistsLateral_MouseClick;
 
-            // Tecla Espaço (Marcar/Desmarcar via Teclado)
+            // Tecla Espaço e ESC
             _clbPlaylistsLateral.KeyDown += (s, e) =>
             {
-                if (e.KeyCode == Keys.Space)
+                // Se apertar ESC e estivermos escolhendo lista, cancela
+                if (e.KeyCode == Keys.Escape && _modoEscolhendoProximaLista)
+                {
+                    CancelarSelecaoAgendada();
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Space)
                 {
                     int index = _clbPlaylistsLateral.SelectedIndex;
                     if (index != -1)
@@ -886,7 +995,7 @@ namespace XP3.Forms
                 }
             };
 
-            // Duplo Clique (Carregar a Playlist para tocar)
+            // Duplo Clique (Decide se CARREGA AGORA ou AGENDA PARA DEPOIS)
             _clbPlaylistsLateral.MouseDoubleClick += (s, e) =>
             {
                 int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
@@ -895,15 +1004,60 @@ namespace XP3.Forms
                     var item = _clbPlaylistsLateral.Items[index];
                     if (item is Playlist p)
                     {
-                        CarregarPlaylistParaTocar(p);
+                        if (_modoEscolhendoProximaLista)
+                        {
+                            // Lógica "MudarLista" do VB6
+                            _proximaListaPendenteId = p.Id;
+
+                            // Feedback visual no seu Label de status principal
+                            lblStatus.Text = "PRÓXIMA LISTA AGENDADA: " + p.Name;
+                            lblStatus.ForeColor = Color.Gold;
+
+                            // Volta o painel lateral ao estado normal
+                            CancelarSelecaoAgendada();
+                        }
+                        else
+                        {
+                            // Comportamento normal de troca imediata
+                            CarregarPlaylistParaTocar(p);
+                        }
                     }
                 }
             };
 
-            // Z-Order
+            // Z-Order (Ordem de empilhamento)
+            _lblTituloLateral.BringToFront();
             pnlBotoes.BringToFront();
             _clbPlaylistsLateral.BringToFront();
             _pnlLateral.BringToFront();
+        }
+
+        private void CancelarSelecaoAgendada()
+        {
+            _modoEscolhendoProximaLista = false;
+
+            // 1. Resetar o Label de Título (Forçando a cor original do painel lateral)
+            _lblTituloLateral.Text = "Playlists";
+            _lblTituloLateral.BackColor = Color.FromArgb(45, 45, 48); // Cor exata do _pnlLateral
+            _lblTituloLateral.ForeColor = Color.White;
+
+            // 2. Resetar a Lista Lateral
+            _clbPlaylistsLateral.BackColor = Color.FromArgb(45, 45, 48);
+
+            // 3. Recarrega as listas sem filtro (Modo normal)
+            LoadPlaylistsLateral(filtrarAtual: false);
+
+            // 4. Se houver música selecionada, restaura os checks dela
+            if (lvTracks.SelectedIndices.Count > 0)
+            {
+                AtualizarPainelLateral(_allTracks[lvTracks.SelectedIndices[0]]);
+            }
+
+            // 5. O SEGREDO: Forçar o Windows a redesenhar o painel agora mesmo
+            _pnlLateral.Refresh();
+            _lblTituloLateral.Refresh();
+
+            LogService.GravarInfo("Interface", "Visual restaurado após cancelamento.");
         }
 
         private void _clbPlaylistsLateral_MouseClick(object sender, MouseEventArgs e)
@@ -1424,7 +1578,6 @@ namespace XP3.Forms
 
         private void TimerProgresso_Tick(object sender, EventArgs e)
         {
-            // 1. Verificação de segurança: se o player ou a track atual sumirem, não faz nada
             if (_player == null || _player.CurrentTrack == null)
             {
                 modernSeekBar1.Value = 0;
@@ -1433,72 +1586,109 @@ namespace XP3.Forms
 
             var trackAtual = _player.CurrentTrack;
 
-            // 2. Só processa se o player tiver uma duração válida (maior que zero)
             if (_player.TotalTime.TotalSeconds > 0)
             {
                 double posicaoAtual = _player.CurrentTime.TotalSeconds;
 
                 // --- LÓGICA DE CORTE FINAL (AUTO-CUE) ---
-                // Se CutFim for maior que 0 (já avaliado) e a posição atual passar do limite...
                 if (trackAtual.CutFim > 0 && posicaoAtual >= trackAtual.CutFim)
                 {
-                    // _player.GravarLog($"[AUTO-CUE] Ponto de corte final atingido: {trackAtual.CutFim}s. Pulando...");
+                    // Verificamos se há uma troca de lista agendada para este momento
+                    if (_proximaListaPendenteId > 0)
+                    {
+                        LogService.GravarInfo("Fluxo", $"Corte atingido. Mudando para lista agendada ID: {_proximaListaPendenteId}");
+                        TrocarListaAgendada();
+                    }
+                    else
+                    {
+                        // Se não houver agendamento, segue o fluxo normal da lista atual
+                        _player.Next();
+                    }
 
-                    // Chama o método para tocar a próxima música da lista
-                    // (Ajuste o nome do método conforme o que você usa: PlayNext, ProximaMusica, etc.)
-                    _player.Next();
-
-                    return; // Encerra o Tick aqui para evitar cálculos desnecessários
+                    return;
                 }
 
                 // --- ATUALIZAÇÃO VISUAL ---
-                // Calcula a porcentagem atual para o SeekBar
                 double porcentagem = posicaoAtual / _player.TotalTime.TotalSeconds;
-
-                // Garante que a porcentagem não passe de 1 (100%) por erro de arredondamento
                 if (porcentagem > 1) porcentagem = 1;
-
-                // Atualiza a barra visualmente
                 modernSeekBar1.Value = porcentagem;
-
-                // Opcional: Se quiser mostrar o tempo atualizado em algum Label:
-                // lblTempo.Text = $"{_player.CurrentTime:mm\\:ss} / {TimeSpan.FromSeconds(trackAtual.CutFim > 0 ? trackAtual.CutFim : _player.TotalTime.TotalSeconds):mm\\:ss}";
             }
             else
             {
                 modernSeekBar1.Value = 0;
             }
         }
-        
         #region Grid
 
-        private void LoadPlaylist()
+        private void TrocarListaAgendada()
         {
             try
             {
-                _currentPlaylistId = _iniService.ReadInt("Player", "LastPlaylistId", 1);
+                int idNovaLista = _proximaListaPendenteId;
+                LogService.GravarInfo("TrocaAgendada", $"Iniciando processo. Destino: {idNovaLista}");
 
-                // --- ADIÇÃO FASE 3.3: Informar ao player em qual lista estamos ---
+                _proximaListaPendenteId = 0; // Zera a pendência
+
+                // 1. Carregamento
+                _currentPlaylistId = idNovaLista;
+                LoadPlaylist(idNovaLista);
+
+                LogService.GravarInfo("TrocaAgendada", $"LoadPlaylist concluído para ID: {idNovaLista}. Total de músicas carregadas: {lvTracks.VirtualListSize}");
+
+                // 2. Play
+                if (lvTracks.VirtualListSize > 0)
+                {
+                    LogService.GravarInfo("TrocaAgendada", "Dando play na primeira música da nova lista.");
+                    _player.Play(0);
+                }
+                else
+                {
+                    LogService.GravarInfo("TrocaAgendada", "AVISO: A nova lista está vazia!");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.GravarErro("TrocarListaAgendada", ex);
+            }
+        }
+
+        private void LoadPlaylist(int? id = null)
+        {
+            try
+            {
+                // 1. Decisão de qual ID carregar
+                // Se 'id' tiver valor, usamos ele. Se for nulo, buscamos a última do INI.
+                if (id.HasValue)
+                {
+                    _currentPlaylistId = id.Value;
+                }
+                else
+                {
+                    _currentPlaylistId = _iniService.ReadInt("Player", "LastPlaylistId", 1);
+                }
+
+                LogService.GravarInfo("Database", $"Executando LoadPlaylist para ID: {_currentPlaylistId}");
+
+                _listaAtualId = _currentPlaylistId;
+
+                // --- Sincronização com o player ---
                 if (_player != null)
                 {
                     _player.CurrentPlaylistId = _currentPlaylistId;
                 }
-                // -----------------------------------------------------------------
 
                 string nomeLista = _trackRepo.GetPlaylistName(_currentPlaylistId);
 
                 if (lblPlaylistTitle != null)
                     lblPlaylistTitle.Text = nomeLista.ToUpper();
 
-                // 1. Busca os dados brutos do banco
+                // 2. Busca os dados do banco para a lista definida
                 var tracksDoBanco = _trackRepo.GetTracksByPlaylist(_currentPlaylistId);
 
-                // --- INÍCIO DA CHECAGEM DE DUPLICATAS ---
+                // --- CHECAGEM DE DUPLICATAS ---
                 bool duplicataDetectada = false;
                 if (tracksDoBanco != null && tracksDoBanco.Count > 1)
                 {
-                    // Como a lista será ordenada por tempo/nome, duplicatas de arquivos tendem a ficar próximas
-                    // Comparamos o caminho do arquivo (Lugar) de cada música com a anterior
                     for (int i = 1; i < tracksDoBanco.Count; i++)
                     {
                         if (tracksDoBanco[i].FilePath == tracksDoBanco[i - 1].FilePath)
@@ -1519,33 +1709,29 @@ namespace XP3.Forms
 
                     if (result == DialogResult.Yes)
                     {
-                        // Executa a limpeza no banco de dados (Removendo IDs duplicados para o mesmo arquivo)
                         _trackRepo.LimparDuplicatasNoBanco();
 
-                        // Recarrega a lista do zero após a limpeza
-                        LoadPlaylist();
+                        // Chamada recursiva passando o ID atual para não perder a referência
+                        LoadPlaylist(_currentPlaylistId);
 
-                        // Toca a primeira música da lista limpa
                         if (_allTracks.Count > 0 && _player != null)
                         {
                             _player.Play(0);
                         }
-                        return; // Sai da execução atual pois o LoadPlaylist recursivo já tratou o restante
+                        return;
                     }
                 }
-                // --- FIM DA CHECAGEM DE DUPLICATAS ---
 
-                // 2. Filtra e ordena (Regra: menores primeiro)
+                // 3. Processamento e Ordenação
                 _allTracks = tracksDoBanco?
                     .Where(t => t.Duration.TotalSeconds > 0)
                     .OrderBy(t => t.Duration)
                     .ToList() ?? new List<Track>();
 
-                // 3. Sincroniza com o Player
                 if (_player != null)
                     _player.SetPlaylist(_allTracks);
 
-                // 4. Configuração Visual da Grid (Virtual Mode)
+                // 4. Interface
                 if (lvTracks != null)
                 {
                     ConfigurarColunasGrid();
@@ -1562,6 +1748,7 @@ namespace XP3.Forms
             }
             catch (Exception ex)
             {
+                LogService.GravarErro("LoadPlaylist", ex);
                 MessageBox.Show("Erro ao carregar lista: " + ex.Message);
             }
         }

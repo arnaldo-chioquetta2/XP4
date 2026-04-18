@@ -134,5 +134,32 @@ namespace XP3.Data
             }
         }
 
+        public List<Playlist> ObterTodasAsPlaylists()
+        {
+            var listaRetorno = new List<Playlist>();
+
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+                // No VB6 você usava a tabela "Lista". Aqui seguimos o mesmo padrão.
+                string sql = "SELECT ID, Nome FROM Lista ORDER BY Nome";
+
+                using (var command = new SQLiteCommand(sql, connection))
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        listaRetorno.Add(new Playlist
+                        {
+                            Id = Convert.ToInt32(reader["ID"]),
+                            Name = reader["Nome"].ToString()
+                        });
+                    }
+                }
+            }
+
+            return listaRetorno;
+        }
+
     }
 }
