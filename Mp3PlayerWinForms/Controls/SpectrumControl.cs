@@ -54,7 +54,7 @@ namespace XP3.Controls
                 if (_visualData[i] > this.maxValorEncontrado)
                 {
                     this.maxValorEncontrado = _visualData[i];
-                    System.Diagnostics.Debug.WriteLine($"Valor Máximo: {this.maxValorEncontrado:F6} Fator: {this.Fator:F6} ");
+                    // System.Diagnostics.Debug.WriteLine($"Valor Máximo: {this.maxValorEncontrado:F6} Fator: {this.Fator:F6} ");
                     if (this.maxValorEncontrado>1) {
                         this.Fator = this.maxValorEncontrado;
                     }

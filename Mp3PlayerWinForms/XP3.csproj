@@ -149,6 +149,20 @@
     <Compile Include="Controls\BigCheckedListBox.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="Data\ProgrammingRepository.cs" />
+    <Compile Include="Features\Programming\ProgrammingService.cs" />
+    <Compile Include="Forms\FrmEditaMusica.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\FrmEditaMusica.Designer.cs">
+      <DependentUpon>FrmEditaMusica.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Forms\Programacao.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\Programacao.Designer.cs">
+      <DependentUpon>Programacao.cs</DependentUpon>
+    </Compile>
     <Compile Include="Helpers\ColorHelper.cs" />
     <Compile Include="Controls\ModernSeekBar.cs">
       <SubType>Component</SubType>
@@ -171,7 +185,10 @@
     <Compile Include="Forms\VisualizerForm.Designer.cs">
       <DependentUpon>VisualizerForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="Helpers\InputBox.cs" />
     <Compile Include="Models\AppConfig.cs" />
+    <Compile Include="Models\ConfigModel.cs" />
+    <Compile Include="Models\ProgramacaoModel.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Controls\SpectrumControl.cs">
       <SubType>UserControl</SubType>
@@ -188,6 +205,7 @@
     <Compile Include="Services\KeyPollingService.cs" />
     <Compile Include="Services\LogService.cs" />
     <Compile Include="Services\SampleAggregator.cs" />
+    <Compile Include="Services\SilenceDetector.cs" />
     <Compile Include="Visualizers\VisualizerBase.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -223,8 +241,14 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Forms\FrmEditaMusica.resx">
+      <DependentUpon>FrmEditaMusica.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="Forms\Inicial.resx">
       <DependentUpon>Inicial.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Forms\Programacao.resx">
+      <DependentUpon>Programacao.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Forms\ScannerForm.resx">
       <DependentUpon>ScannerForm.cs</DependentUpon>
@@ -248,5 +272,6 @@
       <Install>false</Install>
     </BootstrapperPackage>
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

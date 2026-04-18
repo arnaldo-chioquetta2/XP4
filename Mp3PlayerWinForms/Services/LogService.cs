@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using XP3.Models;
 
 namespace XP3.Services
 {
@@ -16,8 +17,21 @@ namespace XP3.Services
                                  $"Inner: {ex.InnerException?.Message}\r\n" +
                                  $"{ex.StackTrace}\r\n";
                 File.AppendAllText(caminhoLog, conteudo);
+                System.Diagnostics.Debug.WriteLine(conteudo);
             }
             catch { }
         }
+
+        public static void GravarInfo(string contexto, string mensagem)
+        {
+            try
+            {
+                string conteudo = $"[{DateTime.Now:dd/MM/yyyy HH:mm:ss}] INFO ({contexto}): {mensagem}\r\n";
+                File.AppendAllText(caminhoLog, conteudo);
+                System.Diagnostics.Debug.WriteLine(conteudo);
+            }
+            catch { }
+        }
+
     }
 }

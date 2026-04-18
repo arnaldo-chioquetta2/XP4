@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Drawing;
+using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace XP3.Visualizers
@@ -7,6 +8,7 @@ namespace XP3.Visualizers
     public class VisualizerBase : Form
     {
         protected float[] _fftData;
+        protected object _lockLista = new object();
         protected float _picoReferencia = 1.0f;
 
         // Variáveis de Controle de Texto (Time-based)
@@ -18,6 +20,13 @@ namespace XP3.Visualizers
         // Evento para navegar entre visualizadores
         public event EventHandler<int> RequestNavigation;
 
+        // --- NOVIDADE: LIMITADOR DE FPS ---
+        private Stopwatch _cronometroFPS = new Stopwatch();
+        private long _ultimoFrameMs = 0;
+        private const long INTERVALO_MINIMO_MS = 33; // ~30 FPS (1000ms / 30 = 33ms)
+        // Se quiser 60 FPS, use 16. Mas 30 é mais seguro para WinForms pesados.
+        protected readonly object SyncLock = new object();
+
         public VisualizerBase()
         {
             // Configurações Padrão de Tela Cheia
@@ -25,13 +34,35 @@ namespace XP3.Visualizers
             this.BackColor = Color.Black;
             this.DoubleBuffered = true;
             this.StartPosition = FormStartPosition.Manual;
+
+            this.SetStyle(ControlStyles.AllPaintingInWmPaint |
+                                      ControlStyles.UserPaint |
+                                      ControlStyles.OptimizedDoubleBuffer, true);
+            this.UpdateStyles();
+
+            _cronometroFPS.Start(); // Inicia o relógio
         }
 
         public virtual void UpdateData(float[] data, float maxVol)
         {
-            this._fftData = data;
-            this._picoReferencia = maxVol;
-            this.Invalidate(); // Força o Redraw (que chama o OnPaint e o DesenharTexto)
+            // 1. Lógica de volume (Sempre roda)
+            if (maxVol > _picoReferencia) _picoReferencia = maxVol;
+            else
+            {
+                _picoReferencia -= 0.005f;
+                if (_picoReferencia < 0.1f) _picoReferencia = 0.1f;
+            }
+
+            // 2. FILTRO DE DESENHO
+            if (!_cronometroFPS.IsRunning) _cronometroFPS.Start();
+            long agora = _cronometroFPS.ElapsedMilliseconds;
+
+            // Se já passou o tempo de 33ms, nós mandamos desenhar
+            if (agora - _ultimoFrameMs >= INTERVALO_MINIMO_MS)
+            {
+                _ultimoFrameMs = agora;
+                this.Invalidate(); // Só redesenha a interface aqui
+            }
         }
 
         public void MostrarInfoMusica(string titulo, string banda)

@@ -1,13 +1,15 @@
+using Mp3PlayerWinForms.Services;
+using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 using System;
 using System.Collections.Generic;
-using NAudio.Wave; // Essencial
-using System.Windows.Media;
-using Mp3PlayerWinForms.Services;
-using XP3.Models;
-using System.IO;
-using System.Text;
 using System.Data.SQLite;
+using System.IO;
+using System.Threading.Tasks;
+using System.Windows.Media;
 using XP3.Data;
+using XP3.Features.Programming;
+using XP3.Models;
 
 namespace XP3.Services
 {
@@ -15,75 +17,182 @@ namespace XP3.Services
     {
         private float _volume = AppSettings.InitialVolume;
 
-        private IWavePlayer _waveOut;
+        // Voltamos para WaveOutEvent, que é a API mais compatível
+        private WaveOutEvent _waveOut;
 
-        // ALTERAÇÃO 1: Mudamos de 'AudioFileReader' para 'WaveStream'
-        // 'WaveStream' é o pai genérico que aceita tanto MP3 puro quanto arquivos do MediaFoundation
         private WaveStream _audioFile;
         private MediaPlayer _mediaPlayer;
-
+        private VolumeSampleProvider _volumeProvider;
         private List<Track> _playlist;
         private int _currentIndex = -1;
 
         public event EventHandler<Track> TrackChanged;
-        //public event EventHandler PlaybackStopped;
         public event EventHandler<float[]> FftDataReceived;
         public event EventHandler<Tuple<Track, string>> PlaybackError;
         private SampleAggregator _aggregator;
 
-        public void SetVolume(float volume)
-        {
-            _volume = volume;
-            if (_waveOut != null)
-            {
-                _waveOut.Volume = _volume;
-            }
-        }
+        private readonly ProgrammingRepository _progRepo;
+        private bool _programacaoAtiva;
 
-        // NOVO EVENTO: Esse é o segredo para o Spectrum funcionar!
-        // Ele avisa: "Ei, carreguei um áudio novo, quem quiser desenhar o gráfico, pega aqui!"
-        //public event EventHandler<WaveStream> AudioSourceCreated;
-        // Propriedades para ler o tempo
+        // --- ADICIONAR ESTES CAMPOS ---
+        private SilenceDetector _silenceDetector;
+        private TrackRepository _trackRepo;
+
+        // --- ADICIONAR ESTE EVENTO ---
+        public event Action<string> OnStatusCueChanged;
+
+        public int CurrentPlaylistId { get; set; } = -1;
+
         public TimeSpan CurrentTime => _audioFile?.CurrentTime ?? TimeSpan.Zero;
         public TimeSpan TotalTime => _audioFile?.TotalTime ?? TimeSpan.Zero;
-
         public bool IsPlaying => _waveOut?.PlaybackState == PlaybackState.Playing;
         public Track CurrentTrack => (_currentIndex >= 0 && _currentIndex < _playlist.Count) ? _playlist[_currentIndex] : null;
 
+        private void _mediaPlayer_MediaEnded(object sender, EventArgs e) => Next();
+        public void SetPlaylist(List<Track> tracks) => _playlist = tracks;
+
+        private readonly ProgrammingService _progService = new ProgrammingService();
+
+        public event EventHandler<int> SolicitarTrocaDePlaylist;
+
+        //private readonly SilenceDetector _silenceDetector = new SilenceDetector();
+        //private readonly TrackRepository _trackRepo = new TrackRepository();
+
+        // Limiar de silêncio: 0.01f costuma ser excelente para ignorar chiados e 
+        // detectar o início real da música.
+        private const float SilenceThreshold = 0.01f;
+
+        //public event Action<string> OnStatusCueChanged;
+
+        public bool ProgramacaoAtiva
+        {
+            get => _programacaoAtiva;
+            set
+            {
+                _programacaoAtiva = value;
+                _progRepo.SalvarEstadoProgramacao(value);
+                GravarLog($"[PLAYER] Programação alterada para: {(value ? "LIGADA" : "DESLIGADA")}");
+            }
+        }
+
         public AudioPlayerService()
         {
+            // 1. O que já era seu (Git)
             _mediaPlayer = new MediaPlayer();
             _playlist = new List<Track>();
             _mediaPlayer.MediaEnded += _mediaPlayer_MediaEnded;
+
+            // 2. Os motores para o AUTO-CUE (Essenciais para o que fizemos hoje)
+            _silenceDetector = new SilenceDetector(); // O "ouvido" do programa
+            _trackRepo = new TrackRepository();       // O "escritor" do banco
+
+            // 3. Sua lógica de programação (Fase 3.1)
+            _progRepo = new ProgrammingRepository();
+            SincronizarConfiguracoesIniciais();
+
+            // 4. Logs e Debug
+            try { File.Delete("debug_audio_log.txt"); } catch { }
+            GravarLog("=== INICIANDO SERVIÇO DE ÁUDIO (WAVEOUT + AUTO-CUE) ===");
         }
 
-        #region Inicializacao
+        private void SincronizarConfiguracoesIniciais()
+        {
+            try
+            {
+                var config = _progRepo.ObterConfiguracao();
+                _programacaoAtiva = config.ProgramacaoAtiva;
+                GravarLog($"[PLAYER] Configuração inicial carregada: {(_programacaoAtiva ? "Ativa" : "Inativa")}");
+            }
+            catch (Exception ex)
+            {
+                GravarLog($"[ERRO] Falha ao sincronizar config inicial: {ex.Message}");
+                _programacaoAtiva = false;
+            }
+        }
+
+        private void GravarLog(string mensagem)
+        {
+            try
+            {
+                string caminho = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug_audio_log.txt");
+                File.AppendAllText(caminho, $"{DateTime.Now:HH:mm:ss.fff}: {mensagem}{Environment.NewLine}");
+            }
+            catch { }
+        }
+
+        // METODO: ForcarVerificacaoProgramacao
+        // VERSÃO: 1.0
+        // MOTIVO: Usado no startup ou ao ligar o botão Auto para carregar a lista correta imediatamente.
+        public void ForcarVerificacaoProgramacao()
+        {
+            if (!_programacaoAtiva) return;
+
+            var todasProgramacoes = _progRepo.ListarProgramacao();
+            int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
+
+            // Se existe uma lista ideal para agora, e ela for diferente da que está aberta
+            if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId)
+            {
+                GravarLog($"[AGENDADOR] Correção Imediata! Carregando a lista {idPlaylistProgramada.Value} apropriada para agora.");
+
+                // Dispara o evento para a tela Inicial carregar as músicas
+                SolicitarTrocaDePlaylist?.Invoke(this, idPlaylistProgramada.Value);
+            }
+        }
 
         public void SetPosition(double percentage)
         {
             if (_audioFile != null)
             {
-                // Calcula o novo tempo baseada na porcentagem
-                double totalSeconds = _audioFile.TotalTime.TotalSeconds;
-                double newSeconds = totalSeconds * percentage;
-
-                // Aplica no arquivo
-                _audioFile.CurrentTime = TimeSpan.FromSeconds(newSeconds);
+                _audioFile.CurrentTime = TimeSpan.FromSeconds(_audioFile.TotalTime.TotalSeconds * percentage);
             }
         }
 
-
-        #endregion
-
-
-        private void _mediaPlayer_MediaEnded(object sender, EventArgs e)
+        private int ObterIndiceDispositivoWaveOut()
         {
-            Next();
-        }
+            GravarLog("--- Buscando Caixas de Som Definitivas ---");
+            int waveOutCount = WaveOut.DeviceCount;
 
-        public void SetPlaylist(List<Track> tracks)
-        {
-            _playlist = tracks;
+            // TENTATIVA 1: O Tiro Certo (Procura estritamente por USB ou Alto-falantes)
+            for (int i = 0; i < waveOutCount; i++)
+            {
+                try
+                {
+                    var caps = WaveOut.GetCapabilities(i);
+                    string nomeLower = caps.ProductName.ToLower();
+
+                    // Se tem "usb" ou "alto-falante" no nome, não tem erro, é a sua caixa de som!
+                    if (nomeLower.Contains("usb") || nomeLower.Contains("alto-falante"))
+                    {
+                        GravarLog($" -> ALVO DETECTADO COM SUCESSO (ID {i}): {caps.ProductName}");
+                        return i;
+                    }
+                }
+                catch { }
+            }
+
+            // TENTATIVA 2: Se por acaso o USB for desconectado, pega qualquer coisa que NÃO seja TV
+            for (int i = 0; i < waveOutCount; i++)
+            {
+                try
+                {
+                    var caps = WaveOut.GetCapabilities(i);
+                    string nomeLower = caps.ProductName.ToLower();
+
+                    // Rejeita ativamente Philips, placas de vídeo (Nvidia/AMD) e cabos Display/HDMI
+                    if (!nomeLower.Contains("nvidia") && !nomeLower.Contains("philips")
+                        && !nomeLower.Contains("amd") && !nomeLower.Contains("display"))
+                    {
+                        GravarLog($" -> USANDO POR ELIMINAÇÃO (ID {i}): {caps.ProductName}");
+                        return i;
+                    }
+                }
+                catch { }
+            }
+
+            // TENTATIVA 3: Se der pane total, usa o Padrão do Windows
+            GravarLog("*** CAIXAS NÃO ENCONTRADAS. USANDO PADRÃO DO WINDOWS (-1) ***");
+            return -1;
         }
 
         public void Play(int index)
@@ -94,193 +203,191 @@ namespace XP3.Services
             _currentIndex = index;
             var track = _playlist[_currentIndex];
 
+            GravarLog($"Iniciando Play (WaveOut + AutoCue): {track.Title}");
+
             try
             {
-                // 1. Cria o Leitor (MediaFoundationReader para compatibilidade)
+                // 1. Leitor
                 var reader = new MediaFoundationReader(track.FilePath);
-                _audioFile = reader; // Guarda referência para dispose
+                _audioFile = reader;
 
-                // 2. ENVOLVE o leitor com o nosso SampleAggregator
-                // O SampleProvider precisa ser convertido para float (ToSampleProvider)
-                // _aggregator = new SampleAggregator(reader.ToSampleProvider());
-                // _aggregator = new SampleAggregator(reader.ToSampleProvider(), 512);
-                _aggregator = new SampleAggregator(reader.ToSampleProvider(), 256);
-
-                // 3. Assina o evento do FFT
-                _aggregator.FftCalculated += (s, args) =>
+                // --- 2. LÓGICA DO AUTO-CUE ---
+                if (track.CutIni == -1)
                 {
-                    // Repassa os dados para quem estiver ouvindo (MainForm)
-                    FftDataReceived?.Invoke(this, args.Result);
-                };
+                    OnStatusCueChanged?.Invoke("Analisando Silêncio...");
+                    GravarLog($"[AUTO-CUE] Analisando silêncio para: {track.Title}");
 
-                // 4. Inicia o WaveOut usando o AGGREGATOR como fonte, não o reader direto
+                    track.CutIni = _silenceDetector.AnalisarCutIni(track.FilePath);
+
+                    Task.Run(() =>
+                    {
+                        try
+                        {
+                            track.CutFim = _silenceDetector.AnalisarCutFim(track.FilePath);
+                            _trackRepo.AtualizarCortesMusica(track.Id, track.CutIni, track.CutFim);
+
+                            string feedback = $"Auto-Cue: Início {track.CutIni}s | Fim {track.CutFim}s";
+                            OnStatusCueChanged?.Invoke(feedback);
+                            GravarLog($"[AUTO-CUE] " + feedback);
+                        }
+                        catch (Exception exTask)
+                        {
+                            OnStatusCueChanged?.Invoke("Erro na análise de fim.");
+                            GravarLog($"[AUTO-CUE_ERRO] {exTask.Message}");
+                        }
+                    });
+                }
+                else
+                {
+                    string msg = (track.CutIni == 0 && track.CutFim == 0)
+                        ? "Sem cortes"
+                        : $"Auto-Cue Ativo: {track.CutIni}s / {track.CutFim}s";
+                    OnStatusCueChanged?.Invoke(msg);
+                }
+
+                // Aplicação do Corte Inicial
+                if (track.CutIni > 0)
+                {
+                    _audioFile.CurrentTime = TimeSpan.FromSeconds(track.CutIni);
+                    GravarLog($"[AUDIO] Saltando para {track.CutIni}s");
+                }
+                // ---------------------------------
+
+                // 3. Aggregator
+                _aggregator = new SampleAggregator(reader.ToSampleProvider(), 256);
+                _aggregator.FftCalculated += (s, args) => FftDataReceived?.Invoke(this, args.Result);
+
+                // 4. Volume e Proteção do Visual Studio
+                _volumeProvider = new VolumeSampleProvider(_aggregator);
+
+                if (System.Diagnostics.Debugger.IsAttached)
+                {
+                    _volumeProvider.Volume = _volume * 0.02f; // Baixinho enquanto programa
+                    GravarLog($"[DEBUG] Volume IDE limitado.");
+                }
+                else
+                {
+                    _volumeProvider.Volume = _volume;
+                }
+
+                // 5. O pulo do gato para drivers genéricos (Retorno para 16-bit)
+                var finalWaveProvider = new SampleToWaveProvider16(_volumeProvider);
+
+                // 6. Seleção Dinâmica do Dispositivo (A sua inteligência do Git)
+                int deviceId = ObterIndiceDispositivoWaveOut();
+
+                // 7. Inicialização WaveOutEvent
                 _waveOut = new WaveOutEvent();
-                _waveOut.Init(_aggregator); // O áudio passa por dentro do aggregator agora!
+                _waveOut.DeviceNumber = deviceId;
+                _waveOut.DesiredLatency = 200;
+                _waveOut.NumberOfBuffers = 2;
 
-                _waveOut.Volume = _volume;
+                _waveOut.Init(finalWaveProvider);
+                GravarLog("WaveOut Init OK.");
 
                 _waveOut.PlaybackStopped += OnPlaybackStopped;
                 _waveOut.Play();
+                GravarLog("Playback Iniciado.");
 
                 TrackChanged?.Invoke(this, track);
             }
             catch (Exception ex)
             {
+                GravarLog($"ERRO FATAL: {ex.Message}\n{ex.StackTrace}");
                 RegistrarLogErro(track, ex);
-                // Agora passamos a Track E a Mensagem
                 PlaybackError?.Invoke(this, new Tuple<Track, string>(track, $"Erro: {ex.Message}"));
-            }
-        }
-
-        private void RegistrarLogErro(Track track, Exception ex)
-        {
-            try
-            {
-                string arquivoLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Log_Erros_Playback.txt");
-                StringBuilder sb = new StringBuilder();
-
-                sb.AppendLine("==================================================");
-                sb.AppendLine($"DATA/HORA: {DateTime.Now}");
-                sb.AppendLine($"MÚSICA ID: {track.Id}");
-                sb.AppendLine($"TÍTULO:    {track.Title}");
-                sb.AppendLine($"BANDA:     {track.BandName}");
-                sb.AppendLine($"CAMINHO:   {track.FilePath}");
-
-                // Verifica detalhes físicos do arquivo
-                if (File.Exists(track.FilePath))
-                {
-                    var info = new FileInfo(track.FilePath);
-                    sb.AppendLine($"TAMANHO:   {info.Length} bytes");
-                    sb.AppendLine($"CRIADO EM: {info.CreationTime}");
-
-                    if (info.Length == 0)
-                        sb.AppendLine("ALERTA:    O ARQUIVO ESTÁ VAZIO (0 BYTES).");
-                }
-                else
-                {
-                    sb.AppendLine("ALERTA:    ARQUIVO NÃO ENCONTRADO NO DISCO.");
-                }
-
-                sb.AppendLine("--------------------------------------------------");
-                sb.AppendLine($"MENSAGEM:  {ex.Message}");
-
-                // Pega o código Hexadecimal do erro (ex: 0xC00D36C4)
-                sb.AppendLine($"HRESULT:   0x{ex.HResult:X}");
-                sb.AppendLine($"SOURCE:    {ex.Source}");
-                sb.AppendLine($"STACK:     {ex.StackTrace}");
-                sb.AppendLine("==================================================");
-                sb.AppendLine(""); // Linha em branco
-
-                // Grava no arquivo (Append para não apagar os anteriores)
-                File.AppendAllText(arquivoLog, sb.ToString(), Encoding.UTF8);
-            }
-            catch
-            {
-                // Se der erro ao gravar o log, não podemos fazer nada para não travar o app
             }
         }
 
         public void TogglePlayPause()
         {
-            if (_waveOut == null)
-            {
-                if (_playlist.Count > 0) Play(0);
-                return;
-            }
-
-            if (_waveOut.PlaybackState == PlaybackState.Playing)
-                _waveOut.Pause();
-            else
-                _waveOut.Play();
+            if (_waveOut == null) { if (_playlist.Count > 0) Play(0); return; }
+            if (_waveOut.PlaybackState == PlaybackState.Playing) _waveOut.Pause();
+            else _waveOut.Play();
         }
 
         public void Stop()
         {
-            if (_waveOut != null)
+            try
             {
-                // IMPORTANTE: Removemos o evento para ele não achar que a música acabou sozinha
-                _waveOut.PlaybackStopped -= OnPlaybackStopped;
-
-                _waveOut.Stop();
-                _waveOut.Dispose();
-                _waveOut = null;
+                if (_waveOut != null)
+                {
+                    _waveOut.PlaybackStopped -= OnPlaybackStopped;
+                    _waveOut.Stop();
+                    _waveOut.Dispose();
+                    _waveOut = null;
+                }
+                if (_audioFile != null)
+                {
+                    _audioFile.Dispose();
+                    _audioFile = null;
+                }
+                _volumeProvider = null;
             }
-
-            if (_audioFile != null)
+            catch (Exception ex)
             {
-                _audioFile.Dispose();
-                _audioFile = null;
+                GravarLog($"Erro ao parar: {ex.Message}");
             }
         }
 
         public void Next()
         {
             if (_playlist.Count == 0) return;
-
-            // Verifica se não é a última
-            if (_currentIndex < _playlist.Count - 1)
-            {
-                Play(_currentIndex + 1);
-            }
-            else
-            {
-                // Se for a última, volta para a primeira (Loop da lista)
-                // Se não quiser loop, basta remover esta linha
-                Play(0);
-            }
+            if (_currentIndex < _playlist.Count - 1) Play(_currentIndex + 1);
+            else Play(0);
         }
+
+        // METODO: OnPlaybackStopped
+        // VERSÃO: 2.0
+        // MOTIVO: Intercepta o fim da faixa para verificar se há uma troca de playlist agendada antes de tocar a próxima música.
         private void OnPlaybackStopped(object sender, StoppedEventArgs e)
         {
-            // Se houver exceção, paramos por erro
             if (e.Exception != null)
             {
-                PlaybackError?.Invoke(this, new Tuple<Track, string>(CurrentTrack, $"Erro na reprodução: {e.Exception.Message}"));
+                GravarLog($"Parada com erro: {e.Exception.Message}");
                 return;
             }
 
-            // LÓGICA DE AUTO-PRÓXIMA:
-            // Se o WaveOut parou e não foi porque nós chamamos o Stop() manualmente para trocar de música,
-            // então significa que a música chegou ao fim.
-
-            // Verificamos se ainda temos playlist
-            if (_playlist != null && _currentIndex < _playlist.Count - 1)
+            // GATILHO DA PROGRAMAÇÃO (Requisito 2.1)
+            if (_programacaoAtiva)
             {
-                // Toca a próxima
-                Next();
+                var todasProgramacoes = _progRepo.ListarProgramacao();
+                int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
+
+                // Se o agendamento diz que devemos estar em uma playlist DIFERENTE da atual
+                if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId)
+                {
+                    GravarLog($"[AGENDADOR] Mudança detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
+                    SolicitarTrocaDePlaylist?.Invoke(this, idPlaylistProgramada.Value);
+                    return;
+                }
+
             }
-            else if (_playlist != null && _currentIndex >= _playlist.Count - 1)
+
+            // Fluxo normal caso não haja troca agendada
+            if (_playlist != null && _currentIndex < _playlist.Count - 1) Next();
+            else if (_playlist != null && _currentIndex >= _playlist.Count - 1) Play(0);
+        }
+
+        public void Dispose() => Stop();
+        public void AtualizarIndiceAposRemocao(int novoIndice) => this._currentIndex = novoIndice;
+
+        private void RegistrarLogErro(Track track, Exception ex)
+        {
+            try
             {
-                // Se era a última, volta para a primeira (Loop)
-                Play(0);
+                string arquivoLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Log_Erros_Playback.txt");
+                File.AppendAllText(arquivoLog, $"{DateTime.Now} - {track.Title} - {ex.Message}\n");
             }
+            catch { }
         }
 
-        public void Dispose()
-        {
-            Stop();
-        }
-
-        // No AudioPlayerService.cs
-        public void AtualizarIndiceAposRemocao(int novoIndice)
-        {
-            // Apenas ajusta a variável interna de controle
-            this._currentIndex = novoIndice;
-
-            // NOTA: Não paramos a música nem recarregamos nada, 
-            // apenas alinhamos o ponteiro interno.
-        }
-
-        #region Apagar
-
-
-        // 2. Insere na tabela de Apagar Futuramente (Caso falhe agora)
         public void AdicionarParaApagarDepois(string caminho, string banda)
         {
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
                 string sql = "INSERT INTO ApagarMusicas (Lugar, Banda) VALUES (@Lugar, @Banda)";
-
                 using (var command = new SQLiteCommand(sql, connection))
                 {
                     command.Parameters.AddWithValue("@Lugar", caminho);
@@ -290,7 +397,6 @@ namespace XP3.Services
             }
         }
 
-        // 3. Remove a música de TODAS as playlists e do cadastro principal
         public void RemoverMusicaDefinitivamente(int trackId)
         {
             using (var connection = Database.GetConnection())
@@ -300,12 +406,10 @@ namespace XP3.Services
                 {
                     try
                     {
-                        // Remove das playlists (Tabela de ligação)
                         var cmd1 = new SQLiteCommand("DELETE FROM PlaylistTracks WHERE TrackId = @Id", connection, transaction);
                         cmd1.Parameters.AddWithValue("@Id", trackId);
                         cmd1.ExecuteNonQuery();
 
-                        // Remove do cadastro de faixas
                         var cmd2 = new SQLiteCommand("DELETE FROM Tracks WHERE Id = @Id", connection, transaction);
                         cmd2.Parameters.AddWithValue("@Id", trackId);
                         cmd2.ExecuteNonQuery();
@@ -315,12 +419,10 @@ namespace XP3.Services
                     catch
                     {
                         transaction.Rollback();
-                        throw; // Repassa o erro se der
+                        throw;
                     }
                 }
             }
         }
-        #endregion
-
     }
 }

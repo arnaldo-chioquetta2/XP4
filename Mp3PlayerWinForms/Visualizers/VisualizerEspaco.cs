@@ -58,6 +58,7 @@ namespace XP3.Visualizers
         private Color _corEstrela = Color.FromArgb(255, 255, 200);
         private Color _corGalaxiaCentro = Color.FromArgb(255, 240, 255);
         private Color _corGalaxiaBorda = Color.FromArgb(100, 0, 150);
+        private int _cooldownGalaxia = 0;
 
         public VisualizerEspaco()
         {
@@ -67,36 +68,45 @@ namespace XP3.Visualizers
 
         public override void UpdateData(float[] data, float maxVol)
         {
+            // 1. CHAMA A BASE 
+            // Isso garante que o limitador de FPS e o cálculo de volume funcionem
             base.UpdateData(data, maxVol);
+
             if (data == null || data.Length == 0) return;
 
-            // 1. O giro usa a velocidade atual sorteada (que é bem lenta)
+            // 2. LÓGICA DE MOVIMENTO
+            // O giro e o cooldown continuam rodando em cada pacote de áudio 
+            // para manter a fluidez da rotação
             _anguloAtualGerador += _velocidadeRotacao;
             if (_anguloAtualGerador >= 360f) _anguloAtualGerador -= 360f;
+            if (_anguloAtualGerador <= -360f) _anguloAtualGerador += 360f;
 
+            if (_cooldownGalaxia > 0) _cooldownGalaxia--;
+
+            // 3. CAPTURA DE HISTÓRICO (FATOR_PULO)
             _contadorQuadros++;
             if (_contadorQuadros % _fatorPulo == 0)
             {
                 _contadorQuadros = 0;
 
-                // --- SORTEIO ALEATÓRIO PARA O PRÓXIMO CICLO ---
-                // Fator Pulo: Intervalo entre nascimentos (20 a 45)
+                // Sorteios aleatórios (ritmo, giro e vortex)
                 _fatorPulo = _rnd.Next(20, 46);
-
-                // Velocidade de Rotação: Muito lenta (0.01 a 0.12)
                 _velocidadeRotacao = (float)(_rnd.NextDouble() * 0.11 + 0.01);
-                if (_rnd.Next(0, 100) > 50) _velocidadeRotacao *= -1; // Inverte direção aleatoriamente
-
-                // Intensidade da Espiral (Curvatura Vortex): Entre 2 e 50
+                if (_rnd.Next(0, 100) > 50) _velocidadeRotacao *= -1;
                 _intensidadeEspiral = (float)(_rnd.NextDouble() * 48.0 + 2.0);
 
-                // Lógica de Recorde para Galáxias
+                // Lógica de Galáxias e Recordes
                 float maxValorNoFrame = data.Max();
                 bool bateuRecorde = false;
-                if (maxValorNoFrame > _recordeVolumeMusica && maxValorNoFrame > 0.4f)
+                if (_cooldownGalaxia == 0 && maxValorNoFrame > _recordeVolumeMusica && maxValorNoFrame > 0.5f)
                 {
                     _recordeVolumeMusica = maxValorNoFrame;
                     bateuRecorde = true;
+                    _cooldownGalaxia = 60;
+                }
+                else if (maxValorNoFrame < _recordeVolumeMusica * 0.8f)
+                {
+                    _recordeVolumeMusica *= 0.995f;
                 }
 
                 var novoFrame = new FrameAudioData
@@ -104,23 +114,32 @@ namespace XP3.Visualizers
                     Dados = (float[])data.Clone(),
                     AnguloNascimento = _anguloAtualGerador,
                     EhRecorde = bateuRecorde,
-                    IntensidadeEspiralFrame = _intensidadeEspiral // Memoriza a curvatura deste frame
+                    IntensidadeEspiralFrame = _intensidadeEspiral
                 };
 
-                _historico.Insert(0, novoFrame);
-                if (_historico.Count > _profundidadeMaxima) _historico.RemoveAt(_historico.Count - 1);
+                // --- PROTEÇÃO SINCRONIZADA COM A BASE ---
+                // Aqui usamos o SyncLock que o VisualizerBase nos deu por herança
+                lock (SyncLock)
+                {
+                    _historico.Insert(0, novoFrame);
+                    if (_historico.Count > _profundidadeMaxima)
+                    {
+                        _historico.RemoveAt(_historico.Count - 1);
+                    }
+                }
             }
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            // Proteção contra janelas já fechadas ou em fecho
             if (this.IsDisposed || this.Disposing) return;
 
             try
             {
-                if (_historico.Count == 0) return;
-
                 var g = e.Graphics;
+
+                // AntiAlias é o equilíbrio perfeito entre beleza e performance para 30 FPS
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.Clear(_corFundo);
 
@@ -130,80 +149,88 @@ namespace XP3.Visualizers
                 float cy = h / 2.0f;
                 float teto = (_picoReferencia > 0.01f) ? _picoReferencia : 1.0f;
 
-                for (int i = _historico.Count - 1; i >= 0; i--)
+                // --- PROTEÇÃO DE LEITURA (Cadeado da Base) ---
+                // O OnPaint só entra aqui se o UpdateData não estiver a escrever na lista
+                lock (SyncLock)
                 {
-                    FrameAudioData frame = _historico[i];
-                    float[] dadosDaVez = frame.Dados;
+                    if (_historico.Count == 0) return;
 
-                    // Avanço bem lento (0.4f)
-                    float z = 1.0f + (i * 0.4f);
-                    float escala = 1.0f / z;
-
-                    float t = 1.0f - ((float)i / _profundidadeMaxima);
-                    int alpha = (int)(255 * Math.Pow(t, 1.2));
-
-                    int qtdObjetos = 12; // Intervalos maiores entre astros
-                    float raioAtual = (Math.Max(w, h) * 0.7f) * escala * (5.5f * (1.0f - (i * 0.004f)));
-
-                    for (int c = 0; c < qtdObjetos; c++)
+                    // Desenhamos do fundo (i = count-1) para a frente (i = 0)
+                    for (int i = _historico.Count - 1; i >= 0; i--)
                     {
-                        float passoAngular = 360f / qtdObjetos;
+                        FrameAudioData frame = _historico[i];
+                        float[] dadosDaVez = frame.Dados;
 
-                        // --- VORTEX VARIÁVEL (Tira o efeito de fila) ---
-                        // Cada frame usa sua própria IntensidadeEspiralFrame sorteada
-                        float curvatura = i * frame.IntensidadeEspiralFrame;
-                        float anguloObjetoGraus = frame.AnguloNascimento + (c * passoAngular) + curvatura;
-                        double anguloRad = anguloObjetoGraus * (Math.PI / 180.0);
+                        // Fator de profundidade (z) e escala (tamanho visual)
+                        float z = 1.0f + (i * 0.4f);
+                        float escala = 1.0f / z;
 
-                        int indiceAudio = (c * 2) + 2;
-                        float valor = (indiceAudio < dadosDaVez.Length) ? dadosDaVez[indiceAudio] : 0;
-                        float intensidade = (valor / teto);
-                        if (intensidade > 1.0f) intensidade = 1.0f;
+                        // Efeito de fade (alpha) baseado na distância
+                        float t = 1.0f - ((float)i / _profundidadeMaxima);
+                        int alpha = (int)(255 * Math.Pow(t, 1.2));
 
-                        float jitterRaio = (((c * 17 + i * 9) % 60) - 30) * escala;
-                        float raioFinal = raioAtual + jitterRaio;
+                        int qtdObjetos = 12; // Intervalos maiores para apreciar os astros grandes
+                        float raioAtual = (Math.Max(w, h) * 0.7f) * escala * (5.5f * (1.0f - (i * 0.004f)));
 
-                        float xReal = cx + (float)(Math.Cos(anguloRad) * raioFinal);
-                        float yReal = cy + (float)(Math.Sin(anguloRad) * raioFinal);
-
-                        // --- HIERARQUIA DE DESENHO (ASTROS MAIORES) ---
-                        if (frame.EhRecorde && intensidade > 0.5f)
+                        for (int c = 0; c < qtdObjetos; c++)
                         {
-                            // Galáxia Massiva
-                            DesenharGalaxia(g, xReal, yReal, escala, alpha, intensidade, anguloObjetoGraus);
-                        }
-                        else
-                        {
-                            if (intensidade < 0.20f) { }
-                            else if (intensidade < 0.40f)
+                            float passoAngular = 360f / qtdObjetos;
+
+                            // --- APLICAÇÃO DO VORTEX (Efeito Espiral) ---
+                            // Usamos a curvatura sorteada (entre 2 e 50) gravada neste frame
+                            float curvatura = i * frame.IntensidadeEspiralFrame;
+                            float anguloObjetoGraus = frame.AnguloNascimento + (c * passoAngular) + curvatura;
+                            double anguloRad = anguloObjetoGraus * (Math.PI / 180.0);
+
+                            // Seleção da frequência de áudio para este objeto
+                            int indiceAudio = (c * 2) + 2;
+                            float valor = (indiceAudio < dadosDaVez.Length) ? dadosDaVez[indiceAudio] : 0;
+                            float intensidade = (valor / teto);
+                            if (intensidade > 1.0f) intensidade = 1.0f;
+
+                            // Posicionamento com pequeno tremor (jitter) radial
+                            float jitterRaio = (((c * 17 + i * 9) % 60) - 30) * escala;
+                            float raioFinal = raioAtual + jitterRaio;
+
+                            float xReal = cx + (float)(Math.Cos(anguloRad) * raioFinal);
+                            float yReal = cy + (float)(Math.Sin(anguloRad) * raioFinal);
+
+                            // --- DESENHO DOS ASTROS (TAMANHOS MASSIVOS) ---
+                            if (frame.EhRecorde && intensidade > 0.5f)
                             {
-                                DesenharAsteroide(g, xReal, yReal, escala, alpha); // Tam base: 60
-                            }
-                            else if (intensidade < 0.60f)
-                            {
-                                DesenharLua(g, xReal, yReal, escala, alpha, intensidade); // Tam base: 180
-                            }
-                            else if (intensidade < 0.80f)
-                            {
-                                int corIndex = c % _coresPlanetas.Length;
-                                DesenharPlaneta(g, xReal, yReal, escala, alpha, intensidade, _coresPlanetas[corIndex]); // Tam base: 500
-                            }
-                            else if (intensidade < 0.92f)
-                            {
-                                // COMETAS em volumes altos
-                                DesenharCometa(g, xReal, yReal, cx, cy, escala, alpha, intensidade);
+                                DesenharGalaxia(g, xReal, yReal, escala, alpha, intensidade, anguloObjetoGraus);
                             }
                             else
                             {
-                                DesenharEstrela(g, xReal, yReal, escala, alpha, intensidade); // Tam base: 950
+                                if (intensidade < 0.20f) { } // Silêncio
+                                else if (intensidade < 0.40f) DesenharAsteroide(g, xReal, yReal, escala, alpha);
+                                else if (intensidade < 0.60f) DesenharLua(g, xReal, yReal, escala, alpha, intensidade);
+                                else if (intensidade < 0.80f)
+                                {
+                                    int corIndex = c % _coresPlanetas.Length;
+                                    DesenharPlaneta(g, xReal, yReal, escala, alpha, intensidade, _coresPlanetas[corIndex]);
+                                }
+                                else if (intensidade < 0.92f)
+                                {
+                                    DesenharCometa(g, xReal, yReal, cx, cy, escala, alpha, intensidade);
+                                }
+                                else
+                                {
+                                    DesenharEstrela(g, xReal, yReal, escala, alpha, intensidade);
+                                }
                             }
                         }
                     }
-                }
+                } // --- FIM DO LOCK ---
 
+                // Texto informativo (Artista/Música) desenhado por cima de tudo
                 base.DesenharTexto(g, w, h);
             }
-            catch { }
+            catch
+            {
+                // O erro é engolido silenciosamente para evitar crash, 
+                // mas com o lock, isso quase nunca será acionado.
+            }
         }
 
         private void DesenharCometa(Graphics g, float x, float y, float cx, float cy, float escala, int alpha, float intensidade)
