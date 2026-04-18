@@ -57,14 +57,14 @@ namespace XP3.Data
             }
         }
 
-        // --- CORRE«√O CRÕTICA 1: IMPEDIR CRIA«√O DE ID DUPLICADO ---
+        // --- CORRE√á√ÉO CR√çTICA 1: IMPEDIR CRIA√á√ÉO DE ID DUPLICADO ---
         public int AddTrack(Track track)
         {
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
 
-                // 1. Verifica se esse arquivo J¡ EST¡ CADASTRADO
+                // 1. Verifica se esse arquivo J√Å EST√Å CADASTRADO
                 using (var checkCmd = conn.CreateCommand())
                 {
                     checkCmd.CommandText = "SELECT ID FROM Musica WHERE Lugar = @lugar";
@@ -73,13 +73,13 @@ namespace XP3.Data
 
                     if (existingId != null)
                     {
-                        // Se j· existe, N√O cria novo. Retorna o ID existente.
-                        Debug.WriteLine($"[REPO] Arquivo j· existe no banco (ID {existingId}). Reutilizando.");
+                        // Se j√° existe, N√ÉO cria novo. Retorna o ID existente.
+                        Debug.WriteLine($"[REPO] Arquivo j√° existe no banco (ID {existingId}). Reutilizando.");
                         return Convert.ToInt32(existingId);
                     }
                 }
 
-                // 2. Se n„o existe, cria novo
+                // 2. Se n√£o existe, cria novo
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"
@@ -105,7 +105,7 @@ namespace XP3.Data
             {
                 conn.Open();
 
-                // Verifica vÌnculo existente
+                // Verifica v√≠nculo existente
                 string checkSql = "SELECT COUNT(*) FROM LisMus WHERE Lista = @lista AND Musica = @musica";
                 using (var checkCmd = new SQLiteCommand(checkSql, conn))
                 {
@@ -125,7 +125,7 @@ namespace XP3.Data
             }
         }
 
-        // --- CORRE«√O CRÕTICA 2: LIMPEZA PROFUNDA ---
+        // --- CORRE√á√ÉO CR√çTICA 2: LIMPEZA PROFUNDA ---
         public void LimparDuplicatasNoBanco()
         {
             using (var conn = Database.GetConnection())
@@ -135,8 +135,8 @@ namespace XP3.Data
                 {
                     try
                     {
-                        // ETAPA A: Limpar duplicatas na tabela de VÌnculos (LisMus)
-                        // (Mesma m˙sica na mesma lista v·rias vezes)
+                        // ETAPA A: Limpar duplicatas na tabela de V√≠nculos (LisMus)
+                        // (Mesma m√∫sica na mesma lista v√°rias vezes)
                         string sqlLink = @"
                             DELETE FROM LisMus 
                             WHERE rowid NOT IN (
@@ -148,7 +148,7 @@ namespace XP3.Data
 
                         // ETAPA B: Limpar duplicatas na tabela de Arquivos (Musica)
                         // (Mesmo arquivo cadastrado com IDs diferentes)
-                        // ATEN«√O: Mantemos o MENOR ID (o mais antigo) e deletamos os novos duplicados
+                        // ATEN√á√ÉO: Mantemos o MENOR ID (o mais antigo) e deletamos os novos duplicados
                         string sqlMusica = @"
                             DELETE FROM Musica 
                             WHERE ID NOT IN (
@@ -158,7 +158,7 @@ namespace XP3.Data
                             )";
                         using (var cmd = new SQLiteCommand(sqlMusica, conn, transaction)) { cmd.ExecuteNonQuery(); }
 
-                        // ETAPA C: Limpar VÌnculos ”rf„os
+                        // ETAPA C: Limpar V√≠nculos √ìrf√£os
                         // (Links na playlist que apontavam para os IDs que acabamos de deletar na Etapa B)
                         string sqlOrf = "DELETE FROM LisMus WHERE Musica NOT IN (SELECT ID FROM Musica)";
                         using (var cmd = new SQLiteCommand(sqlOrf, conn, transaction)) { cmd.ExecuteNonQuery(); }
@@ -197,7 +197,7 @@ namespace XP3.Data
                     bool usarOrdenacaoOriginal = (!config.ProgramacaoAtiva && nomeLista.ToUpper() == "AESCOLHER");
                     DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
 
-                    // 2. ATUALIZAMOS O SELECT: IncluÌmos m.CutIni e m.CutFim no final
+                    // 2. ATUALIZAMOS O SELECT: Inclu√≠mos m.CutIni e m.CutFim no final
                     string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim";
                     string sql;
 
@@ -232,7 +232,7 @@ namespace XP3.Data
                             {
                                 var t = new Track();
                                 t.Id = reader.GetInt32(0);
-                                t.Title = reader.IsDBNull(1) ? "Sem TÌtulo" : reader.GetString(1);
+                                t.Title = reader.IsDBNull(1) ? "Sem T√≠tulo" : reader.GetString(1);
                                 t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
 
                                 // Tempo
@@ -243,7 +243,7 @@ namespace XP3.Data
                                 t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
                                 t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
 
-                                // --- NOVOS CAMPOS: CutIni (Õndice 6) e CutFim (Õndice 7) ---
+                                // --- NOVOS CAMPOS: CutIni (√çndice 6) e CutFim (√çndice 7) ---
                                 // Usamos -1 como fallback caso o banco retorne NULL por algum motivo
                                 t.CutIni = reader.IsDBNull(6) ? -1 : Convert.ToInt32(reader["CutIni"]);
                                 t.CutFim = reader.IsDBNull(7) ? -1 : Convert.ToInt32(reader["CutFim"]);
@@ -280,7 +280,7 @@ namespace XP3.Data
                         cmd.Parameters.AddWithValue("@id", musicaId);
 
                         cmd.ExecuteNonQuery();
-                        System.Diagnostics.Debug.WriteLine($"[REPO] Cortes atualizados para M˙sica ID {musicaId}: Ini={cutIni}, Fim={cutFim}");
+                        System.Diagnostics.Debug.WriteLine($"[REPO] Cortes atualizados para M√∫sica ID {musicaId}: Ini={cutIni}, Fim={cutFim}");
                     }
                 }
             }
@@ -544,6 +544,66 @@ namespace XP3.Data
                 }
             }
         }
+
+        /// <summary>
+        /// Obt¬Çm todas as bandas cadastradas, ordenadas alfabeticamente
+        /// </summary>
+        public List<Band> GetAllBands()
+        {
+            var bands = new List<Band>();
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome FROM Banda ORDER BY Nome", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        bands.Add(new Band 
+                        { 
+                            Id = reader.GetInt32(0), 
+                            Name = reader.IsDBNull(1) ? "Desconhecida" : reader.GetString(1) 
+                        });
+                    }
+                }
+            }
+            return bands;
+        }
+
+        /// <summary>
+        /// Atualiza a banda de uma m¬£sica espec¬°fica no banco de dados
+        /// </summary>
+        public void UpdateTrackBand(int trackId, int newBandId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("UPDATE Musica SET Banda = @banda WHERE ID = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@banda", newBandId);
+                    cmd.Parameters.AddWithValue("@id", trackId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Obt¬ém o nome da banda pelo ID
+        /// </summary>
+        public string GetBandNameById(int bandId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("SELECT Nome FROM Banda WHERE ID = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@id", bandId);
+                    var result = cmd.ExecuteScalar();
+                    return result != null ? result.ToString() : "Desconhecida";
+                }
+            }
+        }
+
         #endregion
 
         public void TocaMenos(int trackId)
@@ -564,11 +624,11 @@ namespace XP3.Data
         {
             try
             {
-                // 1. Prepara os caminhos fÌsicos
+                // 1. Prepara os caminhos f√≠sicos
                 string diretorio = System.IO.Path.GetDirectoryName(track.FilePath);
                 string extensao = System.IO.Path.GetExtension(track.FilePath);
 
-                // Remove caracteres inv·lidos que o usu·rio possa ter digitado (ex: ? \ / : *)
+                // Remove caracteres inv√°lidos que o usu√°rio possa ter digitado (ex: ? \ / : *)
                 string nomeLimpo = string.Join("_", novoNome.Split(System.IO.Path.GetInvalidFileNameChars()));
 
                 string novoCaminhoFisico = System.IO.Path.Combine(diretorio, nomeLimpo + extensao);
@@ -578,12 +638,12 @@ namespace XP3.Data
                 {
                     if (System.IO.File.Exists(novoCaminhoFisico))
                     {
-                        throw new Exception("J· existe uma m˙sica com este nome na pasta.");
+                        throw new Exception("J√° existe uma m√∫sica com este nome na pasta.");
                     }
                     System.IO.File.Move(track.FilePath, novoCaminhoFisico);
                 }
 
-                // 3. Atualiza no Banco de Dados (Nome da m˙sica e o novo Caminho/Lugar)
+                // 3. Atualiza no Banco de Dados (Nome da m√∫sica e o novo Caminho/Lugar)
                 using (var connection = Database.GetConnection())
                 {
                     connection.Open();
@@ -598,7 +658,7 @@ namespace XP3.Data
                     }
                 }
 
-                // 4. Atualiza o objeto em memÛria para n„o precisar recarregar o banco
+                // 4. Atualiza o objeto em mem√≥ria para n√£o precisar recarregar o banco
                 track.Title = novoNome;
                 track.FilePath = novoCaminhoFisico;
 
@@ -606,8 +666,8 @@ namespace XP3.Data
             }
             catch (System.IO.IOException)
             {
-                // Erro cl·ssico: O arquivo est· em uso (ex: sendo tocado agora mesmo)
-                System.Windows.Forms.MessageBox.Show("N„o È possÌvel renomear a m˙sica enquanto ela est· tocando.", "Arquivo em uso");
+                // Erro cl√°ssico: O arquivo est√° em uso (ex: sendo tocado agora mesmo)
+                System.Windows.Forms.MessageBox.Show("N√£o √© poss√≠vel renomear a m√∫sica enquanto ela est√° tocando.", "Arquivo em uso");
                 return false;
             }
             catch (Exception ex)
@@ -617,14 +677,14 @@ namespace XP3.Data
             }
         }
 
-        // M…TODO 1: Chamado quando o usu·rio d· ENTER na Grid
+        // M√âTODO 1: Chamado quando o usu√°rio d√° ENTER na Grid
         public void AgendarRenomeacao(int trackId, string novoNome)
         {
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
 
-                // 1. Atualiza o NOME no banco principal para a interface do r·dio j· refletir a mudanÁa
+                // 1. Atualiza o NOME no banco principal para a interface do r√°dio j√° refletir a mudan√ßa
                 string sqlUpdate = "UPDATE Musica SET Nome = @Nome WHERE ID = @Id";
                 using (var cmd = new SQLiteCommand(sqlUpdate, connection))
                 {
@@ -633,7 +693,7 @@ namespace XP3.Data
                     cmd.ExecuteNonQuery();
                 }
 
-                // 2. Coloca na fila para o arquivo fÌsico ser renomeado no prÛximo boot
+                // 2. Coloca na fila para o arquivo f√≠sico ser renomeado no pr√≥ximo boot
                 string sqlInsert = "INSERT INTO Renomear (ID, Nome) VALUES (@Id, @Nome)";
                 using (var cmd = new SQLiteCommand(sqlInsert, connection))
                 {
@@ -644,14 +704,14 @@ namespace XP3.Data
             }
         }
 
-        // M…TODO 2: Chamado quando o r·dio abre (equivalente ao RenomearArquivos do VB6)
+        // M√âTODO 2: Chamado quando o r√°dio abre (equivalente ao RenomearArquivos do VB6)
         public void ProcessarRenomeacoesPendentes()
         {
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
 
-                // Fazemos um JOIN para pegar o Lugar atual da m˙sica
+                // Fazemos um JOIN para pegar o Lugar atual da m√∫sica
                 string sqlSelect = "SELECT r.ID, r.Nome, m.Lugar FROM Renomear r INNER JOIN Musica m ON r.ID = m.ID";
                 var idsConcluidos = new System.Collections.Generic.List<int>();
 
@@ -668,7 +728,7 @@ namespace XP3.Data
                         {
                             try
                             {
-                                // Prepara o novo caminho fÌsico
+                                // Prepara o novo caminho f√≠sico
                                 string diretorio = System.IO.Path.GetDirectoryName(lugarAtual);
                                 string extensao = System.IO.Path.GetExtension(lugarAtual);
                                 string nomeLimpo = string.Join("_", novoNome.Split(System.IO.Path.GetInvalidFileNameChars()));
@@ -695,19 +755,19 @@ namespace XP3.Data
                             catch (Exception ex)
                             {
                                 LogService.GravarErro($"Processar Fila Renomear (ID: {id})", ex);
-                                // Se falhar (ex: bloqueado), ele N√O entra na lista de concluÌdos
-                                // e tenta de novo no prÛximo boot.
+                                // Se falhar (ex: bloqueado), ele N√ÉO entra na lista de conclu√≠dos
+                                // e tenta de novo no pr√≥ximo boot.
                             }
                         }
                         else
                         {
-                            // Se o arquivo original n„o existe mais no disco, tira da fila para n„o travar
+                            // Se o arquivo original n√£o existe mais no disco, tira da fila para n√£o travar
                             idsConcluidos.Add(id);
                         }
                     }
                 }
 
-                // Limpa as tarefas concluÌdas da tabela Renomear
+                // Limpa as tarefas conclu√≠das da tabela Renomear
                 foreach (int id in idsConcluidos)
                 {
                     string sqlDelete = "DELETE FROM Renomear WHERE ID = @Id";

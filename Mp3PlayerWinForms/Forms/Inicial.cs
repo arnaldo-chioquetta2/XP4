@@ -484,7 +484,7 @@ namespace XP3.Forms
 
             // Criando os itens
             var itemTocarMenos = new ToolStripMenuItem("Tocar menos") { Enabled = true };
-            var itemMudarBanda = new ToolStripMenuItem("Mudar de banda") { Enabled = false };
+            var itemMudarBanda = new ToolStripMenuItem("Mudar de banda") { Enabled = true };
             var itemAjustarTempo = new ToolStripMenuItem("Ajustar o tempo") { Enabled = true }; // Único ativo
             var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica") { Enabled = true };
             var itemRenomear = new ToolStripMenuItem("Renomear musica") { Enabled = true };
@@ -509,6 +509,8 @@ namespace XP3.Forms
             itemRenomear.Click += (s, e) => Renomear();
 
             itemMudarLista.Click += (s, e) => MudarAoTerminar();
+
+            itemMudarBanda.Click += (s, e) => MudarBanda();
 
             // Evento de clique para o "Ajustar o tempo"
             itemAjustarTempo.Click += (s, e) =>
@@ -545,6 +547,11 @@ namespace XP3.Forms
 
             _pollingService.Start();
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
+        }
+
+        private void MudarBanda()
+        {
+            // Metodo para a operação de mudar a banda
         }
 
         private void MudarAoTerminar()

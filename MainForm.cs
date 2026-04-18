@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
-using Mp3PlayerWinForms.Models;
-using Mp3PlayerWinForms.Services;
-using Mp3PlayerWinForms.Data;
-using Mp3PlayerWinForms.Controls;
+using XP3.Models;
+using XP3.Services;
+using XP3.Data;
+using XP3.Controls;
+using XP3.Forms;
 using SQLitePCL;
 
 namespace Mp3PlayerWinForms.Forms
@@ -26,6 +27,12 @@ namespace Mp3PlayerWinForms.Forms
         private int _currentPlaylistId = 1;
 
         private VisualizerForm _visualizerWindow;
+        
+        // Variáveis para controle da operação de troca de banda
+        private bool _isChangingBand = false;
+        private int _selectedTrackIndex = -1;
+        private int _selectedTrackId = -1;
+        private ListViewItem[] _originalTrackItems = null;
 
         public MainForm()
         {
@@ -105,14 +112,22 @@ namespace Mp3PlayerWinForms.Forms
             lvTracks.Columns.Add("Música", 250);
             lvTracks.Columns.Add("Banda", 150);
             lvTracks.Columns.Add("Duração", 80);
-            lvTracks.DoubleClick += (s, e) => {
-                if (lvTracks.SelectedIndices.Count > 0)
-                    _player.Play(lvTracks.SelectedIndices[0]);
-            };
+            lvTracks.DoubleClick += LvTracks_DoubleClick;
             lvTracks.DragEnter += (s, e) => {
                 if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy;
             };
             lvTracks.DragDrop += LvTracks_DragDrop;
+            
+            // ContextMenu para troca de banda (botão direito)
+            ContextMenuStrip ctxMenu = new ContextMenuStrip();
+            ToolStripMenuItem menuChangeBand = new ToolStripMenuItem("Trocar Banda");
+            menuChangeBand.Click += MenuItemChangeBand_Click;
+            ctxMenu.Items.Add(menuChangeBand);
+            lvTracks.ContextMenuStrip = ctxMenu;
+            
+            // KeyDown para capturar ESC
+            this.KeyPreview = true;
+            this.KeyDown += MainForm_KeyDown;
 
             // Spectrum
             spectrum = new SpectrumControl
@@ -199,6 +214,161 @@ namespace Mp3PlayerWinForms.Forms
             _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
             _player.Dispose();
             base.OnFormClosing(e);
+        }
+
+        /// <summary>
+        /// Handler para o clique no menu "Trocar Banda"
+        /// </summary>
+        private void MenuItemChangeBand_Click(object sender, EventArgs e)
+        {
+            if (lvTracks.SelectedIndices.Count == 0) return;
+
+            _selectedTrackIndex = lvTracks.SelectedIndices[0];
+            
+            // Precisamos do ID da música no banco de dados
+            // Como não temos isso armazenado diretamente no ListViewItem, 
+            // vamos precisar buscar pelo índice na playlist atual
+            var tracks = _trackRepo.GetTracksByPlaylist(_currentPlaylistId);
+            if (_selectedTrackIndex >= 0 && _selectedTrackIndex < tracks.Count)
+            {
+                _selectedTrackId = tracks[_selectedTrackIndex].Id;
+                
+                // Salva o estado original para possível restauração via ESC
+                _originalTrackItems = new ListViewItem[lvTracks.Items.Count];
+                for (int i = 0; i < lvTracks.Items.Count; i++)
+                {
+                    _originalTrackItems[i] = (ListViewItem)lvTracks.Items[i].Clone();
+                }
+                
+                EnterBandSelectionMode(tracks[_selectedTrackIndex].BandId);
+            }
+        }
+
+        /// <summary>
+        /// Entra no modo de seleção de banda - mostra lista de bandas ao invés de músicas
+        /// </summary>
+        private void EnterBandSelectionMode(int currentBandId)
+        {
+            _isChangingBand = true;
+            
+            // Limpa a lista atual
+            lvTracks.Items.Clear();
+            
+            // Obtém todas as bandas ordenadas alfabeticamente
+            var bands = _trackRepo.GetAllBands();
+            
+            // Adiciona as bandas na ListView
+            foreach (var band in bands)
+            {
+                var item = new ListViewItem(band.Name);
+                item.SubItems.Add(""); // Coluna vazia para manter formato
+                item.SubItems.Add(""); // Coluna vazia para manter formato
+                
+                // Diferencia a banda atual
+                if (band.Id == currentBandId)
+                {
+                    item.Font = new Font(lvTracks.Font, FontStyle.Bold);
+                    item.BackColor = Color.LightYellow;
+                    item.Text = band.Name + " (ATUAL)";
+                }
+                
+                lvTracks.Items.Add(item);
+            }
+            
+            lblStatus.Text = "Selecione uma nova banda (duplo-clique) ou pressione ESC para cancelar";
+        }
+
+        /// <summary>
+        /// Sai do modo de seleção de banda e restaura a lista de músicas
+        /// </summary>
+        private void ExitBandSelectionMode()
+        {
+            _isChangingBand = false;
+            _selectedTrackIndex = -1;
+            _selectedTrackId = -1;
+            _originalTrackItems = null;
+            
+            // Recarrega a playlist normal
+            LoadPlaylist();
+            lblStatus.Text = "Pronto";
+        }
+
+        /// <summary>
+        /// Finaliza a troca de banda com sucesso
+        /// </summary>
+        private void CompleteBandChange(int newBandId)
+        {
+            if (_selectedTrackId <= 0) return;
+            
+            // Atualiza no banco de dados
+            _trackRepo.UpdateTrackBand(_selectedTrackId, newBandId);
+            
+            // Obtém o novo nome da banda
+            string newBandName = _trackRepo.GetBandNameById(newBandId);
+            
+            // Atualiza apenas o item na grid
+            if (_selectedTrackIndex >= 0 && _selectedTrackIndex < lvTracks.Items.Count)
+            {
+                // Se ainda estivermos mostrando bandas, precisamos voltar para músicas
+                if (_isChangingBand)
+                {
+                    ExitBandSelectionMode();
+                }
+                else
+                {
+                    // Atualiza apenas a coluna da banda
+                    lvTracks.Items[_selectedTrackIndex].SubItems[1].Text = newBandName;
+                }
+            }
+            
+            lblStatus.Text = "Banda alterada com sucesso!";
+        }
+
+        /// <summary>
+        /// Handler para teclado - captura ESC para cancelar operação
+        /// </summary>
+        private void MainForm_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape && _isChangingBand)
+            {
+                // Restaura estado original
+                if (_originalTrackItems != null)
+                {
+                    lvTracks.Items.Clear();
+                    foreach (var item in _originalTrackItems)
+                    {
+                        lvTracks.Items.Add((ListViewItem)item.Clone());
+                    }
+                }
+                ExitBandSelectionMode();
+                e.Handled = true;
+            }
+        }
+
+        /// <summary>
+        /// Handler para duplo-clique na ListView - comportamento depende do modo atual
+        /// </summary>
+        private void LvTracks_DoubleClick(object sender, EventArgs e)
+        {
+            if (lvTracks.SelectedIndices.Count == 0) return;
+
+            if (_isChangingBand)
+            {
+                // Está no modo de seleção de banda - duplo clique seleciona nova banda
+                var bands = _trackRepo.GetAllBands();
+                int selectedIndex = lvTracks.SelectedIndices[0];
+                
+                if (selectedIndex >= 0 && selectedIndex < bands.Count)
+                {
+                    int newBandId = bands[selectedIndex].Id;
+                    CompleteBandChange(newBandId);
+                }
+            }
+            else
+            {
+                // Modo normal - toca a música
+                _player.Play(lvTracks.SelectedIndices[0]);
+            }
         }
     }
 }
