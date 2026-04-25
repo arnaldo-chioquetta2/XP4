@@ -1,10 +1,11 @@
-using Mp3PlayerWinForms.Services;
+Ôªøusing Mp3PlayerWinForms.Services;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Media;
 using XP3.Data;
@@ -17,16 +18,18 @@ namespace XP3.Services
     {
         private float _volume = AppSettings.InitialVolume;
 
-        // Voltamos para WaveOutEvent, que È a API mais compatÌvel
+        // Voltamos para WaveOutEvent, que √© a API mais compat√≠vel
         private WaveOutEvent _waveOut;
 
         private WaveStream _audioFile;
         private MediaPlayer _mediaPlayer;
         private VolumeSampleProvider _volumeProvider;
+        private EqualizerSampleProvider _equalizerProvider;
         private List<Track> _playlist;
         private int _currentIndex = -1;
 
         public event EventHandler<Track> TrackChanged;
+        public event EventHandler<Track> TrackFinishedNaturally;
         public event EventHandler<float[]> FftDataReceived;
         public event EventHandler<Tuple<Track, string>> PlaybackError;
         private SampleAggregator _aggregator;
@@ -58,8 +61,8 @@ namespace XP3.Services
         //private readonly SilenceDetector _silenceDetector = new SilenceDetector();
         //private readonly TrackRepository _trackRepo = new TrackRepository();
 
-        // Limiar de silÍncio: 0.01f costuma ser excelente para ignorar chiados e 
-        // detectar o inÌcio real da m˙sica.
+        // Limiar de sil√™ncio: 0.01f costuma ser excelente para ignorar chiados e 
+        // detectar o in√≠cio real da m√∫sica.
         private const float SilenceThreshold = 0.01f;
 
         //public event Action<string> OnStatusCueChanged;
@@ -71,13 +74,13 @@ namespace XP3.Services
             {
                 _programacaoAtiva = value;
                 _progRepo.SalvarEstadoProgramacao(value);
-                GravarLog($"[PLAYER] ProgramaÁ„o alterada para: {(value ? "LIGADA" : "DESLIGADA")}");
+                GravarLog($"[PLAYER] Programa√ß√£o alterada para: {(value ? "LIGADA" : "DESLIGADA")}");
             }
         }
 
         public AudioPlayerService()
         {
-            // 1. O que j· era seu (Git)
+            // 1. O que j√° era seu (Git)
             _mediaPlayer = new MediaPlayer();
             _playlist = new List<Track>();
             _mediaPlayer.MediaEnded += _mediaPlayer_MediaEnded;
@@ -86,13 +89,13 @@ namespace XP3.Services
             _silenceDetector = new SilenceDetector(); // O "ouvido" do programa
             _trackRepo = new TrackRepository();       // O "escritor" do banco
 
-            // 3. Sua lÛgica de programaÁ„o (Fase 3.1)
+            // 3. Sua l√≥gica de programa√ß√£o (Fase 3.1)
             _progRepo = new ProgrammingRepository();
             SincronizarConfiguracoesIniciais();
 
             // 4. Logs e Debug
             try { File.Delete("debug_audio_log.txt"); } catch { }
-            GravarLog("=== INICIANDO SERVI«O DE ¡UDIO (WAVEOUT + AUTO-CUE) ===");
+            GravarLog("=== INICIANDO SERVI√áO DE √ÅUDIO (WAVEOUT + AUTO-CUE) ===");
         }
 
         private void SincronizarConfiguracoesIniciais()
@@ -101,7 +104,7 @@ namespace XP3.Services
             {
                 var config = _progRepo.ObterConfiguracao();
                 _programacaoAtiva = config.ProgramacaoAtiva;
-                GravarLog($"[PLAYER] ConfiguraÁ„o inicial carregada: {(_programacaoAtiva ? "Ativa" : "Inativa")}");
+                GravarLog($"[PLAYER] Configura√ß√£o inicial carregada: {(_programacaoAtiva ? "Ativa" : "Inativa")}");
             }
             catch (Exception ex)
             {
@@ -121,8 +124,8 @@ namespace XP3.Services
         }
 
         // METODO: ForcarVerificacaoProgramacao
-        // VERS√O: 1.0
-        // MOTIVO: Usado no startup ou ao ligar o bot„o Auto para carregar a lista correta imediatamente.
+        // VERS√ÉO: 1.0
+        // MOTIVO: Usado no startup ou ao ligar o bot√£o Auto para carregar a lista correta imediatamente.
         public void ForcarVerificacaoProgramacao()
         {
             if (!_programacaoAtiva) return;
@@ -130,12 +133,12 @@ namespace XP3.Services
             var todasProgramacoes = _progRepo.ListarProgramacao();
             int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
 
-            // Se existe uma lista ideal para agora, e ela for diferente da que est· aberta
+            // Se existe uma lista ideal para agora, e ela for diferente da que est√° aberta
             if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId)
             {
-                GravarLog($"[AGENDADOR] CorreÁ„o Imediata! Carregando a lista {idPlaylistProgramada.Value} apropriada para agora.");
+                GravarLog($"[AGENDADOR] Corre√ß√£o Imediata! Carregando a lista {idPlaylistProgramada.Value} apropriada para agora.");
 
-                // Dispara o evento para a tela Inicial carregar as m˙sicas
+                // Dispara o evento para a tela Inicial carregar as m√∫sicas
                 SolicitarTrocaDePlaylist?.Invoke(this, idPlaylistProgramada.Value);
             }
         }
@@ -161,7 +164,7 @@ namespace XP3.Services
                     var caps = WaveOut.GetCapabilities(i);
                     string nomeLower = caps.ProductName.ToLower();
 
-                    // Se tem "usb" ou "alto-falante" no nome, n„o tem erro, È a sua caixa de som!
+                    // Se tem "usb" ou "alto-falante" no nome, n√£o tem erro, √© a sua caixa de som!
                     if (nomeLower.Contains("usb") || nomeLower.Contains("alto-falante"))
                     {
                         GravarLog($" -> ALVO DETECTADO COM SUCESSO (ID {i}): {caps.ProductName}");
@@ -171,7 +174,7 @@ namespace XP3.Services
                 catch { }
             }
 
-            // TENTATIVA 2: Se por acaso o USB for desconectado, pega qualquer coisa que N√O seja TV
+            // TENTATIVA 2: Se por acaso o USB for desconectado, pega qualquer coisa que N√ÉO seja TV
             for (int i = 0; i < waveOutCount; i++)
             {
                 try
@@ -179,19 +182,19 @@ namespace XP3.Services
                     var caps = WaveOut.GetCapabilities(i);
                     string nomeLower = caps.ProductName.ToLower();
 
-                    // Rejeita ativamente Philips, placas de vÌdeo (Nvidia/AMD) e cabos Display/HDMI
+                    // Rejeita ativamente Philips, placas de v√≠deo (Nvidia/AMD) e cabos Display/HDMI
                     if (!nomeLower.Contains("nvidia") && !nomeLower.Contains("philips")
                         && !nomeLower.Contains("amd") && !nomeLower.Contains("display"))
                     {
-                        GravarLog($" -> USANDO POR ELIMINA«√O (ID {i}): {caps.ProductName}");
+                        GravarLog($" -> USANDO POR ELIMINA√á√ÉO (ID {i}): {caps.ProductName}");
                         return i;
                     }
                 }
                 catch { }
             }
 
-            // TENTATIVA 3: Se der pane total, usa o Padr„o do Windows
-            GravarLog("*** CAIXAS N√O ENCONTRADAS. USANDO PADR√O DO WINDOWS (-1) ***");
+            // TENTATIVA 3: Se der pane total, usa o Padr√£o do Windows
+            GravarLog("*** CAIXAS N√ÉO ENCONTRADAS. USANDO PADR√ÉO DO WINDOWS (-1) ***");
             return -1;
         }
 
@@ -211,11 +214,11 @@ namespace XP3.Services
                 var reader = new MediaFoundationReader(track.FilePath);
                 _audioFile = reader;
 
-                // --- 2. L”GICA DO AUTO-CUE ---
+                // --- 2. L√ìGICA DO AUTO-CUE ---
                 if (track.CutIni == -1)
                 {
-                    OnStatusCueChanged?.Invoke("Analisando SilÍncio...");
-                    GravarLog($"[AUTO-CUE] Analisando silÍncio para: {track.Title}");
+                    OnStatusCueChanged?.Invoke("Analisando Sil√™ncio...");
+                    GravarLog($"[AUTO-CUE] Analisando sil√™ncio para: {track.Title}");
 
                     track.CutIni = _silenceDetector.AnalisarCutIni(track.FilePath);
 
@@ -226,13 +229,13 @@ namespace XP3.Services
                             track.CutFim = _silenceDetector.AnalisarCutFim(track.FilePath);
                             _trackRepo.AtualizarCortesMusica(track.Id, track.CutIni, track.CutFim);
 
-                            string feedback = $"Auto-Cue: InÌcio {track.CutIni}s | Fim {track.CutFim}s";
+                            string feedback = $"Auto-Cue: In√≠cio {track.CutIni}s | Fim {track.CutFim}s";
                             OnStatusCueChanged?.Invoke(feedback);
                             GravarLog($"[AUTO-CUE] " + feedback);
                         }
                         catch (Exception exTask)
                         {
-                            OnStatusCueChanged?.Invoke("Erro na an·lise de fim.");
+                            OnStatusCueChanged?.Invoke("Erro na an√°lise de fim.");
                             GravarLog($"[AUTO-CUE_ERRO] {exTask.Message}");
                         }
                     });
@@ -245,7 +248,7 @@ namespace XP3.Services
                     OnStatusCueChanged?.Invoke(msg);
                 }
 
-                // AplicaÁ„o do Corte Inicial
+                // Aplica√ß√£o do Corte Inicial
                 if (track.CutIni > 0)
                 {
                     _audioFile.CurrentTime = TimeSpan.FromSeconds(track.CutIni);
@@ -253,11 +256,14 @@ namespace XP3.Services
                 }
                 // ---------------------------------
 
+                var sampleProvider = reader.ToSampleProvider();
+                _equalizerProvider = new EqualizerSampleProvider(sampleProvider, ObterBandasDaTrack(track));
+
                 // 3. Aggregator
-                _aggregator = new SampleAggregator(reader.ToSampleProvider(), 256);
+                _aggregator = new SampleAggregator(_equalizerProvider, 256);
                 _aggregator.FftCalculated += (s, args) => FftDataReceived?.Invoke(this, args.Result);
 
-                // 4. Volume e ProteÁ„o do Visual Studio
+                // 4. Volume e Prote√ß√£o do Visual Studio
                 _volumeProvider = new VolumeSampleProvider(_aggregator);
 
                 if (System.Diagnostics.Debugger.IsAttached)
@@ -270,13 +276,13 @@ namespace XP3.Services
                     _volumeProvider.Volume = _volume;
                 }
 
-                // 5. O pulo do gato para drivers genÈricos (Retorno para 16-bit)
+                // 5. O pulo do gato para drivers gen√©ricos (Retorno para 16-bit)
                 var finalWaveProvider = new SampleToWaveProvider16(_volumeProvider);
 
-                // 6. SeleÁ„o Din‚mica do Dispositivo (A sua inteligÍncia do Git)
+                // 6. Sele√ß√£o Din√¢mica do Dispositivo (A sua intelig√™ncia do Git)
                 int deviceId = ObterIndiceDispositivoWaveOut();
 
-                // 7. InicializaÁ„o WaveOutEvent
+                // 7. Inicializa√ß√£o WaveOutEvent
                 _waveOut = new WaveOutEvent();
                 _waveOut.DeviceNumber = deviceId;
                 _waveOut.DesiredLatency = 200;
@@ -322,12 +328,38 @@ namespace XP3.Services
                     _audioFile.Dispose();
                     _audioFile = null;
                 }
+                _equalizerProvider = null;
                 _volumeProvider = null;
             }
             catch (Exception ex)
             {
                 GravarLog($"Erro ao parar: {ex.Message}");
             }
+        }
+
+        public void PreviewEqualizerBands(int[] bandValues, bool ativa)
+        {
+            _equalizerProvider?.UpdateBands(ativa ? bandValues : EqualizerPreset.CreateFlatBands());
+        }
+
+        public void RestaurarEqualizacaoDaTrackAtual()
+        {
+            if (CurrentTrack == null)
+            {
+                return;
+            }
+
+            _equalizerProvider?.UpdateBands(ObterBandasDaTrack(CurrentTrack));
+        }
+
+        public void AplicarEqualizacaoDaTrack(Track track)
+        {
+            if (track == null || CurrentTrack == null || track.Id != CurrentTrack.Id)
+            {
+                return;
+            }
+
+            _equalizerProvider?.UpdateBands(ObterBandasDaTrack(track));
         }
 
         public void Next()
@@ -338,8 +370,8 @@ namespace XP3.Services
         }
 
         // METODO: OnPlaybackStopped
-        // VERS√O: 2.0
-        // MOTIVO: Intercepta o fim da faixa para verificar se h· uma troca de playlist agendada antes de tocar a prÛxima m˙sica.
+        // VERS√ÉO: 2.0
+        // MOTIVO: Intercepta o fim da faixa para verificar se h√° uma troca de playlist agendada antes de tocar a pr√≥xima m√∫sica.
         private void OnPlaybackStopped(object sender, StoppedEventArgs e)
         {
             if (e.Exception != null)
@@ -348,7 +380,13 @@ namespace XP3.Services
                 return;
             }
 
-            // GATILHO DA PROGRAMA«√O (Requisito 2.1)
+            var faixaFinalizada = CurrentTrack;
+            if (faixaFinalizada != null)
+            {
+                TrackFinishedNaturally?.Invoke(this, faixaFinalizada);
+            }
+
+            // GATILHO DA PROGRAMA√á√ÉO (Requisito 2.1)
             if (_programacaoAtiva)
             {
                 var todasProgramacoes = _progRepo.ListarProgramacao();
@@ -357,20 +395,41 @@ namespace XP3.Services
                 // Se o agendamento diz que devemos estar em uma playlist DIFERENTE da atual
                 if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId)
                 {
-                    GravarLog($"[AGENDADOR] MudanÁa detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
+                    GravarLog($"[AGENDADOR] Mudan√ßa detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
                     SolicitarTrocaDePlaylist?.Invoke(this, idPlaylistProgramada.Value);
                     return;
                 }
 
             }
 
-            // Fluxo normal caso n„o haja troca agendada
+            // Fluxo normal caso n√£o haja troca agendada
             if (_playlist != null && _currentIndex < _playlist.Count - 1) Next();
             else if (_playlist != null && _currentIndex >= _playlist.Count - 1) Play(0);
         }
 
         public void Dispose() => Stop();
         public void AtualizarIndiceAposRemocao(int novoIndice) => this._currentIndex = novoIndice;
+
+        private int[] ObterBandasDaTrack(Track track)
+        {
+            if (track == null || !track.EqualizacaoAtiva)
+            {
+                return EqualizerPreset.CreateFlatBands();
+            }
+
+            if (track.EqualizacaoBandas != null && track.EqualizacaoBandas.Any(v => v != 0))
+            {
+                return track.EqualizacaoBandas;
+            }
+
+            if (track.EqualizacaoPresetId <= 0)
+            {
+                return EqualizerPreset.CreateFlatBands();
+            }
+
+            var preset = _trackRepo.ObterPresetEqualizacao(track.EqualizacaoPresetId);
+            return preset != null ? preset.ToBands() : EqualizerPreset.CreateFlatBands();
+        }
 
         private void RegistrarLogErro(Track track, Exception ex)
         {

@@ -32,6 +32,7 @@
             this.pnlHeader = new System.Windows.Forms.Panel();
             this.chkToggleProg = new System.Windows.Forms.CheckBox();
             this.button1 = new System.Windows.Forms.Button();
+            this.lblTempoAtual = new System.Windows.Forms.Label();
             this.lblTrackCount = new System.Windows.Forms.Label();
             this.lblPlaylistTitle = new System.Windows.Forms.Label();
             this.timerProgresso = new System.Windows.Forms.Timer(this.components);
@@ -177,6 +178,7 @@
             this.pnlHeader.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(35)))), ((int)(((byte)(35)))), ((int)(((byte)(38)))));
             this.pnlHeader.Controls.Add(this.chkToggleProg);
             this.pnlHeader.Controls.Add(this.button1);
+            this.pnlHeader.Controls.Add(this.lblTempoAtual);
             this.pnlHeader.Controls.Add(this.lblTrackCount);
             this.pnlHeader.Controls.Add(this.lblPlaylistTitle);
             this.pnlHeader.Dock = System.Windows.Forms.DockStyle.Top;
@@ -213,6 +215,19 @@
             this.button1.Text = "Programação";
             this.button1.UseVisualStyleBackColor = false;
             this.button1.Click += new System.EventHandler(this.button1_Click);
+            // 
+            // lblTempoAtual
+            // 
+            this.lblTempoAtual.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblTempoAtual.BackColor = System.Drawing.Color.Transparent;
+            this.lblTempoAtual.Font = new System.Drawing.Font("Segoe UI", 9.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.lblTempoAtual.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(192)))), ((int)(((byte)(192)))));
+            this.lblTempoAtual.Location = new System.Drawing.Point(563, 10);
+            this.lblTempoAtual.Name = "lblTempoAtual";
+            this.lblTempoAtual.Size = new System.Drawing.Size(140, 18);
+            this.lblTempoAtual.TabIndex = 5;
+            this.lblTempoAtual.Text = "00:00 / 00:00";
+            this.lblTempoAtual.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             // 
             // lblTrackCount
             // 
@@ -280,5 +295,6 @@
         private System.Windows.Forms.ColumnHeader colPular;
         private System.Windows.Forms.ColumnHeader colPulado;
         private System.Windows.Forms.Label lblStatusCue;
+        private System.Windows.Forms.Label lblTempoAtual;
     }
 }
