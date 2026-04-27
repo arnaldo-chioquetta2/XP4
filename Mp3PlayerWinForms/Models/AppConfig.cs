@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Forms.Design;
+using XP3.Services;
 
 namespace XP3.Models
 {
@@ -12,5 +14,15 @@ namespace XP3.Models
         public static string DatabasePath { get; set; } = @"D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\player.db";
         // public static string DatabasePath { get; set; } = "player.db";
         public static string PastaBase { get; set; } = @"D:\MP3";
+
+        public static string UltimaPastaScan { get; set; }
+       
+        public static void SalvarUltimaPastaScan(string caminho)
+        {
+            UltimaPastaScan = caminho;
+            IniFileService _iniService;
+            _iniService = new IniFileService();
+            _iniService.Write("Configuracoes", "UltimaPastaScan", caminho);
+        }
     }
 }

@@ -29,10 +29,27 @@ namespace XP3.Forms
 
             using (var fbd = new FolderBrowserDialog())
             {
+                // 1. TENTA CARREGAR O CAMINHO SALVO NO ÚLTIMO SCAN
+                // Isso evita que o Windows abra na pasta "Documentos" padrão
+                if (!string.IsNullOrEmpty(AppConfig.UltimaPastaScan) && Directory.Exists(AppConfig.UltimaPastaScan))
+                {
+                    fbd.SelectedPath = AppConfig.UltimaPastaScan;
+                }
+
                 if (fbd.ShowDialog() == DialogResult.OK)
                 {
                     string pastaOrigem = fbd.SelectedPath;
                     string pastaBase = AppConfig.PastaBase;
+
+                    // 2. SALVA O NÍVEL ANTERIOR (PASTA PAI)
+                    // Se o usuário selecionou "D:\Downloads\Músicas\BandaX", 
+                    // salvaremos "D:\Downloads\Músicas" para que no próximo scan ele volte para lá.
+                    var dirPai = Directory.GetParent(pastaOrigem);
+                    if (dirPai != null)
+                    {
+                        // Aqui chamamos o método do seu AppConfig que grava no INI
+                        AppConfig.SalvarUltimaPastaScan(dirPai.FullName);
+                    }
 
                     btnSelectFolder.Enabled = false;
                     btnOkClose.Enabled = false;
@@ -58,8 +75,8 @@ namespace XP3.Forms
                             // Executa a importação
                             await Task.Run(() => _scanner.ImportarEscanear(pastaOrigem, pastaBase, progress, log));
 
-                            // --- NOVA LÓGICA DE LIMPEZA AQUI ---
-                            // Como já terminou o await, podemos tentar apagar a pasta com segurança
+                            // --- LÓGICA DE LIMPEZA ---
+                            // Como terminou o await, tentamos apagar a pasta de origem (BandaX) que agora deve estar vazia
                             TentarApagarPastaSeVazia(pastaOrigem);
                         }
                         else

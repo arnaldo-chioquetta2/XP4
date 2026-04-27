@@ -49,7 +49,7 @@ namespace XP3.Forms
         private List<Track> _allTracks = new List<Track>();
 
         private ModernSeekBar modernSeekBar1;
-        //private Label lblTempoAtual;
+        private bool _mostrarTempoRestante = false;
 
         private Button btnApagarErro;
         private Track _trackComErroAtual; // Guarda qual mÃƒÂºsica deu pau
@@ -116,12 +116,15 @@ namespace XP3.Forms
         private List<Band> _bandasEmSelecao = new List<Band>();
         private bool _modoMesclagemPlaylistsAtivo = false;
         private Playlist _playlistContextoLateral;
+        private DateTime _ultimaTrocaRelogio = DateTime.MinValue;
         private const string VideoDialogFilter = "Videos suportados|*.mp4;*.m4v;*.webm;*.ogv;*.ogg|MP4|*.mp4;*.m4v|WebM|*.webm|Ogg Video|*.ogv;*.ogg|Todos os arquivos|*.*";
 
         public Inicial()
         {
             InitializeComponent();
             this.KeyPreview = true;
+
+            // Atalhos globais do formulário
             this.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Escape && _modoTrocaBandaAtivo)
@@ -132,19 +135,19 @@ namespace XP3.Forms
                 }
             };
 
+            // Configuração do editor rápido na Grid
             txtEditorGrid = new TextBox { Visible = false, BorderStyle = BorderStyle.FixedSingle };
             txtEditorGrid.KeyDown += TxtEditorGrid_KeyDown;
             txtEditorGrid.LostFocus += (s, e) => { txtEditorGrid.Visible = false; };
-            this.lvTracks.Controls.Add(txtEditorGrid); // Ele mora dentro da Grid
+            this.lvTracks.Controls.Add(txtEditorGrid);
 
             this.Height = 750;
-
-            // Define um tamanho mÃƒÂ­nimo para garantir que os botÃƒÂµes nÃƒÂ£o sumam
             this.MinimumSize = new Size(1000, 650);
 
             ConstruirPainelLateral();
             ConfigurarMenuPlaylistLateral();
 
+            // Evento de seleção na Grid para atualizar painel lateral
             lvTracks.SelectedIndexChanged += (s, e) =>
             {
                 if (lvTracks.SelectedIndices.Count > 0)
@@ -157,17 +160,17 @@ namespace XP3.Forms
                 }
             };
 
-            // --- CRIAÃƒâ€¡ÃƒÆ’O E POSICIONAMENTO DA BARRA DE PROGRESSO ---
+            // --- CONFIGURAÇÃO DINÂMICA DA INTERFACE ---
+
+            // 1. Barra de Progresso (Custom Control)
             if (modernSeekBar1 == null)
             {
-                modernSeekBar1 = new ModernSeekBar(); // Certifique-se que o namespace XP3.Controls estÃƒÂ¡ no using
+                modernSeekBar1 = new ModernSeekBar();
                 modernSeekBar1.ProgressColor = Color.Cyan;
                 modernSeekBar1.TrackColor = Color.FromArgb(40, 40, 40);
-
                 modernSeekBar1.Paint += ModernSeekBar1_Paint;
 
                 int margemInferior = 130;
-
                 modernSeekBar1.Location = new Point(12, this.ClientSize.Height - margemInferior);
                 modernSeekBar1.Size = new Size(this.ClientSize.Width - 24, 15);
                 modernSeekBar1.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
@@ -175,39 +178,28 @@ namespace XP3.Forms
                 this.Controls.Add(modernSeekBar1);
                 modernSeekBar1.BringToFront();
                 modernSeekBar1.Visible = false;
+            }
 
-                lblTempoAtual = new Label
+            // 2. Posicionamento do Relógio (lblTempoAtual vindo do Designer)
+            if (lblTempoAtual != null && lblTrackCount != null)
+            {
+                // Garante que o Label está dentro do painel de cabeçalho
+                if (lblTempoAtual.Parent != pnlHeader)
                 {
-                    AutoSize = false,
-                    Size = new Size(140, 18),
-                    TextAlign = ContentAlignment.MiddleRight,
-                    ForeColor = Color.FromArgb(0, 192, 192),
-                    BackColor = Color.Transparent,
-                    Font = new Font("Segoe UI", 9.75F, FontStyle.Regular), // Ajustei para ficar do tamanho do lblTrackCount
-                    Anchor = AnchorStyles.Top | AnchorStyles.Right, // Agora ele âncora no Topo e na Direita
-                    Visible = true, // Já deixamos visível para você ver se ficou no lugar certo
-                    Text = "00:00 / 00:00"
-                };
+                    pnlHeader.Controls.Add(lblTempoAtual);
+                }
 
-                // Calcula a posição exata para ficar à esquerda do contador de músicas, com uma folga de 20px
+                // Define a posição baseada no contador de músicas (Folga de 20px)
                 lblTempoAtual.Location = new Point(lblTrackCount.Left - lblTempoAtual.Width - 20, lblTrackCount.Top);
 
-                //lblTempoAtual = new Label
-                //{
-                //    AutoSize = false,
-                //    Size = new Size(140, 18),
-                //    TextAlign = ContentAlignment.MiddleRight,
-                //    ForeColor = Color.FromArgb(0, 192, 192),
-                //    BackColor = Color.Transparent,
-                //    Font = new Font("Segoe UI", 9F, FontStyle.Regular),
-                //    Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-                //    Visible = false,
-                //    Text = "00:00 / 00:00"
-                //};
+                // Ajustes para garantir que o clique funcione 100%
+                lblTempoAtual.BackColor = Color.FromArgb(35, 35, 38); // Mesma cor do pnlHeader
+                lblTempoAtual.Cursor = Cursors.Hand;
 
-                //lblTempoAtual.Location = new Point(this.ClientSize.Width - 12 - lblTempoAtual.Width, modernSeekBar1.Top - 22);
+                // Troca o evento Click pelo MouseDown (Solução para o bug de "clique fantasma")
+                //lblTempoAtual.Click -= lblTempoAtual_Click;
+                lblTempoAtual.MouseDown += LblTempoAtual_MouseDown;
 
-                this.Controls.Add(lblTempoAtual);
                 lblTempoAtual.BringToFront();
             }
             // ------------------------------------------------------
@@ -216,27 +208,25 @@ namespace XP3.Forms
             Batteries.Init();
 
             ConfigurarMenuDeContexto();
-
             SetupServices();
 
-            // --- ADIÃƒâ€¡ÃƒÆ’O FASE 3.3: Assinatura do evento de troca automÃƒÂ¡tica ---
+            // Assinatura do evento de troca automática de playlist
             if (_player != null)
             {
                 _player.SolicitarTrocaDePlaylist += Player_SolicitarTrocaDePlaylist;
             }
-            // -----------------------------------------------------------------
 
             ConfigurarEventosDeTela();
             ConfigurarBotaoApagar();
 
+            // Configuração da Grid Virtual
             lvTracks.ColumnClick += LvTracks_ColumnClick;
             lvTracks.VirtualMode = true;
             lvTracks.VirtualListSize = 0;
-
-            lvTracks.LabelEdit = false; // RenomeaÃƒÂ§ÃƒÂ£o apenas pelo menu "Renomear musica"
-
+            lvTracks.LabelEdit = false;
             lvTracks.RetrieveVirtualItem += lvTracks_RetrieveVirtualItem;
 
+            // Inicialização da Programação/Playlist
             chkToggleProg.Checked = _player.ProgramacaoAtiva;
             AtualizarVisualBotaoAuto();
 
@@ -252,6 +242,36 @@ namespace XP3.Forms
             }
 
             AtualizarCaptionJanela();
+        }
+
+        private void LblTempoAtual_MouseDown(object sender, MouseEventArgs e)
+        {
+            LogService.GravarInfo("CLOCK_DEBUG", "Entrou no MouseDown do Label.");
+
+            if (e.Button != MouseButtons.Left)
+            {
+                LogService.GravarInfo("CLOCK_DEBUG", $"Clique ignorado: Botão {e.Button} detectado.");
+                return;
+            }
+
+            double msDesdeUltimaTroca = (DateTime.Now - _ultimaTrocaRelogio).TotalMilliseconds;
+            LogService.GravarInfo("CLOCK_DEBUG", $"Tempo desde a última troca: {msDesdeUltimaTroca}ms.");
+
+            if (msDesdeUltimaTroca < 1000)
+            {
+                LogService.GravarInfo("CLOCK_DEBUG", "REJEITADO: Clique muito rápido (Debounce).");
+                return;
+            }
+
+            // Inversão
+            bool estadoAnterior = _mostrarTempoRestante;
+            _mostrarTempoRestante = !_mostrarTempoRestante;
+            _ultimaTrocaRelogio = DateTime.Now;
+
+            LogService.GravarInfo("CLOCK_DEBUG", $"SUCESSO: Invertendo de {estadoAnterior} para {_mostrarTempoRestante}.");
+
+            // Força o Timer a rodar para atualizar o visual
+            TimerProgresso_Tick(null, null);
         }
 
         private void TxtEditorGrid_KeyDown(object sender, KeyEventArgs e)
@@ -1337,6 +1357,10 @@ namespace XP3.Forms
             // O BeginInvoke gerencia a fila da UI de forma segura
             this.BeginInvoke(new Action(() =>
             {
+
+                _mostrarTempoRestante = false;
+                _ultimaTrocaRelogio = DateTime.MinValue; // Reseta a trava para a nova música
+
                 // --- NOVO: Captura dados para o visual da barra ---
                 _trackTotalSeconds = track.Duration.TotalSeconds;
                 _trackCutIni = track.CutIni > 0 ? track.CutIni : 0;
@@ -2682,48 +2706,47 @@ namespace XP3.Forms
             }
 
             var trackAtual = _player.CurrentTrack;
-            if (lblTempoAtual != null) lblTempoAtual.Visible = true;
+            double duracaoReferencia = trackAtual.CutFim > 0 ? trackAtual.CutFim : _player.TotalTime.TotalSeconds;
 
+            // --- ÚNICO LUGAR QUE MEXE NO TEXTO DO LABEL ---
+            if (lblTempoAtual != null)
+            {
+                lblTempoAtual.Visible = true;
+                TimeSpan tempoTotalTS = TimeSpan.FromSeconds(duracaoReferencia);
+                TimeSpan tempoAtualTS = _player.CurrentTime;
+
+                if (_mostrarTempoRestante)
+                {
+                    double restante = duracaoReferencia - tempoAtualTS.TotalSeconds;
+                    if (restante < 0) restante = 0;
+                    lblTempoAtual.Text = $"-{TimeSpan.FromSeconds(restante):mm\\:ss} / {tempoTotalTS:mm\\:ss}";
+                }
+                else
+                {
+                    lblTempoAtual.Text = $"{tempoAtualTS:mm\\:ss} / {tempoTotalTS:mm\\:ss}";
+                }
+            }
+
+            // --- LÓGICA DE BARRA E PRÓXIMA MÚSICA ---
             if (_player.TotalTime.TotalSeconds > 0)
             {
                 double posicaoAtual = _player.CurrentTime.TotalSeconds;
 
-                // --- LÃƒâ€œGICA DE CORTE FINAL (AUTO-CUE) ---
                 if (trackAtual.CutFim > 0 && posicaoAtual >= trackAtual.CutFim)
                 {
                     _trackFinalizadaNaturalmenteId = trackAtual.Id;
-
-                    // Verificamos se hÃƒÂ¡ uma troca de lista agendada para este momento
-                    if (_proximaListaPendenteId > 0)
-                    {
-                        LogService.GravarInfo("Fluxo", $"Corte atingido. Mudando para lista agendada ID: {_proximaListaPendenteId}");
-                        TrocarListaAgendada();
-                    }
-                    else
-                    {
-                        // Se nÃƒÂ£o houver agendamento, segue o fluxo normal da lista atual
-                        _player.Next();
-                    }
-
+                    if (_proximaListaPendenteId > 0) TrocarListaAgendada();
+                    else _player.Next();
                     return;
                 }
 
-                // --- ATUALIZAÃƒâ€¡ÃƒÆ’O VISUAL ---
                 double porcentagem = posicaoAtual / _player.TotalTime.TotalSeconds;
-                if (porcentagem > 1) porcentagem = 1;
-                modernSeekBar1.Value = porcentagem;
+                modernSeekBar1.Value = Math.Min(porcentagem, 1.0);
 
-                if (lblTempoAtual != null)
-                {
-                    lblTempoAtual.Text = $"{_player.CurrentTime:mm\\:ss} / {_player.TotalTime:mm\\:ss}";
-                }
-            }
-            else
-            {
-                modernSeekBar1.Value = 0;
-                if (lblTempoAtual != null) lblTempoAtual.Text = $"{_player.CurrentTime:mm\\:ss} / 00:00";
+                // REMOVIDO: lblTempoAtual.Text aqui (O erro estava aqui!)
             }
         }
+
         #region Grid
 
         private void TrocarListaAgendada()
@@ -3010,11 +3033,6 @@ namespace XP3.Forms
 
         #endregion
 
-        // METODO: Player_SolicitarTrocaDePlaylist
-        // VERSÃƒÆ’O: 1.0
-        // DATA: 2026-04-03
-        // MOTIVO: Recebe o ID da nova playlist sugerida pela programaÃƒÂ§ÃƒÂ£o e executa a troca em tempo real na interface.
-
         private void Player_SolicitarTrocaDePlaylist(object sender, int novaListaId)
         {
             // Garante que a atualizaÃƒÂ§ÃƒÂ£o da interface (ListView) ocorra na thread principal do Windows Forms
@@ -3071,39 +3089,6 @@ namespace XP3.Forms
             _player.Dispose();
             base.OnFormClosing(e);
         }
-
-        private void btnScan_Click(object sender, EventArgs e)
-        {
-            var frm = new XP3.Forms.ScannerForm();
-
-            // Se o scanner terminar com sucesso (DialogResult.OK)
-            if (frm.ShowDialog() == DialogResult.OK)
-            {
-                // Carrega a playlist "AEscolher"
-                try
-                {
-                    int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
-
-                    // Salva no INI como a ÃƒÂºltima tocada
-                    _currentPlaylistId = idAEscolher;
-                    _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
-
-                    // Recarrega a lista na tela
-                    LoadPlaylist();
-
-                    // Toca a primeira mÃƒÂºsica automaticamente
-                    if (lvTracks.Items.Count > 0)
-                    {
-                        _player.Play(0);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Erro ao carregar lista AEscolher: " + ex.Message);
-                }
-            }
-        }
-
         #region EventosDaLista
 
         private void LvTracks_DragDrop(object sender, DragEventArgs e)
@@ -3547,14 +3532,6 @@ namespace XP3.Forms
 
         #endregion
 
-        private void pnlControls_Resize(object sender, EventArgs e)
-        {
-            if (this.WindowState== FormWindowState.Normal)
-            {
-                this.FazSpectrum = true;
-            }
-        }
-
         private void AbrirVisualizador(int index)
         {
             // 1. PROTEÃƒâ€¡ÃƒÆ’O DE THREAD
@@ -3686,12 +3663,6 @@ namespace XP3.Forms
             this.Activate();
         }
 
-        private void button1_Click(object sender, EventArgs e)
-        {
-            XP3.Programacao frm = new XP3.Programacao();
-            frm.ShowDialog();
-        }
-
         private void chkToggleProg_CheckedChanged(object sender, EventArgs e)
         {
             // 1. Atualiza o estado no serviÃƒÂ§o de ÃƒÂ¡udio
@@ -3717,6 +3688,41 @@ namespace XP3.Forms
                 chkToggleProg.Text = "OFF";
                 chkToggleProg.BackColor = System.Drawing.Color.FromArgb(60, 60, 60);
             }
+        }
+
+        #region EdiÃƒÂ§ÃƒÂ£oDaGrid
+
+        private void Renomear()
+        {
+            if (lvTracks.SelectedIndices.Count == 0) return;
+
+            int index = lvTracks.SelectedIndices[0];
+            var track = _allTracks[index];
+
+            LogService.GravarInfo("Renomear UI", $"Tentando abrir editor para a mÃƒÂºsica ÃƒÂ­ndice {index}: {track.Title}");
+
+            // 1. Pega o retÃƒÂ¢ngulo (posiÃƒÂ§ÃƒÂ£o) da cÃƒÂ©lula
+            Rectangle rect = lvTracks.GetItemRect(index, ItemBoundsPortion.Label);
+
+            LogService.GravarInfo("Renomear UI", $"Coordenadas do TextBox -> X:{rect.X}, Y:{rect.Y}, Largura:{rect.Width}, Altura:{rect.Height}");
+
+            // 2. Posiciona e exibe o TextBox
+            txtEditorGrid.Bounds = rect;
+            txtEditorGrid.Text = track.Title;
+            txtEditorGrid.Tag = index;
+            txtEditorGrid.Visible = true;
+            txtEditorGrid.Focus();
+            txtEditorGrid.SelectAll();
+        }
+
+        #endregion
+
+        #region Eventos        
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            XP3.Programacao frm = new XP3.Programacao();
+            frm.ShowDialog();
         }
 
         private void btnNext_Click(object sender, EventArgs e)
@@ -3812,29 +3818,59 @@ namespace XP3.Forms
 
         }
 
-        #region EdiÃƒÂ§ÃƒÂ£oDaGrid
-
-        private void Renomear()
+        private void pnlControls_Resize(object sender, EventArgs e)
         {
-            if (lvTracks.SelectedIndices.Count == 0) return;
+            if (this.WindowState == FormWindowState.Normal)
+            {
+                this.FazSpectrum = true;
+            }
+        }
 
-            int index = lvTracks.SelectedIndices[0];
-            var track = _allTracks[index];
 
-            LogService.GravarInfo("Renomear UI", $"Tentando abrir editor para a mÃƒÂºsica ÃƒÂ­ndice {index}: {track.Title}");
+        private void btnScan_Click(object sender, EventArgs e)
+        {
+            var frm = new XP3.Forms.ScannerForm();
 
-            // 1. Pega o retÃƒÂ¢ngulo (posiÃƒÂ§ÃƒÂ£o) da cÃƒÂ©lula
-            Rectangle rect = lvTracks.GetItemRect(index, ItemBoundsPortion.Label);
+            // Se o scanner terminar com sucesso (DialogResult.OK)
+            if (frm.ShowDialog() == DialogResult.OK)
+            {
+                // Carrega a playlist "AEscolher"
+                try
+                {
+                    int idAEscolher = _trackRepo.GetOrCreatePlaylist("AEscolher");
 
-            LogService.GravarInfo("Renomear UI", $"Coordenadas do TextBox -> X:{rect.X}, Y:{rect.Y}, Largura:{rect.Width}, Altura:{rect.Height}");
+                    // Salva no INI como a ÃƒÂºltima tocada
+                    _currentPlaylistId = idAEscolher;
+                    _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
 
-            // 2. Posiciona e exibe o TextBox
-            txtEditorGrid.Bounds = rect;
-            txtEditorGrid.Text = track.Title;
-            txtEditorGrid.Tag = index;
-            txtEditorGrid.Visible = true;
-            txtEditorGrid.Focus();
-            txtEditorGrid.SelectAll();
+                    // Recarrega a lista na tela
+                    LoadPlaylist();
+
+                    // Toca a primeira mÃƒÂºsica automaticamente
+                    if (lvTracks.Items.Count > 0)
+                    {
+                        _player.Play(0);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Erro ao carregar lista AEscolher: " + ex.Message);
+                }
+            }
+        }
+
+        private void lblTempoAtual_MouseDown(object sender, MouseEventArgs e)
+        {
+            // Só aceita clique com o botão esquerdo
+            if (e.Button == MouseButtons.Left)
+            {
+                // Inverte o estado
+                _mostrarTempoRestante = !_mostrarTempoRestante;
+
+                // Força a tela a atualizar o relógio agora mesmo, sem esperar o Timer bater!
+                TimerProgresso_Tick(null, null);
+            }
+
         }
 
         #endregion

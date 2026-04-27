@@ -1,4 +1,7 @@
-﻿namespace XP3.Forms
+﻿using System;
+using System.Windows.Forms;
+
+namespace XP3.Forms
 {
     partial class Inicial
     {
@@ -228,6 +231,8 @@
             this.lblTempoAtual.TabIndex = 5;
             this.lblTempoAtual.Text = "00:00 / 00:00";
             this.lblTempoAtual.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            //this.lblTempoAtual.Click += new System.EventHandler(this.lblTempoAtual_Click);
+            this.lblTempoAtual.MouseDown += new System.Windows.Forms.MouseEventHandler(this.lblTempoAtual_MouseDown);
             // 
             // lblTrackCount
             // 

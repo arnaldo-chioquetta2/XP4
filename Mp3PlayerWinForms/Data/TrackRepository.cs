@@ -1438,5 +1438,20 @@ namespace XP3.Data
             }
         }
 
+        public bool ExistePorCaminho(string filePath)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                string sql = "SELECT COUNT(1) FROM Musica WHERE FilePath = @path";
+                using (var cmd = new System.Data.SQLite.SQLiteCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@path", filePath);
+                    long count = (long)cmd.ExecuteScalar();
+                    return count > 0;
+                }
+            }
+        }
+
     }
 }

@@ -216,14 +216,23 @@ namespace XP3.Services
         {
             try
             {
-                _arquivosProcessados++;
                 fileInfo.Refresh();
+
+                // --- NOVO: VERIFICAÇÃO DE DUPLICIDADE ---
+                // Se o caminho do arquivo já existe no banco, não fazemos nada.
+                if (_repo.ExistePorCaminho(fileInfo.FullName))
+                {
+                    RegistrarLog(log, $"PULADO: '{songTitle}' (Já cadastrado)");
+                    return;
+                }
+                // ----------------------------------------
+
+                _arquivosProcessados++;
 
                 // Normalização de nomes
                 bandName = NormalizarNome(bandName);
                 songTitle = NormalizarNome(songTitle);
 
-                // Se o título começa com a banda, limpa para não ficar repetitivo
                 if (songTitle.StartsWith(bandName, StringComparison.OrdinalIgnoreCase))
                 {
                     songTitle = songTitle.Substring(bandName.Length).Trim();
@@ -233,36 +242,29 @@ namespace XP3.Services
                 if (string.IsNullOrEmpty(songTitle))
                     songTitle = Path.GetFileNameWithoutExtension(fileInfo.Name);
 
-                // Busca a duração real via TagLib
                 TimeSpan duration = TimeSpan.Zero;
                 try
                 {
                     using (var tfile = TagLib.File.Create(fileInfo.FullName))
                         duration = tfile.Properties.Duration;
                 }
-                catch { /* Erro ao ler tag, mantemos Zero */ }
+                catch { }
 
-                // Busca ou Cria a Banda no Banco
                 int bandId = _repo.GetOrInsertBand(bandName);
 
-                // Monta o objeto Track com a nova inteligência de Auto-Cue
                 var track = new Track
                 {
                     Title = songTitle,
                     BandId = bandId,
                     FilePath = fileInfo.FullName,
                     Duration = duration,
-
-                    // --- INJEÇÃO DOS VALORES ANALISADOS ---
                     CutIni = cutIni,
                     CutFim = cutFim
                 };
 
-                // Salva a música e vincula à playlist "AESCOLHER"
                 int newTrackId = _repo.AddTrack(track);
                 _repo.AddTrackToPlaylist(playlistId, newTrackId);
 
-                // Log interno detalhado
                 _logFull.AppendLine($"DB OK: {bandName} | {songTitle} | Cue: {cutIni}s-{cutFim}s");
             }
             catch (Exception ex)
