@@ -15,6 +15,7 @@ namespace XP3.Data
         private static bool _equalizacaoColumnChecked = false;
         private static bool _equalizacaoAtivaColumnChecked = false;
         private static bool _equalizacaoBandasChecked = false;
+        private static bool _filePathCompatibilityColumnChecked = false;
         private static bool _prefetsTableChecked = false;
 
         public TrackRepository()
@@ -22,6 +23,7 @@ namespace XP3.Data
             EnsureEqualizacaoColumn();
             EnsureEqualizacaoAtivaColumn();
             EnsureEqualizacaoBandasColumns();
+            EnsureFilePathCompatibilityColumn();
             EnsureYoutubeColumn();
             EnsureVideoColumn();
             EnsurePrefetsTable();
@@ -83,7 +85,7 @@ namespace XP3.Data
                 // 1. Verifica se esse arquivo JÃ ESTÃ CADASTRADO
                 using (var checkCmd = conn.CreateCommand())
                 {
-                    checkCmd.CommandText = "SELECT ID FROM Musica WHERE Lugar = @lugar";
+                    checkCmd.CommandText = "SELECT ID FROM Musica WHERE Lugar = @lugar OR FilePath = @lugar";
                     checkCmd.Parameters.AddWithValue("@lugar", track.FilePath);
                     var existingId = checkCmd.ExecuteScalar();
 
@@ -100,9 +102,9 @@ namespace XP3.Data
                 {
                     cmd.CommandText = @"
                         INSERT INTO Musica 
-                        (Nome, Lugar, Banda, Tempo, Tamanho, BitRate, VezErro, MaxVol, Equalizacao, EqualizacaoAtiva, EqMus0, EqMus1, EqMus2, EqMus3, EqMus4, EqMus5, EqMus6, EqMus7, EqMus8, EqMus9, Album, Unid, Pular, Pulado, NaoAchou, CutIni, CutFim) 
+                        (Nome, Lugar, FilePath, Banda, Tempo, Tamanho, BitRate, VezErro, MaxVol, Equalizacao, EqualizacaoAtiva, EqMus0, EqMus1, EqMus2, EqMus3, EqMus4, EqMus5, EqMus6, EqMus7, EqMus8, EqMus9, Album, Unid, Pular, Pulado, NaoAchou, CutIni, CutFim) 
                         VALUES 
-                        (@nome, @lugar, @banda, @tempo, 0, 0, 0, 100, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); 
+                        (@nome, @lugar, @lugar, @banda, @tempo, 0, 0, 0, 100, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); 
                         SELECT last_insert_rowid();";
 
                     cmd.Parameters.AddWithValue("@nome", track.Title);
@@ -1125,6 +1127,30 @@ namespace XP3.Data
             _equalizacaoBandasChecked = true;
         }
 
+        private void EnsureFilePathCompatibilityColumn()
+        {
+            if (_filePathCompatibilityColumnChecked) return;
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                if (!ColumnExists(conn, "Musica", "FilePath"))
+                {
+                    using (var alterCmd = new SQLiteCommand("ALTER TABLE Musica ADD COLUMN FilePath TEXT NULL", conn))
+                    {
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
+                using (var syncCmd = new SQLiteCommand("UPDATE Musica SET FilePath = Lugar WHERE (FilePath IS NULL OR FilePath = '') AND Lugar IS NOT NULL", conn))
+                {
+                    syncCmd.ExecuteNonQuery();
+                }
+            }
+
+            _filePathCompatibilityColumnChecked = true;
+        }
+
         private static int[] LerBandasMusica(SQLiteDataReader reader, int startIndex)
         {
             var bandas = EqualizerPreset.CreateFlatBands();
@@ -1443,7 +1469,7 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                string sql = "SELECT COUNT(1) FROM Musica WHERE Lugar = @path";
+                string sql = "SELECT COUNT(1) FROM Musica WHERE Lugar = @path OR FilePath = @path";
                 using (var cmd = new System.Data.SQLite.SQLiteCommand(sql, conn))
                 {
                     cmd.Parameters.AddWithValue("@path", filePath);
