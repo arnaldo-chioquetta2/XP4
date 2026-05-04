@@ -12,6 +12,14 @@ namespace XP3.Forms
         [STAThread]
         static void Main()
         {
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (s, e) => LogService.GravarErro("Thread UI", e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                var ex = e.ExceptionObject as Exception;
+                LogService.GravarErro("Erro fatal nao tratado", ex ?? new Exception(e.ExceptionObject?.ToString() ?? "Erro desconhecido"));
+            };
+
             BrowserFeatureControl.ConfigureForCurrentProcess();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);

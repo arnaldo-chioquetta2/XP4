@@ -1443,7 +1443,7 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                string sql = "SELECT COUNT(1) FROM Musica WHERE FilePath = @path";
+                string sql = "SELECT COUNT(1) FROM Musica WHERE Lugar = @path";
                 using (var cmd = new System.Data.SQLite.SQLiteCommand(sql, conn))
                 {
                     cmd.Parameters.AddWithValue("@path", filePath);

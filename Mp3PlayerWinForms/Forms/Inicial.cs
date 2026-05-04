@@ -1163,13 +1163,18 @@ namespace XP3.Forms
             {
                 if (IsHandleCreated)
                 {
-                    BeginInvoke(action);
+                    BeginInvoke(new Action(() =>
+                    {
+                        try { action(); }
+                        catch (Exception ex) { LogService.GravarErro("ExecutarNoUiThread", ex); }
+                    }));
                 }
 
                 return;
             }
 
-            action();
+            try { action(); }
+            catch (Exception ex) { LogService.GravarErro("ExecutarNoUiThread", ex); }
         }
 
         private static void ExecutarNoControleQuandoPronto(Control control, Action action)
@@ -1180,13 +1185,18 @@ namespace XP3.Forms
             {
                 if (control.IsHandleCreated)
                 {
-                    control.BeginInvoke(action);
+                    control.BeginInvoke(new Action(() =>
+                    {
+                        try { action(); }
+                        catch (Exception ex) { LogService.GravarErro("ExecutarNoControleQuandoPronto", ex); }
+                    }));
                 }
 
                 return;
             }
 
-            action();
+            try { action(); }
+            catch (Exception ex) { LogService.GravarErro("ExecutarNoControleQuandoPronto", ex); }
         }
 
         private void MudarAoTerminar()
@@ -1354,10 +1364,8 @@ namespace XP3.Forms
         {
             if (track == null) return;
 
-            // O BeginInvoke gerencia a fila da UI de forma segura
-            this.BeginInvoke(new Action(() =>
+            ExecutarNoUiThread(() =>
             {
-
                 _mostrarTempoRestante = false;
                 _ultimaTrocaRelogio = DateTime.MinValue; // Reseta a trava para a nova música
 
@@ -1442,7 +1450,7 @@ namespace XP3.Forms
                         lvTracks.Refresh();
                     }
                 }
-            }));
+            });
         }
 
         private void AtualizarCaptionJanela(Track track = null)
@@ -1453,7 +1461,7 @@ namespace XP3.Forms
 
         private void TratarErroReproducao(Track track, string mensagem)
         {
-            this.BeginInvoke(new Action(() =>
+            ExecutarNoUiThread(() =>
             {
                 lblStatus.ForeColor = Color.Salmon;
                 lblStatus.Text = mensagem;
@@ -1468,7 +1476,7 @@ namespace XP3.Forms
                 {
                     IniciarVarreduraDeErros(indexAtual);
                 }
-            }));
+            });
         }
 
         private async void IniciarVarreduraDeErros(int startIndex)

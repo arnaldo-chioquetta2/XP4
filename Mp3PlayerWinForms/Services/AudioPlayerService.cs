@@ -27,6 +27,7 @@ namespace XP3.Services
         private EqualizerSampleProvider _equalizerProvider;
         private List<Track> _playlist;
         private int _currentIndex = -1;
+        private bool _avancandoAutomaticamente;
 
         public event EventHandler<Track> TrackChanged;
         public event EventHandler<Track> TrackFinishedNaturally;
@@ -217,7 +218,7 @@ namespace XP3.Services
                 // --- 2. LÓGICA DO AUTO-CUE ---
                 if (track.CutIni == -1)
                 {
-                    OnStatusCueChanged?.Invoke("Analisando Silêncio...");
+                    NotificarStatusCue("Analisando Silêncio...");
                     GravarLog($"[AUTO-CUE] Analisando silêncio para: {track.Title}");
 
                     track.CutIni = _silenceDetector.AnalisarCutIni(track.FilePath);
@@ -230,12 +231,12 @@ namespace XP3.Services
                             _trackRepo.AtualizarCortesMusica(track.Id, track.CutIni, track.CutFim);
 
                             string feedback = $"Auto-Cue: Início {track.CutIni}s | Fim {track.CutFim}s";
-                            OnStatusCueChanged?.Invoke(feedback);
+                            NotificarStatusCue(feedback);
                             GravarLog($"[AUTO-CUE] " + feedback);
                         }
                         catch (Exception exTask)
                         {
-                            OnStatusCueChanged?.Invoke("Erro na análise de fim.");
+                            NotificarStatusCue("Erro na análise de fim.");
                             GravarLog($"[AUTO-CUE_ERRO] {exTask.Message}");
                         }
                     });
@@ -245,7 +246,7 @@ namespace XP3.Services
                     string msg = (track.CutIni == 0 && track.CutFim == 0)
                         ? "Sem cortes"
                         : $"Auto-Cue Ativo: {track.CutIni}s / {track.CutFim}s";
-                    OnStatusCueChanged?.Invoke(msg);
+                    NotificarStatusCue(msg);
                 }
 
                 // Aplicação do Corte Inicial
@@ -261,7 +262,7 @@ namespace XP3.Services
 
                 // 3. Aggregator
                 _aggregator = new SampleAggregator(_equalizerProvider, 256);
-                _aggregator.FftCalculated += (s, args) => FftDataReceived?.Invoke(this, args.Result);
+                _aggregator.FftCalculated += (s, args) => NotificarFft(args.Result);
 
                 // 4. Volume e Proteção do Visual Studio
                 _volumeProvider = new VolumeSampleProvider(_aggregator);
@@ -295,13 +296,13 @@ namespace XP3.Services
                 _waveOut.Play();
                 GravarLog("Playback Iniciado.");
 
-                TrackChanged?.Invoke(this, track);
+                NotificarTrackChanged(track);
             }
             catch (Exception ex)
             {
                 GravarLog($"ERRO FATAL: {ex.Message}\n{ex.StackTrace}");
                 RegistrarLogErro(track, ex);
-                PlaybackError?.Invoke(this, new Tuple<Track, string>(track, $"Erro: {ex.Message}"));
+                NotificarPlaybackError(track, $"Erro: {ex.Message}");
             }
         }
 
@@ -374,37 +375,56 @@ namespace XP3.Services
         // MOTIVO: Intercepta o fim da faixa para verificar se há uma troca de playlist agendada antes de tocar a próxima música.
         private void OnPlaybackStopped(object sender, StoppedEventArgs e)
         {
-            if (e.Exception != null)
+            try
             {
-                GravarLog($"Parada com erro: {e.Exception.Message}");
-                return;
-            }
-
-            var faixaFinalizada = CurrentTrack;
-            if (faixaFinalizada != null)
-            {
-                TrackFinishedNaturally?.Invoke(this, faixaFinalizada);
-            }
-
-            // GATILHO DA PROGRAMAÇÃO (Requisito 2.1)
-            if (_programacaoAtiva)
-            {
-                var todasProgramacoes = _progRepo.ListarProgramacao();
-                int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
-
-                // Se o agendamento diz que devemos estar em uma playlist DIFERENTE da atual
-                if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId)
+                if (e.Exception != null)
                 {
-                    GravarLog($"[AGENDADOR] Mudança detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
-                    SolicitarTrocaDePlaylist?.Invoke(this, idPlaylistProgramada.Value);
+                    GravarLog($"Parada com erro: {e.Exception.Message}");
+                    NotificarPlaybackError(CurrentTrack, $"Erro no audio: {e.Exception.Message}");
                     return;
                 }
 
-            }
+                if (_avancandoAutomaticamente)
+                {
+                    GravarLog("Ignorando PlaybackStopped reentrante.");
+                    return;
+                }
 
-            // Fluxo normal caso não haja troca agendada
-            if (_playlist != null && _currentIndex < _playlist.Count - 1) Next();
-            else if (_playlist != null && _currentIndex >= _playlist.Count - 1) Play(0);
+                _avancandoAutomaticamente = true;
+                var faixaFinalizada = CurrentTrack;
+                if (faixaFinalizada != null)
+                {
+                    NotificarTrackFinishedNaturally(faixaFinalizada);
+                }
+
+                // GATILHO DA PROGRAMAÇÃO (Requisito 2.1)
+                if (_programacaoAtiva)
+                {
+                    var todasProgramacoes = _progRepo.ListarProgramacao();
+                    int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
+
+                    // Se o agendamento diz que devemos estar em uma playlist DIFERENTE da atual
+                    if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId)
+                    {
+                        GravarLog($"[AGENDADOR] Mudança detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
+                        NotificarTrocaPlaylist(idPlaylistProgramada.Value);
+                        return;
+                    }
+                }
+
+                // Fluxo normal caso não haja troca agendada
+                if (_playlist != null && _currentIndex < _playlist.Count - 1) Next();
+                else if (_playlist != null && _currentIndex >= _playlist.Count - 1) Play(0);
+            }
+            catch (Exception ex)
+            {
+                GravarLog($"Erro em OnPlaybackStopped: {ex.Message}\n{ex.StackTrace}");
+                NotificarPlaybackError(CurrentTrack, $"Erro ao trocar musica: {ex.Message}");
+            }
+            finally
+            {
+                _avancandoAutomaticamente = false;
+            }
         }
 
         public void Dispose() => Stop();
@@ -436,9 +456,45 @@ namespace XP3.Services
             try
             {
                 string arquivoLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Log_Erros_Playback.txt");
-                File.AppendAllText(arquivoLog, $"{DateTime.Now} - {track.Title} - {ex.Message}\n");
+                File.AppendAllText(arquivoLog, $"{DateTime.Now} - {track?.Title ?? "Sem faixa"} - {ex.Message}\n{ex.StackTrace}\n");
             }
             catch { }
+        }
+
+        private void NotificarStatusCue(string mensagem)
+        {
+            try { OnStatusCueChanged?.Invoke(mensagem); }
+            catch (Exception ex) { GravarLog($"Erro em OnStatusCueChanged: {ex.Message}"); }
+        }
+
+        private void NotificarFft(float[] data)
+        {
+            try { FftDataReceived?.Invoke(this, data); }
+            catch (Exception ex) { GravarLog($"Erro em FftDataReceived: {ex.Message}"); }
+        }
+
+        private void NotificarTrackChanged(Track track)
+        {
+            try { TrackChanged?.Invoke(this, track); }
+            catch (Exception ex) { GravarLog($"Erro em TrackChanged: {ex.Message}"); }
+        }
+
+        private void NotificarTrackFinishedNaturally(Track track)
+        {
+            try { TrackFinishedNaturally?.Invoke(this, track); }
+            catch (Exception ex) { GravarLog($"Erro em TrackFinishedNaturally: {ex.Message}"); }
+        }
+
+        private void NotificarPlaybackError(Track track, string mensagem)
+        {
+            try { PlaybackError?.Invoke(this, new Tuple<Track, string>(track, mensagem)); }
+            catch (Exception ex) { GravarLog($"Erro em PlaybackError: {ex.Message}"); }
+        }
+
+        private void NotificarTrocaPlaylist(int playlistId)
+        {
+            try { SolicitarTrocaDePlaylist?.Invoke(this, playlistId); }
+            catch (Exception ex) { GravarLog($"Erro em SolicitarTrocaDePlaylist: {ex.Message}"); }
         }
 
         public void AdicionarParaApagarDepois(string caminho, string banda)
