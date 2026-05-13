@@ -20,6 +20,7 @@ namespace XP3.Models
         public bool EqualizacaoAtiva { get; set; } = true;
         public bool PossuiBandasEqualizacao => (EqualizacaoBandas != null && EqualizacaoBandas.Any(v => v != 0)) || EqualizacaoPresetId > 0;
         public bool TemEqualizacao => EqualizacaoAtiva && PossuiBandasEqualizacao;
+        public int Vez { get; set; }
         public int Pular { get; set; }
         public int Pulado { get; set; }
     }

@@ -197,6 +197,7 @@ namespace XP3.Data
             var tracks = new List<Track>();
             var progRepo = new ProgrammingRepository();
             var config = progRepo.ObterConfiguracao();
+            bool intercalarMenosEMaisTocadas = false;
 
             try
             {
@@ -213,10 +214,11 @@ namespace XP3.Data
                     }
 
                     bool usarOrdenacaoOriginal = (!config.ProgramacaoAtiva && nomeLista.ToUpper() == "AESCOLHER");
+                    intercalarMenosEMaisTocadas = !usarOrdenacaoOriginal;
                     DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
 
                     // 2. ATUALIZAMOS O SELECT: IncluÃ­mos m.CutIni e m.CutFim no final
-                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9";
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado";
                     string sql;
 
                     if (usarOrdenacaoOriginal)
@@ -269,6 +271,9 @@ namespace XP3.Data
                                 t.EqualizacaoPresetId = reader.IsDBNull(9) ? 0 : Convert.ToInt32(reader["Equalizacao"]);
                                 t.EqualizacaoAtiva = reader.IsDBNull(10) || Convert.ToInt32(reader["EqualizacaoAtiva"]) != 0;
                                 t.EqualizacaoBandas = LerBandasMusica(reader, 11);
+                                t.Vez = Convert.ToInt32(reader["Vez"]);
+                                t.Pular = Convert.ToInt32(reader["Pular"]);
+                                t.Pulado = Convert.ToInt32(reader["Pulado"]);
 
                                 tracks.Add(t);
                             }
@@ -281,7 +286,33 @@ namespace XP3.Data
                 System.Diagnostics.Debug.WriteLine($"[REPO_ERRO] GetTracksByPlaylist: {ex.Message}");
             }
 
-            return tracks;
+            return intercalarMenosEMaisTocadas ? IntercalarMenosEMaisTocadas(tracks) : tracks;
+        }
+
+        private List<Track> IntercalarMenosEMaisTocadas(List<Track> tracksOrdenadasPorMenosTocadas)
+        {
+            var resultado = new List<Track>(tracksOrdenadasPorMenosTocadas.Count);
+            int inicio = 0;
+            int fim = tracksOrdenadasPorMenosTocadas.Count - 1;
+            int etapa = 0;
+
+            while (inicio <= fim)
+            {
+                if (etapa == 1)
+                {
+                    resultado.Add(tracksOrdenadasPorMenosTocadas[fim]);
+                    fim--;
+                }
+                else
+                {
+                    resultado.Add(tracksOrdenadasPorMenosTocadas[inicio]);
+                    inicio++;
+                }
+
+                etapa = (etapa + 1) % 3;
+            }
+
+            return resultado;
         }
 
         // Dentro do seu arquivo TrackRepository.cs

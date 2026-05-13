@@ -201,11 +201,18 @@ namespace XP3.Services
 
         public void Play(int index)
         {
-            if (index < 0 || index >= _playlist.Count) return;
+            if (_playlist == null || _playlist.Count == 0) return;
+
+            if (!TryEncontrarFaixaTocavel(index, out int indiceTocavel, out Track track, out string motivo))
+            {
+                GravarLog(motivo);
+                Stop();
+                NotificarPlaybackError(CurrentTrack, motivo);
+                return;
+            }
 
             Stop();
-            _currentIndex = index;
-            var track = _playlist[_currentIndex];
+            _currentIndex = indiceTocavel;
 
             GravarLog($"Iniciando Play (WaveOut + AutoCue): {track.Title}");
 
@@ -302,6 +309,14 @@ namespace XP3.Services
             {
                 GravarLog($"ERRO FATAL: {ex.Message}\n{ex.StackTrace}");
                 RegistrarLogErro(track, ex);
+
+                if (ArquivoNaoEncontrado(ex))
+                {
+                    GravarLog($"[AUDIO] Faixa ausente ao abrir. Pulando para a próxima valida.");
+                    TocarProximaFaixaValida(_currentIndex + 1);
+                    return;
+                }
+
                 NotificarPlaybackError(track, $"Erro: {ex.Message}");
             }
         }
@@ -365,9 +380,8 @@ namespace XP3.Services
 
         public void Next()
         {
-            if (_playlist.Count == 0) return;
-            if (_currentIndex < _playlist.Count - 1) Play(_currentIndex + 1);
-            else Play(0);
+            if (_playlist == null || _playlist.Count == 0) return;
+            TocarProximaFaixaValida(_currentIndex + 1);
         }
 
         // METODO: OnPlaybackStopped
@@ -459,6 +473,77 @@ namespace XP3.Services
                 File.AppendAllText(arquivoLog, $"{DateTime.Now} - {track?.Title ?? "Sem faixa"} - {ex.Message}\n{ex.StackTrace}\n");
             }
             catch { }
+        }
+
+        private bool TryEncontrarFaixaTocavel(int indiceInicial, out int indiceTocavel, out Track track, out string motivo)
+        {
+            indiceTocavel = -1;
+            track = null;
+            motivo = string.Empty;
+
+            if (_playlist == null || _playlist.Count == 0)
+            {
+                motivo = "[AUDIO] Playlist vazia.";
+                return false;
+            }
+
+            int total = _playlist.Count;
+            int inicio = indiceInicial < 0 ? 0 : indiceInicial % total;
+
+            for (int i = 0; i < total; i++)
+            {
+                int candidato = (inicio + i) % total;
+                var faixa = _playlist[candidato];
+                if (faixa == null)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(faixa.FilePath))
+                {
+                    GravarLog($"[AUDIO] Faixa sem caminho ignorada: {faixa.Title ?? $"#{candidato}"}");
+                    continue;
+                }
+
+                if (!File.Exists(faixa.FilePath))
+                {
+                    GravarLog($"[AUDIO] Arquivo ausente ignorado: {faixa.FilePath}");
+                    continue;
+                }
+
+                indiceTocavel = candidato;
+                track = faixa;
+                return true;
+            }
+
+            motivo = "[AUDIO] Nenhuma faixa válida encontrada na playlist.";
+            return false;
+        }
+
+        private void TocarProximaFaixaValida(int indiceInicial)
+        {
+            if (TryEncontrarFaixaTocavel(indiceInicial, out int indiceTocavel, out _, out string motivo))
+            {
+                Play(indiceTocavel);
+                return;
+            }
+
+            GravarLog(motivo);
+            Stop();
+            NotificarPlaybackError(CurrentTrack, motivo);
+        }
+
+        private bool ArquivoNaoEncontrado(Exception ex)
+        {
+            if (ex == null) return false;
+
+            if (ex.HResult == unchecked((int)0x80070002))
+            {
+                return true;
+            }
+
+            return ex.Message != null &&
+                   ex.Message.IndexOf("arquivo especificado", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void NotificarStatusCue(string mensagem)

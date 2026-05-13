@@ -24,7 +24,6 @@ namespace XP3.Forms
         private IniFileService _iniService;
         private GlobalHotkeyService _hotkeyService;
         private KeyPollingService _pollingService;
-        private ContextMenuStrip _ctxMenuGrid;
         private ContextMenuStrip _menuPlaylistLateral;
 
         private int _currentPlaylistId = 1;
@@ -33,8 +32,6 @@ namespace XP3.Forms
         private Track _musicaAnterior = null; // Guarda a mÃƒÂºsica que acabou de tocar
         private readonly Dictionary<int, int> _tracksMarcadasParaRemover = new Dictionary<int, int>();
         private readonly Dictionary<int, int> _tracksMarcadasParaApagar = new Dictionary<int, int>();
-        private ToolStripMenuItem _itemRetirarDepoisDeTocar;
-        private ToolStripMenuItem _itemApagarDepoisDeTocar;
         private int? _trackFinalizadaNaturalmenteId;
 
         // Mantenha apenas UMA declaraÃƒÂ§ÃƒÂ£o aqui.
@@ -94,7 +91,10 @@ namespace XP3.Forms
         private double _trackTotalSeconds = 0;
         private double _trackCutIni = 0;
         private double _trackCutFim = 0;
-        private ContextMenuStrip menuMusica;
+        private ContextMenuStrip _menuMusica;
+        private ContextMenuStrip _menuCorteBarra;
+        private ToolStripMenuItem _itemMarcarCorteBarra;
+        private double _percentualCorteBarra;
         private readonly string _versaoPrograma = Application.ProductVersion;
 
         // --- VARIÃƒÂVEIS DE CONTROLE DE FLUXO (ESTILO VB6 MudarLista) ---
@@ -117,6 +117,8 @@ namespace XP3.Forms
         private bool _modoMesclagemPlaylistsAtivo = false;
         private Playlist _playlistContextoLateral;
         private DateTime _ultimaTrocaRelogio = DateTime.MinValue;
+        private DateTime _ultimaAtualizacaoProximaProgramacao = DateTime.MinValue;
+        private Label _lblProximaProgramacao;
         private const string VideoDialogFilter = "Videos suportados|*.mp4;*.m4v;*.webm;*.ogv;*.ogg|MP4|*.mp4;*.m4v|WebM|*.webm|Ogg Video|*.ogv;*.ogg|Todos os arquivos|*.*";
 
         public Inicial()
@@ -146,6 +148,7 @@ namespace XP3.Forms
 
             ConstruirPainelLateral();
             ConfigurarMenuPlaylistLateral();
+            ConfigurarIndicadorProximaProgramacao();
 
             // Evento de seleção na Grid para atualizar painel lateral
             lvTracks.SelectedIndexChanged += (s, e) =>
@@ -169,6 +172,7 @@ namespace XP3.Forms
                 modernSeekBar1.ProgressColor = Color.Cyan;
                 modernSeekBar1.TrackColor = Color.FromArgb(40, 40, 40);
                 modernSeekBar1.Paint += ModernSeekBar1_Paint;
+                modernSeekBar1.MouseDown += ModernSeekBar1_MouseDown;
 
                 int margemInferior = 130;
                 modernSeekBar1.Location = new Point(12, this.ClientSize.Height - margemInferior);
@@ -207,7 +211,6 @@ namespace XP3.Forms
             CarregarConfiguracoes();
             Batteries.Init();
 
-            ConfigurarMenuDeContexto();
             SetupServices();
 
             // Assinatura do evento de troca automática de playlist
@@ -242,6 +245,7 @@ namespace XP3.Forms
             }
 
             AtualizarCaptionJanela();
+            AtualizarIndicadorProximaProgramacao();
         }
 
         private void LblTempoAtual_MouseDown(object sender, MouseEventArgs e)
@@ -344,6 +348,398 @@ namespace XP3.Forms
                     int widthFim = w - xFim;
                     e.Graphics.FillRectangle(brushDourado, xFim, 0, widthFim, h);
                 }
+            }
+        }
+
+        private void ConfigurarMenuCorteBarra()
+        {
+            _menuCorteBarra = new ContextMenuStrip();
+            _itemMarcarCorteBarra = new ToolStripMenuItem();
+            _itemMarcarCorteBarra.Click += (s, e) => MarcarCorteNaPosicaoDaBarra();
+            _menuCorteBarra.Items.Add(_itemMarcarCorteBarra);
+        }
+
+        private void ConfigurarMenuMusica()
+        {
+            _menuMusica = new ContextMenuStrip();
+
+            var itemTocarMenos = new ToolStripMenuItem("Tocar menos");
+            var itemMudarBanda = new ToolStripMenuItem("Mudar de banda");
+            var itemVideo = new ToolStripMenuItem("Video");
+            var itemYouTube = new ToolStripMenuItem("YouTube");
+            var itemEqualizacao = new ToolStripMenuItem("Equalização");
+            var itemRetirarDepoisDeTocar = new ToolStripMenuItem("Retirar da lista depois de tocar");
+            var itemApagarDepoisDeTocar = new ToolStripMenuItem("Apagar a lista depois de tocar");
+            var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica");
+            var itemRenomear = new ToolStripMenuItem("Renomear musica");
+
+            _menuMusica.Items.Add(itemTocarMenos);
+            _menuMusica.Items.Add(itemMudarBanda);
+            _menuMusica.Items.Add(itemVideo);
+            _menuMusica.Items.Add(itemYouTube);
+            _menuMusica.Items.Add(itemEqualizacao);
+            _menuMusica.Items.Add(itemRetirarDepoisDeTocar);
+            _menuMusica.Items.Add(itemApagarDepoisDeTocar);
+            _menuMusica.Items.Add(new ToolStripSeparator());
+            _menuMusica.Items.Add(itemAbrirPasta);
+            _menuMusica.Items.Add(itemRenomear);
+
+            itemTocarMenos.Click += (s, e) => TocaMenos();
+            itemMudarBanda.Click += (s, e) => MudarBanda();
+            itemVideo.Click += (s, e) => VincularVideoMusica();
+            itemYouTube.Click += (s, e) => EditarUrlYouTubeMusica();
+            itemEqualizacao.Click += (s, e) => AbrirEqualizacaoMusica();
+            itemRetirarDepoisDeTocar.Click += (s, e) => AlternarRetiradaDepoisDeTocar();
+            itemApagarDepoisDeTocar.Click += (s, e) => AlternarApagarDepoisDeTocar();
+            itemAbrirPasta.Click += (s, e) => AbrirPasta();
+            itemRenomear.Click += (s, e) => Renomear();
+
+            _menuMusica.Opening += (s, e) =>
+            {
+                var trackSelecionada = ObterTrackSelecionada();
+                if (trackSelecionada == null)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+
+                itemRetirarDepoisDeTocar.Checked = EstaMarcadaParaRetirarDepoisDeTocar(trackSelecionada);
+                itemApagarDepoisDeTocar.Checked = EstaMarcadaParaApagarDepoisDeTocar(trackSelecionada);
+            };
+
+            lvTracks.ContextMenuStrip = _menuMusica;
+            lvTracks.MouseDown += LvTracks_MouseDownMenuMusica;
+        }
+
+        private void MudarBanda()
+        {
+            var track = ObterTrackSelecionada();
+            if (track == null) return;
+
+            _trackEmTrocaDeBanda = track;
+            _modoTrocaBandaAtivo = true;
+            _bandasEmSelecao = _trackRepo.GetAllBands();
+
+            _clbPlaylistsLateral.Items.Clear();
+            _clbPlaylistsLateral.ShowCheckboxes = false;
+            _clbPlaylistsLateral.DisplayMember = "Name";
+            _clbPlaylistsLateral.BackColor = Color.FromArgb(55, 45, 25);
+            _clbPlaylistsLateral.HighlightIndex = -1;
+
+            _clbPlaylistsLateral.Items.Add(new Band { Id = 0, Name = "+ Nova banda" });
+            foreach (var banda in _bandasEmSelecao)
+            {
+                _clbPlaylistsLateral.Items.Add(banda);
+            }
+
+            _lblTituloLateral.Text = "Escolha a nova banda";
+            _lblTituloLateral.BackColor = Color.FromArgb(80, 60, 20);
+            _lblTituloLateral.ForeColor = Color.Gold;
+
+            if (_pnlBotoesLateral != null)
+            {
+                _pnlBotoesLateral.Visible = false;
+            }
+
+            lblStatus.Text = $"Mudar banda: {track.Title}. Escolha uma banda na lista lateral ou ESC para cancelar.";
+            lblStatus.ForeColor = Color.Gold;
+        }
+
+        private void VincularVideoMusica()
+        {
+            var track = ObterTrackSelecionada();
+            if (track == null) return;
+
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Title = "Selecionar video da musica";
+                dialog.Filter = VideoDialogFilter;
+                dialog.CheckFileExists = true;
+                dialog.Multiselect = false;
+
+                string videoAtual = _trackRepo.GetTrackVideoPath(track.Id);
+                if (!string.IsNullOrWhiteSpace(videoAtual) && File.Exists(videoAtual))
+                {
+                    dialog.InitialDirectory = Path.GetDirectoryName(videoAtual);
+                    dialog.FileName = Path.GetFileName(videoAtual);
+                }
+
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                _trackRepo.UpdateTrackVideoPath(track.Id, dialog.FileName);
+                track.VideoPath = dialog.FileName;
+
+                if (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
+                {
+                    _player.CurrentTrack.VideoPath = dialog.FileName;
+                    AtualizarMidiaFullscreen(track.Id);
+                }
+
+                lblStatus.Text = $"Video vinculado: {track.Title}";
+                lblStatus.ForeColor = Color.LightGreen;
+            }
+        }
+
+        private void EditarUrlYouTubeMusica()
+        {
+            var track = ObterTrackSelecionada();
+            if (track == null) return;
+
+            string atual = _trackRepo.GetTrackYouTubeUrl(track.Id) ?? string.Empty;
+            string novaUrl = ShowInputBox("YouTube", "URL do YouTube:", atual);
+            if (novaUrl == null) return;
+
+            _trackRepo.UpdateTrackYouTubeUrl(track.Id, novaUrl);
+
+            if (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
+            {
+                AtualizarMidiaFullscreen(track.Id);
+            }
+
+            lblStatus.Text = string.IsNullOrWhiteSpace(novaUrl)
+                ? $"YouTube removido: {track.Title}"
+                : $"YouTube atualizado: {track.Title}";
+            lblStatus.ForeColor = Color.LightGreen;
+        }
+
+        private void AbrirEqualizacaoMusica()
+        {
+            var track = ObterTrackSelecionada();
+            if (track == null) return;
+
+            using (var form = new FrmEqualizacaoMusica(
+                track,
+                _trackRepo,
+                (bandas, ativa) =>
+                {
+                    if (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
+                    {
+                        _player.PreviewEqualizerBands(bandas, ativa);
+                    }
+                },
+                () =>
+                {
+                    if (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
+                    {
+                        _player.RestaurarEqualizacaoDaTrackAtual();
+                    }
+                }))
+            {
+                if (form.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
+                    {
+                        _player.CurrentTrack.EqualizacaoPresetId = track.EqualizacaoPresetId;
+                        _player.CurrentTrack.EqualizacaoBandas = track.EqualizacaoBandas;
+                        _player.CurrentTrack.EqualizacaoAtiva = track.EqualizacaoAtiva;
+                        _player.AplicarEqualizacaoDaTrack(track);
+                    }
+
+                    lvTracks.Refresh();
+                    lblStatus.Text = $"Equalizacao atualizada: {track.Title}";
+                    lblStatus.ForeColor = Color.LightGreen;
+                }
+            }
+        }
+
+        private void LvTracks_MouseDownMenuMusica(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right)
+            {
+                return;
+            }
+
+            var item = lvTracks.GetItemAt(e.X, e.Y);
+            if (item == null)
+            {
+                lvTracks.ContextMenuStrip = null;
+                return;
+            }
+
+            item.Selected = true;
+            lvTracks.FocusedItem = item;
+            lvTracks.ContextMenuStrip = _menuMusica;
+        }
+
+        private void ConfigurarIndicadorProximaProgramacao()
+        {
+            pnlHeader.Height = 64;
+            lblPlaylistTitle.Location = new Point(lblPlaylistTitle.Left, 6);
+            lblTempoAtual.Location = new Point(lblTempoAtual.Left, 8);
+            lblTrackCount.Location = new Point(lblTrackCount.Left, 8);
+
+            _lblProximaProgramacao = new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                ForeColor = Color.Gold,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Location = new Point(lblPlaylistTitle.Left, 35),
+                Size = new Size(520, 20),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Visible = false
+            };
+
+            pnlHeader.Controls.Add(_lblProximaProgramacao);
+            _lblProximaProgramacao.BringToFront();
+            lblPlaylistTitle.BringToFront();
+        }
+
+        private void ModernSeekBar1_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right || modernSeekBar1 == null || modernSeekBar1.Width <= 0)
+            {
+                return;
+            }
+
+            var track = _player?.CurrentTrack;
+            if (track == null || _player.TotalTime.TotalSeconds <= 0)
+            {
+                return;
+            }
+
+            _percentualCorteBarra = Math.Max(0, Math.Min(1, (double)e.X / modernSeekBar1.Width));
+            _itemMarcarCorteBarra.Text = _percentualCorteBarra < 0.5
+                ? "Marcar inicio aqui"
+                : "Marcar o final aqui";
+
+            _menuCorteBarra.Show(modernSeekBar1, e.Location);
+        }
+
+        private void MarcarCorteNaPosicaoDaBarra()
+        {
+            var track = _player?.CurrentTrack;
+            if (track == null || _player.TotalTime.TotalSeconds <= 0)
+            {
+                return;
+            }
+
+            int segundo = (int)Math.Round(_player.TotalTime.TotalSeconds * _percentualCorteBarra);
+            if (_percentualCorteBarra < 0.5)
+            {
+                track.CutIni = Math.Max(0, segundo);
+                _trackCutIni = track.CutIni;
+                lblStatus.Text = $"Inicio marcado em {SegundosParaTextoCurto(track.CutIni)}";
+            }
+            else
+            {
+                int total = (int)Math.Round(_player.TotalTime.TotalSeconds);
+                track.CutFim = Math.Max(0, Math.Min(total, segundo));
+                _trackCutFim = track.CutFim;
+                lblStatus.Text = $"Final marcado em {SegundosParaTextoCurto(track.CutFim)}";
+            }
+
+            _trackRepo.AtualizarCortesMusica(track.Id, track.CutIni, track.CutFim);
+            lblStatus.ForeColor = Color.Gold;
+            modernSeekBar1.Invalidate();
+            lvTracks.Refresh();
+        }
+
+        private string SegundosParaTextoCurto(int segundos)
+        {
+            if (segundos < 0) segundos = 0;
+            return TimeSpan.FromSeconds(segundos).ToString(@"mm\:ss");
+        }
+
+        private void AtualizarIndicadorProximaProgramacao()
+        {
+            if (_lblProximaProgramacao == null)
+            {
+                return;
+            }
+
+            if (chkToggleProg == null || !chkToggleProg.Checked)
+            {
+                _lblProximaProgramacao.Visible = false;
+                _ultimaAtualizacaoProximaProgramacao = DateTime.Now;
+                return;
+            }
+
+            try
+            {
+                var proxima = ObterProximaProgramacao();
+                if (proxima == null)
+                {
+                    _lblProximaProgramacao.Text = "Próxima: nenhuma programação";
+                }
+                else
+                {
+                    _lblProximaProgramacao.Text = $"Próxima: {proxima.Value.Quando:HH:mm} - {proxima.Value.NomeLista}";
+                }
+
+                _lblProximaProgramacao.Visible = true;
+                _ultimaAtualizacaoProximaProgramacao = DateTime.Now;
+            }
+            catch (Exception ex)
+            {
+                LogService.GravarErro("AtualizarIndicadorProximaProgramacao", ex);
+                _lblProximaProgramacao.Text = "Próxima: erro ao carregar";
+                _lblProximaProgramacao.Visible = true;
+            }
+        }
+
+        private (DateTime Quando, string NomeLista)? ObterProximaProgramacao()
+        {
+            if (_progRepo == null)
+            {
+                return null;
+            }
+
+            var programacoes = _progRepo.ListarProgramacao();
+            if (programacoes == null || programacoes.Count == 0)
+            {
+                return null;
+            }
+
+            DateTime agora = DateTime.Now;
+            DateTime? melhorData = null;
+            string melhorNome = null;
+
+            foreach (var programacao in programacoes)
+            {
+                for (int dias = 0; dias <= 7; dias++)
+                {
+                    DateTime data = agora.Date.AddDays(dias);
+                    if (!ProgramacaoValeParaDia(programacao, data.DayOfWeek))
+                    {
+                        continue;
+                    }
+
+                    DateTime quando = data.Add(programacao.HorarioInicio.TimeOfDay);
+                    if (quando <= agora)
+                    {
+                        continue;
+                    }
+
+                    if (!melhorData.HasValue || quando < melhorData.Value)
+                    {
+                        melhorData = quando;
+                        melhorNome = programacao.NomePlaylist;
+                    }
+
+                    break;
+                }
+            }
+
+            return melhorData.HasValue
+                ? (melhorData.Value, melhorNome ?? "Lista sem nome")
+                : ((DateTime, string)?)null;
+        }
+
+        private bool ProgramacaoValeParaDia(ProgramacaoModel programacao, DayOfWeek dia)
+        {
+            switch (programacao.Periodicidade)
+            {
+                case 1:
+                    return true;
+                case 2:
+                    return dia >= DayOfWeek.Monday && dia <= DayOfWeek.Friday;
+                case 3:
+                    return dia == DayOfWeek.Saturday;
+                case 4:
+                    return dia == DayOfWeek.Sunday;
+                default:
+                    return false;
             }
         }
 
@@ -574,280 +970,11 @@ namespace XP3.Forms
                 }));
             };
 
-            menuMusica = new ContextMenuStrip();
-
-            // Criando os itens
-            var itemTocarMenos = new ToolStripMenuItem("Tocar menos") { Enabled = true };
-            var itemMudarBanda = new ToolStripMenuItem("Mudar de banda") { Enabled = true };
-            var itemVideo = new ToolStripMenuItem("Video") { Enabled = true };
-            var itemYouTube = new ToolStripMenuItem("YouTube") { Enabled = true };
-            var itemEqualizacao = new ToolStripMenuItem("Equalização") { Enabled = true };
-            var itemAjustarTempo = new ToolStripMenuItem("Ajustar o tempo") { Enabled = true }; // ÃƒÅ¡nico ativo
-            var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica") { Enabled = true };
-            var itemRenomear = new ToolStripMenuItem("Renomear musica") { Enabled = true };
-            _itemRetirarDepoisDeTocar = new ToolStripMenuItem("Retirar da lista depois de tocar") { Enabled = true };
-            _itemApagarDepoisDeTocar = new ToolStripMenuItem("Apagar a lista depois de tocar") { Enabled = true };
-
-            // Adicionando ao menu
-            menuMusica.Items.Add(itemTocarMenos);
-            menuMusica.Items.Add(itemMudarBanda);
-            menuMusica.Items.Add(itemVideo);
-            menuMusica.Items.Add(itemYouTube);
-            menuMusica.Items.Add(itemEqualizacao);
-            menuMusica.Items.Add(itemAjustarTempo);
-            menuMusica.Items.Add(_itemRetirarDepoisDeTocar);
-            menuMusica.Items.Add(_itemApagarDepoisDeTocar);
-            menuMusica.Items.Add(new ToolStripSeparator()); // Uma linha divisÃƒÂ³ria para organizar
-            menuMusica.Items.Add(itemAbrirPasta);
-            menuMusica.Items.Add(itemRenomear);
-
-            // Vinculando o menu ao ListView
-            lvTracks.ContextMenuStrip = menuMusica;
-
-            itemTocarMenos.Click += (s, e) => TocaMenos();
-
-            itemAbrirPasta.Click += (s, e) => AbrirPasta();
-
-            itemRenomear.Click += (s, e) => Renomear();
-
-            itemMudarBanda.Click += (s, e) => MudarBanda();
-            itemVideo.Click += (s, e) => VincularVideoMusica();
-            itemYouTube.Click += (s, e) => EditarUrlYouTubeMusica();
-            itemEqualizacao.Click += (s, e) => AbrirEqualizacaoMusica();
-            _itemRetirarDepoisDeTocar.Click += (s, e) => AlternarRetiradaDepoisDeTocar();
-            _itemApagarDepoisDeTocar.Click += (s, e) => AlternarApagarDepoisDeTocar();
-
-            // Evento de clique para o "Ajustar o tempo"
-            itemAjustarTempo.Click += (s, e) =>
-            {
-                if (lvTracks.SelectedIndices.Count > 0)
-                {
-                    int index = lvTracks.SelectedIndices[0];
-                    var track = _allTracks[index];
-                }
-            };
-
-            // Adicione isso tambÃƒÂ©m no seu SetupServices ou no construtor
-            lvTracks.MouseDown += (s, e) =>
-            {
-                if (e.Button == MouseButtons.Right)
-                {
-                    var item = lvTracks.GetItemAt(e.X, e.Y);
-                    if (item == null)
-                    {
-                        // Se clicou no vazio, cancela a exibiÃƒÂ§ÃƒÂ£o do menu
-                        lvTracks.ContextMenuStrip = null;
-                    }
-                    else
-                    {
-                        // Se clicou em uma mÃƒÂºsica, garante que o menu esteja lÃƒÂ¡
-                        item.Selected = true;
-                        lvTracks.FocusedItem = item;
-                        lvTracks.ContextMenuStrip = menuMusica;
-                    }
-                }
-            };
-
-            menuMusica.Opening += (s, e) =>
-            {
-                var trackSelecionada = ObterTrackSelecionada();
-                if (trackSelecionada == null)
-                {
-                    e.Cancel = true;
-                    return;
-                }
-
-                _itemRetirarDepoisDeTocar.Checked = EstaMarcadaParaRetirarDepoisDeTocar(trackSelecionada);
-                _itemApagarDepoisDeTocar.Checked = EstaMarcadaParaApagarDepoisDeTocar(trackSelecionada);
-            };
-
-            // Dentro do SetupServices no seu Inicial.cs
-
-            itemAjustarTempo.Click += (s, e) => ChamaAjusarTempo();
+            ConfigurarMenuMusica();
+            ConfigurarMenuCorteBarra();
 
             _pollingService.Start();
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
-        }
-
-        private void MudarBanda()
-        {
-            if (lvTracks.SelectedIndices.Count == 0) return;
-
-            int index = lvTracks.SelectedIndices[0];
-            if (index < 0 || index >= _allTracks.Count) return;
-
-            var track = _allTracks[index];
-            _trackEmTrocaDeBanda = track;
-            _modoTrocaBandaAtivo = true;
-            _bandasEmSelecao = _trackRepo.GetAllBands();
-
-            _clbPlaylistsLateral.Items.Clear();
-            _clbPlaylistsLateral.ClearChecked();
-            _clbPlaylistsLateral.ShowCheckboxes = false;
-            _clbPlaylistsLateral.HighlightIndex = -1;
-            _clbPlaylistsLateral.DisplayMember = "Name";
-            _clbPlaylistsLateral.Items.Add("Adicionar");
-
-            int indiceBandaAtual = -1;
-
-            for (int i = 0; i < _bandasEmSelecao.Count; i++)
-            {
-                int indice = _clbPlaylistsLateral.Items.Add(_bandasEmSelecao[i]);
-                if (_bandasEmSelecao[i].Id == track.BandId)
-                {
-                    indiceBandaAtual = indice;
-                }
-            }
-
-            _clbPlaylistsLateral.HighlightIndex = indiceBandaAtual;
-            if (indiceBandaAtual >= 0)
-            {
-                _clbPlaylistsLateral.SelectedIndex = indiceBandaAtual;
-                _clbPlaylistsLateral.TopIndex = indiceBandaAtual;
-            }
-
-            _lblTituloLateral.Text = "TROCAR BANDA (ESC)";
-            _lblTituloLateral.BackColor = Color.FromArgb(90, 90, 40);
-            _lblTituloLateral.ForeColor = Color.Gold;
-            _clbPlaylistsLateral.BackColor = Color.FromArgb(35, 35, 35);
-
-            if (_pnlBotoesLateral != null)
-            {
-                _pnlBotoesLateral.Visible = false;
-            }
-
-            lblStatus.Text = "Clique em Adicionar ou dÃƒÂª duplo-clique em uma banda. ESC cancela.";
-            lblStatus.ForeColor = Color.Gold;
-
-            _clbPlaylistsLateral.Focus();
-            _clbPlaylistsLateral.Refresh();
-            // Metodo para a operaÃƒÂ§ÃƒÂ£o de mudar a banda
-        }
-
-        private void EditarUrlYouTubeMusica()
-        {
-            if (lvTracks.SelectedIndices.Count == 0) return;
-
-            int index = lvTracks.SelectedIndices[0];
-            if (index < 0 || index >= _allTracks.Count) return;
-
-            var track = _allTracks[index];
-            string urlAtual = _trackRepo.GetTrackYouTubeUrl(track.Id) ?? string.Empty;
-            string novaUrl = ShowInputBox("YouTube", "Digite a URL do YouTube da mÃƒÂºsica:", urlAtual);
-
-            if (novaUrl == null) return;
-
-            novaUrl = novaUrl.Trim();
-            _trackRepo.UpdateTrackYouTubeUrl(track.Id, string.IsNullOrWhiteSpace(novaUrl) ? null : novaUrl);
-
-            if (string.IsNullOrWhiteSpace(novaUrl))
-            {
-                lblStatus.Text = $"YouTube removido de: {track.Title}";
-                lblStatus.ForeColor = Color.Orange;
-            }
-            else
-            {
-                lblStatus.Text = $"YouTube atualizado para: {track.Title}";
-                lblStatus.ForeColor = Color.LightGreen;
-            }
-
-            if (_emTelaCheia && _player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
-            {
-                AtualizarMidiaFullscreen(track.Id);
-            }
-        }
-
-        private void AbrirEqualizacaoMusica()
-        {
-            var track = ObterTrackSelecionada();
-            if (track == null) return;
-
-            bool ehTrackAtual = _player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id;
-
-            using (var frm = new FrmEqualizacaoMusica(
-                track,
-                _trackRepo,
-                (bandas, ativa) =>
-                {
-                    if (ehTrackAtual)
-                    {
-                        _player.PreviewEqualizerBands(bandas, ativa);
-                    }
-                },
-                () =>
-                {
-                    if (ehTrackAtual)
-                    {
-                        _player.RestaurarEqualizacaoDaTrackAtual();
-                    }
-                }))
-            {
-                if (frm.ShowDialog(this) == DialogResult.OK)
-                {
-                    if (ehTrackAtual)
-                    {
-                        _player.AplicarEqualizacaoDaTrack(track);
-                    }
-
-                    lblStatus.Text = track.TemEqualizacao
-                        ? $"Equalização aplicada para: {track.Title}"
-                        : track.PossuiBandasEqualizacao
-                            ? $"Equalização desativada para: {track.Title}"
-                            : $"Equalização removida de: {track.Title}";
-                    lblStatus.ForeColor = track.TemEqualizacao ? Color.DarkOrange : Color.Silver;
-
-                    AtualizarPainelLateral(track);
-                    lvTracks.Refresh();
-                }
-            }
-        }
-
-        private void VincularVideoMusica()
-        {
-            if (lvTracks.SelectedIndices.Count == 0) return;
-
-            int index = lvTracks.SelectedIndices[0];
-            if (index < 0 || index >= _allTracks.Count) return;
-
-            var track = _allTracks[index];
-            string videoAtual = _trackRepo.GetTrackVideoPath(track.Id);
-
-            using (var dialog = new OpenFileDialog())
-            {
-                dialog.Title = "Selecionar video da musica";
-                dialog.Filter = VideoDialogFilter;
-                dialog.CheckFileExists = true;
-                dialog.Multiselect = false;
-
-                string pastaInicial = null;
-                if (!string.IsNullOrWhiteSpace(videoAtual) && File.Exists(videoAtual))
-                {
-                    pastaInicial = Path.GetDirectoryName(videoAtual);
-                    dialog.FileName = Path.GetFileName(videoAtual);
-                }
-                else if (!string.IsNullOrWhiteSpace(track.FilePath) && File.Exists(track.FilePath))
-                {
-                    pastaInicial = Path.GetDirectoryName(track.FilePath);
-                }
-
-                if (!string.IsNullOrWhiteSpace(pastaInicial) && Directory.Exists(pastaInicial))
-                {
-                    dialog.InitialDirectory = pastaInicial;
-                }
-
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-
-                _trackRepo.UpdateTrackVideoPath(track.Id, dialog.FileName);
-                track.VideoPath = dialog.FileName;
-            }
-
-            lblStatus.Text = $"Video vinculado a: {track.Title}";
-            lblStatus.ForeColor = Color.LightGreen;
-
-            if (_emTelaCheia && _player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
-            {
-                AtualizarMidiaFullscreen(track.Id);
-            }
         }
 
         private void AtualizarMidiaFullscreen(int trackId)
@@ -1329,35 +1456,6 @@ namespace XP3.Forms
 
             // 6. Atualiza a lista na tela
             lvTracks.Refresh();
-        }
-
-        private void ChamaAjusarTempo()
-        {
-            // 1. Verifica se hÃƒÂ¡ algo selecionado na lista de mÃƒÂºsicas
-            if (lvTracks.SelectedIndices.Count > 0)
-            {
-                // 2. Pega a mÃƒÂºsica atravÃƒÂ©s do ÃƒÂ­ndice selecionado
-                int index = lvTracks.SelectedIndices[0];
-                var trackSelecionada = _allTracks[index];
-
-                // 3. Abre o formulÃƒÂ¡rio de ediÃƒÂ§ÃƒÂ£o passando a mÃƒÂºsica 
-                // E a aÃƒÂ§ÃƒÂ£o para parar o player principal () => _player.Stop()
-                using (var frm = new FrmEditaMusica(trackSelecionada, () => _player.Stop()))
-                {
-                    if (frm.ShowDialog() == DialogResult.OK)
-                    {
-                        // Salva definitivamente no banco de dados
-                        _trackRepo.AtualizarCortesMusica(trackSelecionada.Id, trackSelecionada.CutIni, trackSelecionada.CutFim);
-
-                        // Atualiza a visualizaÃƒÂ§ÃƒÂ£o na ListView (Colunas 6 e 7)
-                        lvTracks.Items[index].SubItems[6].Text = trackSelecionada.CutIni.ToString();
-                        lvTracks.Items[index].SubItems[7].Text = trackSelecionada.CutFim.ToString();
-
-                        // ForÃƒÂ§a o redesenho da barra para mostrar as novas marcaÃƒÂ§ÃƒÂµes douradas
-                        modernSeekBar1.Invalidate();
-                    }
-                }
-            }
         }
 
         private void TratarMudancaDeFaixa(Track track)
@@ -2706,6 +2804,13 @@ namespace XP3.Forms
 
         private void TimerProgresso_Tick(object sender, EventArgs e)
         {
+            if (chkToggleProg != null
+                && chkToggleProg.Checked
+                && (DateTime.Now - _ultimaAtualizacaoProximaProgramacao).TotalSeconds >= 30)
+            {
+                AtualizarIndicadorProximaProgramacao();
+            }
+
             if (_player == null || _player.CurrentTrack == null)
             {
                 modernSeekBar1.Value = 0;
@@ -2862,7 +2967,6 @@ namespace XP3.Forms
                 // 3. Processamento e OrdenaÃƒÂ§ÃƒÂ£o
                 _allTracks = tracksDoBanco?
                     .Where(t => t.Duration.TotalSeconds > 0)
-                    .OrderBy(t => t.Duration)
                     .ToList() ?? new List<Track>();
 
                 if (_player != null)
@@ -2882,6 +2986,8 @@ namespace XP3.Forms
 
                 if (lblTrackCount != null)
                     lblTrackCount.Text = $"{_allTracks.Count} mÃƒÂºsicas encontradas";
+
+                AtualizarIndicadorProximaProgramacao();
             }
             catch (Exception ex)
             {
@@ -2936,20 +3042,20 @@ namespace XP3.Forms
         {
             lvTracks.Columns.Clear();
 
-            // MÃƒÂºsica: Ajustada para caber as novas colunas
-            lvTracks.Columns.Add("MÃƒÂºsica", 375);
+            // MÃƒÂºsica: Ajustada para caber as novas colunas finais
+            lvTracks.Columns.Add("MÃƒÂºsica", 350);
 
-            // Banda: Mantida em 200
-            lvTracks.Columns.Add("Banda", 200);
+            lvTracks.Columns.Add("Banda", 190);
 
             // Tempo: 70px, alinhado ÃƒÂ  direita
             lvTracks.Columns.Add("Tempo", 70, HorizontalAlignment.Right);
 
-            // Pular: Coluna para o peso da mÃƒÂºsica
-            lvTracks.Columns.Add("", 25, HorizontalAlignment.Center);
+            // Tocou / Pular / Pulado: largura para um algarismo
+            lvTracks.Columns.Add("T", 22, HorizontalAlignment.Center);
 
-            // Pulado: Coluna para o contador de pulos atual
-            lvTracks.Columns.Add("", 25, HorizontalAlignment.Center);
+            lvTracks.Columns.Add("P", 22, HorizontalAlignment.Center);
+
+            lvTracks.Columns.Add("L", 22, HorizontalAlignment.Center);
         }
         #endregion
 
@@ -3056,6 +3162,7 @@ namespace XP3.Forms
 
             // 2. Recarrega a lista visualmente
             LoadPlaylist();
+            AtualizarIndicadorProximaProgramacao();
 
             // 3. Inicia a reproduÃƒÂ§ÃƒÂ£o da primeira mÃƒÂºsica da nova lista
             if (_allTracks.Count > 0 && _player != null)
@@ -3226,9 +3333,9 @@ namespace XP3.Forms
             //item.SubItems.Add(track.Duration);
             item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
 
-
-            item.SubItems.Add(track.Pular.ToString());
-            item.SubItems.Add(track.Pulado.ToString()); ;
+            item.SubItems.Add(AlgarismoGrid(track.Vez));
+            item.SubItems.Add(AlgarismoGrid(track.Pular));
+            item.SubItems.Add(AlgarismoGrid(track.Pulado));
 
             // --- LÃƒâ€œGICA DE DESTAQUE (VERDE) ---
             // Verifica se esta linha corresponde ÃƒÂ  mÃƒÂºsica que estÃƒÂ¡ tocando agora
@@ -3301,26 +3408,16 @@ namespace XP3.Forms
             e.Item = item;
         }        
 
+        private string AlgarismoGrid(int valor)
+        {
+            if (valor < 0) return "0";
+            if (valor > 9) return "9";
+            return valor.ToString();
+        }
+
         #endregion
 
         #region Menu
-
-        private void ConfigurarMenuDeContexto()
-        {
-            // 1. Cria o Menu e o Item
-            _ctxMenuGrid = new ContextMenuStrip();
-
-            ToolStripMenuItem itemLista = new ToolStripMenuItem("Lista");
-
-            // 2. Define o que acontece ao clicar em "Lista"
-            //itemLista.Click += (s, e) => AbrirGerenciadorDeListas();
-
-            // Adiciona o item ao menu
-            _ctxMenuGrid.Items.Add(itemLista);
-
-            // 3. Associa o evento de clique do mouse na Grid
-            lvTracks.MouseClick += LvTracks_MouseClick;
-        }
 
         private void AtualizarContadorDeMusicas()
         {
@@ -3366,16 +3463,13 @@ namespace XP3.Forms
             if (EstaMarcadaParaRetirarDepoisDeTocar(track))
             {
                 _tracksMarcadasParaRemover.Remove(track.Id);
-                _itemRetirarDepoisDeTocar.Checked = false;
                 lblStatus.Text = $"Remoção automática cancelada: {track.Title}";
                 lblStatus.ForeColor = Color.Silver;
             }
             else
             {
                 _tracksMarcadasParaApagar.Remove(track.Id);
-                _itemApagarDepoisDeTocar.Checked = false;
                 _tracksMarcadasParaRemover[track.Id] = _currentPlaylistId;
-                _itemRetirarDepoisDeTocar.Checked = true;
                 lblStatus.Text = $"Será retirada ao terminar: {track.Title}";
                 lblStatus.ForeColor = Color.Gold;
             }
@@ -3391,16 +3485,13 @@ namespace XP3.Forms
             if (EstaMarcadaParaApagarDepoisDeTocar(track))
             {
                 _tracksMarcadasParaApagar.Remove(track.Id);
-                _itemApagarDepoisDeTocar.Checked = false;
                 lblStatus.Text = $"Apagar automático cancelado: {track.Title}";
                 lblStatus.ForeColor = Color.Silver;
             }
             else
             {
                 _tracksMarcadasParaRemover.Remove(track.Id);
-                _itemRetirarDepoisDeTocar.Checked = false;
                 _tracksMarcadasParaApagar[track.Id] = _currentPlaylistId;
-                _itemApagarDepoisDeTocar.Checked = true;
                 lblStatus.Text = $"Será apagada ao terminar: {track.Title}";
                 lblStatus.ForeColor = Color.IndianRed;
             }
@@ -3682,6 +3773,7 @@ namespace XP3.Forms
 
             // 2. Atualiza o visual do botÃƒÂ£o (Texto e Cor)
             AtualizarVisualBotaoAuto();
+            AtualizarIndicadorProximaProgramacao();
         }
 
         private void AtualizarVisualBotaoAuto()
@@ -3731,6 +3823,7 @@ namespace XP3.Forms
         {
             XP3.Programacao frm = new XP3.Programacao();
             frm.ShowDialog();
+            AtualizarIndicadorProximaProgramacao();
         }
 
         private void btnNext_Click(object sender, EventArgs e)
