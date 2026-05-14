@@ -201,9 +201,14 @@ namespace XP3.Services
 
         public void Play(int index)
         {
+            Play(index, false);
+        }
+
+        public void Play(int index, bool ignorarBloqueio24Horas)
+        {
             if (_playlist == null || _playlist.Count == 0) return;
 
-            if (!TryEncontrarFaixaTocavel(index, out int indiceTocavel, out Track track, out string motivo))
+            if (!TryEncontrarFaixaTocavel(index, ignorarBloqueio24Horas, out int indiceTocavel, out Track track, out string motivo))
             {
                 GravarLog(motivo);
                 Stop();
@@ -475,7 +480,7 @@ namespace XP3.Services
             catch { }
         }
 
-        private bool TryEncontrarFaixaTocavel(int indiceInicial, out int indiceTocavel, out Track track, out string motivo)
+        private bool TryEncontrarFaixaTocavel(int indiceInicial, bool ignorarBloqueio24Horas, out int indiceTocavel, out Track track, out string motivo)
         {
             indiceTocavel = -1;
             track = null;
@@ -511,6 +516,12 @@ namespace XP3.Services
                     continue;
                 }
 
+                if (!ignorarBloqueio24Horas && faixa.LastPlayedAt.HasValue && faixa.LastPlayedAt.Value > DateTime.Now.AddHours(-24))
+                {
+                    GravarLog($"[AUDIO] Faixa tocada ha menos de 24h ignorada: {faixa.Title}");
+                    continue;
+                }
+
                 indiceTocavel = candidato;
                 track = faixa;
                 return true;
@@ -522,7 +533,7 @@ namespace XP3.Services
 
         private void TocarProximaFaixaValida(int indiceInicial)
         {
-            if (TryEncontrarFaixaTocavel(indiceInicial, out int indiceTocavel, out _, out string motivo))
+            if (TryEncontrarFaixaTocavel(indiceInicial, false, out int indiceTocavel, out _, out string motivo))
             {
                 Play(indiceTocavel);
                 return;

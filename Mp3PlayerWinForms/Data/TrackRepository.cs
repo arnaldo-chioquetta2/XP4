@@ -17,9 +17,11 @@ namespace XP3.Data
         private static bool _equalizacaoBandasChecked = false;
         private static bool _filePathCompatibilityColumnChecked = false;
         private static bool _prefetsTableChecked = false;
+        private static bool _tocadoEmGColumnChecked = false;
 
         public TrackRepository()
         {
+            EnsureTocadoEmGColumn();
             EnsureEqualizacaoColumn();
             EnsureEqualizacaoAtivaColumn();
             EnsureEqualizacaoBandasColumns();
@@ -216,9 +218,10 @@ namespace XP3.Data
                     bool usarOrdenacaoOriginal = (!config.ProgramacaoAtiva && nomeLista.ToUpper() == "AESCOLHER");
                     intercalarMenosEMaisTocadas = !usarOrdenacaoOriginal;
                     DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
+                    DateTime limiteRepeticao = DateTime.Now.AddHours(-24);
 
                     // 2. ATUALIZAMOS O SELECT: IncluÃ­mos m.CutIni e m.CutFim no final
-                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado";
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.TocadoEmG";
                     string sql;
 
                     if (usarOrdenacaoOriginal)
@@ -226,7 +229,8 @@ namespace XP3.Data
                         sql = $@"SELECT {colunas} FROM Musica m 
                         LEFT JOIN Banda b ON m.Banda = b.ID 
                         JOIN LisMus lm ON m.ID = lm.Musica 
-                        WHERE lm.Lista = @listaId 
+                        WHERE lm.Lista = @listaId
+                        AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
                         GROUP BY m.ID ORDER BY b.Nome ASC, m.Nome ASC";
                     }
                     else
@@ -236,6 +240,7 @@ namespace XP3.Data
                         LEFT JOIN Banda b ON m.Banda = b.ID 
                         JOIN LisMus lm ON m.ID = lm.Musica 
                         WHERE lm.Lista = @listaId {filtroTempo}
+                        AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
                         AND (COALESCE(m.Pular, 0) = 0 OR COALESCE(m.Pular, 0) = COALESCE(m.Pulado, 0))
                         GROUP BY m.ID ORDER BY m.vez ASC, m.TocadoEmG ASC";
                     }
@@ -245,6 +250,7 @@ namespace XP3.Data
                         cmd.CommandText = sql;
                         cmd.Parameters.AddWithValue("@listaId", playlistId);
                         if (sql.Contains("@dataLimite")) cmd.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@limiteRepeticao", limiteRepeticao.ToString("yyyy-MM-dd HH:mm:ss"));
 
                         using (var reader = cmd.ExecuteReader())
                         {
@@ -274,6 +280,7 @@ namespace XP3.Data
                                 t.Vez = Convert.ToInt32(reader["Vez"]);
                                 t.Pular = Convert.ToInt32(reader["Pular"]);
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
+                                t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
 
                                 tracks.Add(t);
                             }
@@ -593,10 +600,11 @@ namespace XP3.Data
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
-                string sql = "Update Musica Set vez = vez + 1 where ID = @ID";
+                string sql = "Update Musica Set vez = COALESCE(vez, 0) + 1, TocadoEmG = @TocadoEmG where ID = @ID";
                 using (var command = new SQLiteCommand(sql, connection))
                 {
                     command.Parameters.AddWithValue("@ID", id);
+                    command.Parameters.AddWithValue("@TocadoEmG", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                     command.ExecuteNonQuery();
                 }
             }
@@ -1182,6 +1190,25 @@ namespace XP3.Data
             _filePathCompatibilityColumnChecked = true;
         }
 
+        private void EnsureTocadoEmGColumn()
+        {
+            if (_tocadoEmGColumnChecked) return;
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                if (!ColumnExists(conn, "Musica", "TocadoEmG"))
+                {
+                    using (var alterCmd = new SQLiteCommand("ALTER TABLE Musica ADD COLUMN TocadoEmG TEXT NULL", conn))
+                    {
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+            }
+
+            _tocadoEmGColumnChecked = true;
+        }
+
         private static int[] LerBandasMusica(SQLiteDataReader reader, int startIndex)
         {
             var bandas = EqualizerPreset.CreateFlatBands();
@@ -1207,6 +1234,13 @@ namespace XP3.Data
             }
 
             return normalizado;
+        }
+
+        private static DateTime? LerDataHora(object valor)
+        {
+            if (valor == null || valor == DBNull.Value) return null;
+            if (DateTime.TryParse(valor.ToString(), out DateTime data)) return data;
+            return null;
         }
 
         private void EnsurePrefetsTable()
@@ -1326,7 +1360,7 @@ namespace XP3.Data
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
-                string sql = "UPDATE Musica SET Pular = COALESCE(Pular, 0) + 10 WHERE ID = @Id";
+                string sql = "UPDATE Musica SET Pular = COALESCE(Pular, 0) + 1 WHERE ID = @Id";
                 using (var command = new SQLiteCommand(sql, connection))
                 {
                     command.Parameters.AddWithValue("@Id", trackId);

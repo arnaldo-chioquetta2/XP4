@@ -33,6 +33,7 @@ namespace XP3.Forms
         private readonly Dictionary<int, int> _tracksMarcadasParaRemover = new Dictionary<int, int>();
         private readonly Dictionary<int, int> _tracksMarcadasParaApagar = new Dictionary<int, int>();
         private int? _trackFinalizadaNaturalmenteId;
+        private bool _marcarMusicaAnteriorNaTroca;
 
         // Mantenha apenas UMA declaraÃƒÂ§ÃƒÂ£o aqui.
         private SpectrumControl spectrum;
@@ -762,7 +763,7 @@ namespace XP3.Forms
                     int index = lvTracks.SelectedIndices[0];
                     try
                     {
-                        _player.Play(index);
+                        _player.Play(index, true);
                     }
                     catch (Exception)
                     {
@@ -1445,14 +1446,9 @@ namespace XP3.Forms
             // 4. Atualiza a memÃƒÂ³ria para a tela nÃƒÂ£o ficar "mentindo"
             track.Pular += 1;
 
-            // 5. Feedback visual e inteligÃƒÂªncia de pulo
+            // 5. Feedback visual sem interromper a musica atual
             lblStatus.Text = $"Penalidade aplicada: {track.Title} tocarÃƒÂ¡ menos.";
             lblStatus.ForeColor = Color.Orange;
-
-            if (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
-            {
-                _player.Next(); // Se ÃƒÂ© a que estÃƒÂ¡ tocando agora, jÃƒÂ¡ pula
-            }
 
             // 6. Atualiza a lista na tela
             lvTracks.Refresh();
@@ -1475,7 +1471,16 @@ namespace XP3.Forms
                 // 1. LIMPEZA E LÃƒâ€œGICA DA MÃƒÅ¡SICA ANTERIOR (RepositÃƒÂ³rio / AEscolher)
                 if (_musicaAnterior != null)
                 {
-                    _trackRepo.Tocou(_musicaAnterior.Id);
+                    bool deveMarcarComoTocada = _marcarMusicaAnteriorNaTroca
+                        || _trackFinalizadaNaturalmenteId == _musicaAnterior.Id;
+
+                    if (deveMarcarComoTocada)
+                    {
+                        _trackRepo.Tocou(_musicaAnterior.Id);
+                        _musicaAnterior.Vez++;
+                        _musicaAnterior.LastPlayedAt = DateTime.Now;
+                    }
+
                     bool removeuDaListaDepoisDeTocar = false;
 
                     if (_trackFinalizadaNaturalmenteId == _musicaAnterior.Id)
@@ -1485,6 +1490,8 @@ namespace XP3.Forms
                         removeuDaListaDepoisDeTocar = removeuDaLista || apagouDepoisDeTocar;
                         _trackFinalizadaNaturalmenteId = null;
                     }
+
+                    _marcarMusicaAnteriorNaTroca = false;
 
                     if (!removeuDaListaDepoisDeTocar
                         && lblPlaylistTitle.Text.Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
@@ -2848,6 +2855,7 @@ namespace XP3.Forms
                 if (trackAtual.CutFim > 0 && posicaoAtual >= trackAtual.CutFim)
                 {
                     _trackFinalizadaNaturalmenteId = trackAtual.Id;
+                    _marcarMusicaAnteriorNaTroca = true;
                     if (_proximaListaPendenteId > 0) TrocarListaAgendada();
                     else _player.Next();
                     return;
@@ -3851,6 +3859,7 @@ namespace XP3.Forms
             }
 
             // 4. Segue para a prÃƒÂ³xima mÃƒÂºsica normalmente
+            _marcarMusicaAnteriorNaTroca = true;
             _player.Next();
         }
 
