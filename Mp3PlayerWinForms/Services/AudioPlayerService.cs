@@ -27,7 +27,7 @@ namespace XP3.Services
         private EqualizerSampleProvider _equalizerProvider;
         private List<Track> _playlist;
         private int _currentIndex = -1;
-        private bool _avancandoAutomaticamente;
+        private bool _isNextCallInitiated = false;
 
         public event EventHandler<Track> TrackChanged;
         public event EventHandler<Track> TrackFinishedNaturally;
@@ -394,6 +394,14 @@ namespace XP3.Services
         public void Next()
         {
             if (_playlist == null || _playlist.Count == 0) return;
+            _isNextCallInitiated = true;
+
+            if (_waveOut != null)
+            {
+                _waveOut.Stop();
+                return;
+            }
+
             TocarProximaFaixaValida(_currentIndex + 1);
         }
 
@@ -411,17 +419,24 @@ namespace XP3.Services
                     return;
                 }
 
-                if (_avancandoAutomaticamente)
-                {
-                    GravarLog("Ignorando PlaybackStopped reentrante.");
-                    return;
-                }
-
-                _avancandoAutomaticamente = true;
                 var faixaFinalizada = CurrentTrack;
-                if (faixaFinalizada != null)
+                bool finishedNaturally = false;
+
+                if (faixaFinalizada != null && _audioFile != null)
                 {
-                    NotificarTrackFinishedNaturally(faixaFinalizada);
+                    TimeSpan intendedEndTime = faixaFinalizada.CutFim > 0
+                        ? TimeSpan.FromSeconds(faixaFinalizada.CutFim)
+                        : _audioFile.TotalTime;
+
+                    finishedNaturally = Math.Abs((_audioFile.CurrentTime - intendedEndTime).TotalSeconds) <= 1;
+
+                    if (finishedNaturally || _isNextCallInitiated)
+                    {
+                        DateTime playedAt = DateTime.Now;
+                        _trackRepo.AtualizarUltimaReproducao(faixaFinalizada.Id, playedAt);
+                        faixaFinalizada.LastPlayedAt = playedAt;
+                        NotificarTrackFinishedNaturally(faixaFinalizada);
+                    }
                 }
 
                 // GATILHO DA PROGRAMAÇÃO (Requisito 2.1)
@@ -469,7 +484,7 @@ namespace XP3.Services
             }
             finally
             {
-                _avancandoAutomaticamente = false;
+                _isNextCallInitiated = false;
             }
         }
 

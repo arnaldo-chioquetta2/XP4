@@ -597,14 +597,19 @@ namespace XP3.Data
 
         public void Tocou(int id)
         {
+            AtualizarUltimaReproducao(id, DateTime.Now);
+        }
+
+        public void AtualizarUltimaReproducao(int trackId, DateTime playedAt)
+        {
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
                 string sql = "Update Musica Set vez = COALESCE(vez, 0) + 1, TocadoEmG = @TocadoEmG where ID = @ID";
                 using (var command = new SQLiteCommand(sql, connection))
                 {
-                    command.Parameters.AddWithValue("@ID", id);
-                    command.Parameters.AddWithValue("@TocadoEmG", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    command.Parameters.AddWithValue("@ID", trackId);
+                    command.Parameters.AddWithValue("@TocadoEmG", playedAt.ToString("yyyy-MM-dd HH:mm:ss"));
                     command.ExecuteNonQuery();
                 }
             }
