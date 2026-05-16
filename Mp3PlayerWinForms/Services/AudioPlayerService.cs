@@ -1,4 +1,4 @@
-﻿using Mp3PlayerWinForms.Services;
+using Mp3PlayerWinForms.Services;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System;
@@ -65,6 +65,11 @@ namespace XP3.Services
         // Limiar de silêncio: 0.01f costuma ser excelente para ignorar chiados e 
         // detectar o início real da música.
         private const float SilenceThreshold = 0.01f;
+
+        // --- NOVIDADE: Variáveis de controle de agendamento ---
+        private DateTime _lastProgrammedPlaylistCheckHour = DateTime.MinValue;
+        private bool _userOverriddenProgrammedPlaylist = false;
+        // ----------------------------------------------------
 
         //public event Action<string> OnStatusCueChanged;
 
@@ -199,14 +204,17 @@ namespace XP3.Services
             return -1;
         }
 
-        public void Play(int index)
-        {
-            Play(index, false);
-        }
+        public void Play(int index) => Play(index, false, false); // Atualizar esta linha
 
-        public void Play(int index, bool ignorarBloqueio24Horas)
+        public void Play(int index, bool ignorarBloqueio24Horas = false, bool isUserInitiated = false) // Modificar esta linha
         {
             if (_playlist == null || _playlist.Count == 0) return;
+
+            if (isUserInitiated)
+            {
+                _userOverriddenProgrammedPlaylist = true;
+                GravarLog("[PLAYER] Usuário iniciou playback. Programação automática temporariamente desativada.");
+            }
 
             if (!TryEncontrarFaixaTocavel(index, ignorarBloqueio24Horas, out int indiceTocavel, out Track track, out string motivo))
             {
@@ -419,21 +427,40 @@ namespace XP3.Services
                 // GATILHO DA PROGRAMAÇÃO (Requisito 2.1)
                 if (_programacaoAtiva)
                 {
+                    // Obter a hora de início da hora atual
+                    DateTime currentHourStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, DateTime.Now.Hour, 0, 0);
+
+                    // Se a hora atual é diferente da última verificação, resetar o override do usuário
+                    if (currentHourStart > _lastProgrammedPlaylistCheckHour)
+                    {
+                        _userOverriddenProgrammedPlaylist = false;
+                        _lastProgrammedPlaylistCheckHour = currentHourStart;
+                        GravarLog($"[AGENDADOR] Nova hora ({currentHourStart:HH}) detectada. Resetando override do usuário.");
+                    }
+
                     var todasProgramacoes = _progRepo.ListarProgramacao();
                     int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
 
-                    // Se o agendamento diz que devemos estar em uma playlist DIFERENTE da atual
-                    if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId)
+                    // Se existe uma playlist programada e ela é diferente da atual E o usuário NÃO sobrepôs a programação
+                    if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId && !_userOverriddenProgrammedPlaylist)
                     {
-                        GravarLog($"[AGENDADOR] Mudança detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
+                        GravarLog($"[AGENDADOR] Mudança programada detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
                         NotificarTrocaPlaylist(idPlaylistProgramada.Value);
                         return;
                     }
+                    else if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value == CurrentPlaylistId)
+                    {
+                        GravarLog($"[AGENDADOR] Playlist programada já é a atual ({CurrentPlaylistId}). Nenhuma ação necessária.");
+                    }
+                    else if (_userOverriddenProgrammedPlaylist)
+                    {
+                        GravarLog($"[AGENDADOR] Mudança programada ignorada. Usuário sobrepôs a programação.");
+                    }
                 }
 
-                // Fluxo normal caso não haja troca agendada
-                if (_playlist != null && _currentIndex < _playlist.Count - 1) Next();
-                else if (_playlist != null && _currentIndex >= _playlist.Count - 1) Play(0);
+                // Fluxo normal caso não haja troca agendada ou override
+                // Substituir o if/else por TocarProximaFaixaValida para manter isUserInitiated=false
+                TocarProximaFaixaValida(_currentIndex + 1);
             }
             catch (Exception ex)
             {
@@ -535,7 +562,8 @@ namespace XP3.Services
         {
             if (TryEncontrarFaixaTocavel(indiceInicial, false, out int indiceTocavel, out _, out string motivo))
             {
-                Play(indiceTocavel);
+                // Alterar esta linha para passar isUserInitiated = false (valor padrão)
+                Play(indiceTocavel, false, false);
                 return;
             }
 
