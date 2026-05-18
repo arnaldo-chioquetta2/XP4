@@ -67,7 +67,7 @@ namespace XP3.Services
         private const float SilenceThreshold = 0.01f;
 
         // --- NOVIDADE: Variáveis de controle de agendamento ---
-        private DateTime _lastProgrammedPlaylistCheckHour = DateTime.MinValue;
+        private int? _lastKnownScheduledPlaylistId = null;
         private bool _userOverriddenProgrammedPlaylist = false;
         // ----------------------------------------------------
 
@@ -138,6 +138,7 @@ namespace XP3.Services
 
             var todasProgramacoes = _progRepo.ListarProgramacao();
             int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
+            _lastKnownScheduledPlaylistId = idPlaylistProgramada;
 
             // Se existe uma lista ideal para agora, e ela for diferente da que está aberta
             if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId)
@@ -204,7 +205,7 @@ namespace XP3.Services
             return -1;
         }
 
-        public void Play(int index) => Play(index, false, false); // Atualizar esta linha
+        public void Play(int index) => Play(index, false, true); // Atualizar esta linha
 
         public void Play(int index, bool ignorarBloqueio24Horas = false, bool isUserInitiated = false) // Modificar esta linha
         {
@@ -442,35 +443,53 @@ namespace XP3.Services
                 // GATILHO DA PROGRAMAÇÃO (Requisito 2.1)
                 if (_programacaoAtiva)
                 {
-                    // Obter a hora de início da hora atual
-                    DateTime currentHourStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, DateTime.Now.Hour, 0, 0);
-
-                    // Se a hora atual é diferente da última verificação, resetar o override do usuário
-                    if (currentHourStart > _lastProgrammedPlaylistCheckHour)
-                    {
-                        _userOverriddenProgrammedPlaylist = false;
-                        _lastProgrammedPlaylistCheckHour = currentHourStart;
-                        GravarLog($"[AGENDADOR] Nova hora ({currentHourStart:HH}) detectada. Resetando override do usuário.");
-                    }
-
                     var todasProgramacoes = _progRepo.ListarProgramacao();
                     int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
 
-                    // Se existe uma playlist programada e ela é diferente da atual E o usuário NÃO sobrepôs a programação
-                    if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value != CurrentPlaylistId && !_userOverriddenProgrammedPlaylist)
+           // Lógica para resetar override do usuário e atualizar o último ID de playlist agendada conhecida
+                    if (idPlaylistProgramada.HasValue)
                     {
-                        GravarLog($"[AGENDADOR] Mudança programada detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
-                        NotificarTrocaPlaylist(idPlaylistProgramada.Value);
-                        return;
+                        if (!_lastKnownScheduledPlaylistId.HasValue || idPlaylistProgramada.Value != _lastKnownScheduledPlaylistId.Value)
+                        {
+                            _userOverriddenProgrammedPlaylist = false; // A playlist agendada mudou, resetar override
+                            _lastKnownScheduledPlaylistId = idPlaylistProgramada.Value;
+                            GravarLog($"[AGENDADOR] Playlist agendada mudou para {idPlaylistProgramada.Value}. Override de usuário resetado.");
+                        }
                     }
-                    else if (idPlaylistProgramada.HasValue && idPlaylistProgramada.Value == CurrentPlaylistId)
+                    else // Não há playlist programada para o horário atual
                     {
-                        GravarLog($"[AGENDADOR] Playlist programada já é a atual ({CurrentPlaylistId}). Nenhuma ação necessária.");
+                        if (_lastKnownScheduledPlaylistId.HasValue) // Se havia uma playlist programada antes, mas agora não há
+                        {
+                            _userOverriddenProgrammedPlaylist = false; // Resetar override
+                            _lastKnownScheduledPlaylistId = null; // Limpar o último ID de playlist agendada conhecida
+                            GravarLog($"[AGENDADOR] Nenhuma playlist programada detectada. Override de usuário resetado.");
+                        }
+                    }
+
+                    // Lógica para decidir se deve haver uma troca programada
+                    if (idPlaylistProgramada.HasValue && !_userOverriddenProgrammedPlaylist)
+                    {
+                        // Existe uma playlist programada e o usuário NÃO a sobrepôs (ou a sobreposição foi resetada)
+                        // Agora, verificamos se a playlist programada é diferente da que está tocando no momento
+                        if (idPlaylistProgramada.Value != CurrentPlaylistId)
+                        {
+                            GravarLog($"[AGENDADOR] Mudança programada detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
+                            NotificarTrocaPlaylist(idPlaylistProgramada.Value);
+                            return; // Sai após agendar a troca
+                        }
+                        else
+                        {
+                            GravarLog($"[AGENDADOR] Playlist programada já é a atual ({CurrentPlaylistId}). Nenhuma ação necessária.");
+                        }
                     }
                     else if (_userOverriddenProgrammedPlaylist)
                     {
+                        // Existe uma playlist programada, mas o usuário a sobrepôs manualmente.
+                        // A programação será ignorada até que um novo bloco programado inicie.
                         GravarLog($"[AGENDADOR] Mudança programada ignorada. Usuário sobrepôs a programação.");
                     }
+                    // Se idPlaylistProgramada.HasValue é false, não há playlist programada para o horário, então nenhuma ação é necessária aqui.
+                    // O fluxo continua para TocarProximaFaixaValida.
                 }
 
                 // Fluxo normal caso não haja troca agendada ou override
