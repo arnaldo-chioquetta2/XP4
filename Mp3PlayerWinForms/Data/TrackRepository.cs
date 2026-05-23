@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using XP3.Models;
 using XP3.Services;
 
@@ -299,27 +300,80 @@ namespace XP3.Data
         private List<Track> IntercalarMenosEMaisTocadas(List<Track> tracksOrdenadasPorMenosTocadas)
         {
             var resultado = new List<Track>(tracksOrdenadasPorMenosTocadas.Count);
-            int inicio = 0;
-            int fim = tracksOrdenadasPorMenosTocadas.Count - 1;
+            if (tracksOrdenadasPorMenosTocadas == null || tracksOrdenadasPorMenosTocadas.Count == 0)
+            {
+                return resultado;
+            }
+
+            var idsUsados = new HashSet<int>();
+            var maisTocadas = tracksOrdenadasPorMenosTocadas
+                .OrderByDescending(t => t.Vez)
+                .ThenByDescending(t => t.LastPlayedAt ?? DateTime.MinValue)
+                .ThenByDescending(t => t.Id)
+                .ToList();
+
+            int indiceMenosTocada = 0;
+            int indiceAlternativa = maisTocadas.Count / 2;
             int etapa = 0;
 
-            while (inicio <= fim)
+            while (resultado.Count < tracksOrdenadasPorMenosTocadas.Count)
             {
                 if (etapa == 1)
                 {
-                    resultado.Add(tracksOrdenadasPorMenosTocadas[fim]);
-                    fim--;
+                    Track alternativa = ObterProximaAlternativa(maisTocadas, idsUsados, ref indiceAlternativa);
+                    if (alternativa != null)
+                    {
+                        resultado.Add(alternativa);
+                        idsUsados.Add(alternativa.Id);
+                    }
                 }
                 else
                 {
-                    resultado.Add(tracksOrdenadasPorMenosTocadas[inicio]);
-                    inicio++;
+                    Track menosTocada = ObterProximaMenosTocada(tracksOrdenadasPorMenosTocadas, idsUsados, ref indiceMenosTocada);
+                    if (menosTocada != null)
+                    {
+                        resultado.Add(menosTocada);
+                        idsUsados.Add(menosTocada.Id);
+                    }
                 }
 
                 etapa = (etapa + 1) % 3;
+
+                if (idsUsados.Count >= tracksOrdenadasPorMenosTocadas.Count)
+                {
+                    break;
+                }
             }
 
             return resultado;
+        }
+
+        private Track ObterProximaMenosTocada(List<Track> menosTocadas, HashSet<int> idsUsados, ref int indice)
+        {
+            while (indice < menosTocadas.Count)
+            {
+                Track track = menosTocadas[indice++];
+                if (track != null && !idsUsados.Contains(track.Id))
+                {
+                    return track;
+                }
+            }
+
+            return null;
+        }
+
+        private Track ObterProximaAlternativa(List<Track> maisTocadas, HashSet<int> idsUsados, ref int indice)
+        {
+            while (indice >= 0)
+            {
+                Track track = maisTocadas[indice--];
+                if (track != null && !idsUsados.Contains(track.Id))
+                {
+                    return track;
+                }
+            }
+
+            return null;
         }
 
         // Dentro do seu arquivo TrackRepository.cs
