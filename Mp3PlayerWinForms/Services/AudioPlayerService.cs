@@ -28,6 +28,7 @@ namespace XP3.Services
         private List<Track> _playlist;
         private int _currentIndex = -1;
         private bool _isNextCallInitiated = false;
+        private bool _handlingPlaybackStopped = false;
 
         public event EventHandler<Track> TrackChanged;
         public event EventHandler<Track> TrackFinishedNaturally;
@@ -50,10 +51,10 @@ namespace XP3.Services
         public TimeSpan CurrentTime => _audioFile?.CurrentTime ?? TimeSpan.Zero;
         public TimeSpan TotalTime => _audioFile?.TotalTime ?? TimeSpan.Zero;
         public bool IsPlaying => _waveOut?.PlaybackState == PlaybackState.Playing;
-        public Track CurrentTrack => (_currentIndex >= 0 && _currentIndex < _playlist.Count) ? _playlist[_currentIndex] : null;
+        public Track CurrentTrack => (_playlist != null && _currentIndex >= 0 && _currentIndex < _playlist.Count) ? _playlist[_currentIndex] : null;
 
         private void _mediaPlayer_MediaEnded(object sender, EventArgs e) => Next();
-        public void SetPlaylist(List<Track> tracks) => _playlist = tracks;
+        public void SetPlaylist(List<Track> tracks) => _playlist = tracks ?? new List<Track>();
 
         private readonly ProgrammingService _progService = new ProgrammingService();
 
@@ -209,7 +210,13 @@ namespace XP3.Services
 
         public void Play(int index, bool ignorarBloqueio24Horas = false, bool isUserInitiated = false) // Modificar esta linha
         {
-            if (_playlist == null || _playlist.Count == 0) return;
+            GravarLog($"[PLAY] Solicitado index={index}; ignorar24h={ignorarBloqueio24Horas}; usuario={isUserInitiated}; playlistCount={_playlist?.Count ?? 0}; currentIndex={_currentIndex}");
+
+            if (_playlist == null || _playlist.Count == 0)
+            {
+                GravarLog("[PLAY] Ignorado: playlist vazia ou nula.");
+                return;
+            }
 
             if (isUserInitiated)
             {
@@ -225,6 +232,7 @@ namespace XP3.Services
                 return;
             }
 
+            GravarLog($"[PLAY] Faixa selecionada indexReal={indiceTocavel}; ID={track.Id}; Titulo={track.Title}; Arquivo={track.FilePath}");
             Stop();
             _currentIndex = indiceTocavel;
 
@@ -318,6 +326,7 @@ namespace XP3.Services
                 GravarLog("Playback Iniciado.");
 
                 NotificarTrackChanged(track);
+                GravarLog($"[PLAY] TrackChanged notificado: ID={track.Id}; Posicao={_audioFile?.CurrentTime}; Total={_audioFile?.TotalTime}");
             }
             catch (Exception ex)
             {
@@ -346,6 +355,7 @@ namespace XP3.Services
         {
             try
             {
+                GravarLog($"[STOP] Solicitado; waveOutState={_waveOut?.PlaybackState.ToString() ?? "null"}; audioFile={_audioFile?.GetType().Name ?? "null"}");
                 if (_waveOut != null)
                 {
                     _waveOut.PlaybackStopped -= OnPlaybackStopped;
@@ -360,6 +370,7 @@ namespace XP3.Services
                 }
                 _equalizerProvider = null;
                 _volumeProvider = null;
+                GravarLog("[STOP] Concluido.");
             }
             catch (Exception ex)
             {
@@ -394,7 +405,12 @@ namespace XP3.Services
 
         public void Next()
         {
-            if (_playlist == null || _playlist.Count == 0) return;
+            GravarLog($"[NEXT] Solicitado; playlistCount={_playlist?.Count ?? 0}; currentIndex={_currentIndex}; waveOutState={_waveOut?.PlaybackState.ToString() ?? "null"}");
+            if (_playlist == null || _playlist.Count == 0)
+            {
+                GravarLog("[NEXT] Ignorado: playlist vazia ou nula.");
+                return;
+            }
             _isNextCallInitiated = true;
 
             if (_waveOut != null)
@@ -413,10 +429,21 @@ namespace XP3.Services
         {
             try
             {
+                GravarLog($"[STOPPED] Entrou; handling={_handlingPlaybackStopped}; next={_isNextCallInitiated}; currentIndex={_currentIndex}; exception={e.Exception?.Message ?? "null"}");
+
+                if (_handlingPlaybackStopped)
+                {
+                    GravarLog("Ignorando PlaybackStopped reentrante.");
+                    return;
+                }
+
+                _handlingPlaybackStopped = true;
+
                 if (e.Exception != null)
                 {
                     GravarLog($"Parada com erro: {e.Exception.Message}");
                     NotificarPlaybackError(CurrentTrack, $"Erro no audio: {e.Exception.Message}");
+                    _handlingPlaybackStopped = false;
                     return;
                 }
 
@@ -430,6 +457,7 @@ namespace XP3.Services
                         : _audioFile.TotalTime;
 
                     finishedNaturally = Math.Abs((_audioFile.CurrentTime - intendedEndTime).TotalSeconds) <= 1;
+                    GravarLog($"[STOPPED] Faixa={faixaFinalizada.Id}; atual={_audioFile.CurrentTime}; fimPrevisto={intendedEndTime}; natural={finishedNaturally}; next={_isNextCallInitiated}");
 
                     if (finishedNaturally || _isNextCallInitiated)
                     {
@@ -475,6 +503,7 @@ namespace XP3.Services
                         {
                             GravarLog($"[AGENDADOR] Mudança programada detectada: Saindo de {CurrentPlaylistId} para {idPlaylistProgramada.Value}");
                             NotificarTrocaPlaylist(idPlaylistProgramada.Value);
+                            _handlingPlaybackStopped = false;
                             return; // Sai após agendar a troca
                         }
                         else
@@ -494,17 +523,41 @@ namespace XP3.Services
 
                 // Fluxo normal caso não haja troca agendada ou override
                 // Substituir o if/else por TocarProximaFaixaValida para manter isUserInitiated=false
-                TocarProximaFaixaValida(_currentIndex + 1);
+                TocarProximaFaixaValidaComSeguranca(_currentIndex + 1);
             }
             catch (Exception ex)
             {
                 GravarLog($"Erro em OnPlaybackStopped: {ex.Message}\n{ex.StackTrace}");
                 NotificarPlaybackError(CurrentTrack, $"Erro ao trocar musica: {ex.Message}");
+                _handlingPlaybackStopped = false;
             }
             finally
             {
                 _isNextCallInitiated = false;
+                GravarLog("[STOPPED] Saiu do callback.");
             }
+        }
+
+        private void TocarProximaFaixaValidaComSeguranca(int indiceInicial)
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(120).ConfigureAwait(false);
+                    GravarLog($"[NEXT_SAFE] Iniciando proxima a partir do indice {indiceInicial}.");
+                    TocarProximaFaixaValida(indiceInicial);
+                }
+                catch (Exception ex)
+                {
+                    GravarLog($"Erro ao iniciar proxima faixa com seguranca: {ex.Message}\n{ex.StackTrace}");
+                    NotificarPlaybackError(CurrentTrack, $"Erro ao iniciar proxima musica: {ex.Message}");
+                }
+                finally
+                {
+                    _handlingPlaybackStopped = false;
+                }
+            });
         }
 
         public void Dispose() => Stop();
@@ -546,6 +599,7 @@ namespace XP3.Services
             indiceTocavel = -1;
             track = null;
             motivo = string.Empty;
+            GravarLog($"[BUSCA] Procurando faixa tocavel a partir de {indiceInicial}; ignorar24h={ignorarBloqueio24Horas}");
 
             if (_playlist == null || _playlist.Count == 0)
             {
@@ -585,6 +639,7 @@ namespace XP3.Services
 
                 indiceTocavel = candidato;
                 track = faixa;
+                GravarLog($"[BUSCA] Faixa aceita index={candidato}; ID={faixa.Id}; Titulo={faixa.Title}");
                 return true;
             }
 

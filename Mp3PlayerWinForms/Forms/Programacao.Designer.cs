@@ -1,4 +1,4 @@
-﻿namespace XP3
+namespace XP3
 {
     partial class Programacao
     {
@@ -46,6 +46,7 @@
             // panel1
             // 
             this.panel1.AllowDrop = true;
+            this.panel1.AutoScroll = true;
             this.panel1.Location = new System.Drawing.Point(0, 25);
             this.panel1.Name = "panel1";
             this.panel1.Size = new System.Drawing.Size(200, 422);
@@ -75,6 +76,7 @@
             // panel2
             // 
             this.panel2.AllowDrop = true;
+            this.panel2.AutoScroll = true;
             this.panel2.Location = new System.Drawing.Point(206, 25);
             this.panel2.Name = "panel2";
             this.panel2.Size = new System.Drawing.Size(200, 422);
@@ -95,6 +97,7 @@
             // panel3
             // 
             this.panel3.AllowDrop = true;
+            this.panel3.AutoScroll = true;
             this.panel3.Location = new System.Drawing.Point(412, 25);
             this.panel3.Name = "panel3";
             this.panel3.Size = new System.Drawing.Size(200, 422);
@@ -115,6 +118,7 @@
             // panel4
             // 
             this.panel4.AllowDrop = true;
+            this.panel4.AutoScroll = true;
             this.panel4.Location = new System.Drawing.Point(618, 25);
             this.panel4.Name = "panel4";
             this.panel4.Size = new System.Drawing.Size(200, 422);
@@ -135,6 +139,7 @@
             // panel5
             // 
             this.panel5.AllowDrop = true;
+            this.panel5.AutoScroll = true;
             this.panel5.Location = new System.Drawing.Point(824, 25);
             this.panel5.Name = "panel5";
             this.panel5.Size = new System.Drawing.Size(200, 422);

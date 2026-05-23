@@ -19,12 +19,14 @@ namespace XP3.Forms
         {
             this.components = new System.ComponentModel.Container();
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Inicial));
-            this.colPular = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
-            this.colPulado = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.lvTracks = new System.Windows.Forms.ListView();
             this.colMusica = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.colBanda = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.colDuracao = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.colT = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.colP = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.colL = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.colUltimaVez = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.pnlControls = new System.Windows.Forms.Panel();
             this.lblStatusCue = new System.Windows.Forms.Label();
             this.btnScan = new System.Windows.Forms.Button();
@@ -43,27 +45,19 @@ namespace XP3.Forms
             this.pnlHeader.SuspendLayout();
             this.SuspendLayout();
             // 
-            // colPular
-            // 
-            this.colPular.Text = "";
-            this.colPular.Width = 25;
-            // 
-            // colPulado
-            // 
-            this.colPulado.Text = "";
-            this.colPulado.Width = 25;
-            // 
             // lvTracks
             // 
             this.lvTracks.AllowDrop = true;
             this.lvTracks.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(30)))), ((int)(((byte)(30)))));
             this.lvTracks.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.lvTracks.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
-            this.colMusica,
-            this.colBanda,
-            this.colDuracao,
-            this.colPular,
-            this.colPulado});
+    this.colMusica,
+    this.colBanda,
+    this.colDuracao,
+    this.colT,
+    this.colP,
+    this.colL,
+    this.colUltimaVez});
             this.lvTracks.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lvTracks.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.lvTracks.ForeColor = System.Drawing.Color.White;
@@ -90,6 +84,26 @@ namespace XP3.Forms
             // 
             this.colDuracao.Text = "Tempo";
             this.colDuracao.Width = 80;
+            // 
+            // colT
+            // 
+            this.colT.Text = "T";
+            this.colT.Width = 30;
+            // 
+            // colP
+            // 
+            this.colP.Text = "P";
+            this.colP.Width = 22;
+            // 
+            // colL
+            // 
+            this.colL.Text = "L";
+            this.colL.Width = 22;
+            // 
+            // colUltimaVez
+            // 
+            this.colUltimaVez.Text = "Última Vez";
+            this.colUltimaVez.Width = 135;
             // 
             // pnlControls
             // 
@@ -231,7 +245,6 @@ namespace XP3.Forms
             this.lblTempoAtual.TabIndex = 5;
             this.lblTempoAtual.Text = "00:00 / 00:00";
             this.lblTempoAtual.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
-            //this.lblTempoAtual.Click += new System.EventHandler(this.lblTempoAtual_Click);
             this.lblTempoAtual.MouseDown += new System.Windows.Forms.MouseEventHandler(this.lblTempoAtual_MouseDown);
             // 
             // lblTrackCount
@@ -284,6 +297,10 @@ namespace XP3.Forms
         private System.Windows.Forms.ColumnHeader colMusica;
         private System.Windows.Forms.ColumnHeader colBanda;
         private System.Windows.Forms.ColumnHeader colDuracao;
+        private System.Windows.Forms.ColumnHeader colT;
+        private System.Windows.Forms.ColumnHeader colP;
+        private System.Windows.Forms.ColumnHeader colL;
+        private System.Windows.Forms.ColumnHeader colUltimaVez;
         private System.Windows.Forms.Panel pnlControls;
         private System.Windows.Forms.Button btnNext;
         private System.Windows.Forms.Button btnPause;
@@ -296,10 +313,8 @@ namespace XP3.Forms
         private System.Windows.Forms.Timer timerProgresso;
         private System.Windows.Forms.Button button1;
         private System.Windows.Forms.CheckBox chkToggleProg;
-
-        private System.Windows.Forms.ColumnHeader colPular;
-        private System.Windows.Forms.ColumnHeader colPulado;
         private System.Windows.Forms.Label lblStatusCue;
         private System.Windows.Forms.Label lblTempoAtual;
+
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Drawing;
@@ -18,7 +18,7 @@ namespace XP3 // Atualizado para o namespace do novo projeto
         private string Tague = "";
         private object Cont;
         private BotaoSelec OBotaoSelec = null;
-        private int MaxAltura = 400;
+        private int MaxAltura = 1440;
 
         private ProgrammingRepository _progRepo;
 

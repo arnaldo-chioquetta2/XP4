@@ -214,6 +214,15 @@ namespace XP3.Forms
 
             SetupServices();
 
+            this.FormClosing += (s, e) =>
+            {
+                LogService.GravarInfo("Inicial.FormClosing", $"CloseReason={e.CloseReason}; Cancel={e.Cancel}");
+            };
+            this.FormClosed += (s, e) =>
+            {
+                LogService.GravarInfo("Inicial.FormClosed", $"CloseReason={e.CloseReason}");
+            };
+
             // Assinatura do evento de troca automática de playlist
             if (_player != null)
             {
@@ -2652,23 +2661,7 @@ namespace XP3.Forms
             {
                 lvTracks.Font = new Font("Segoe UI", tamanhoGrid, FontStyle.Regular);
 
-                // Ajuste dinÃƒÂ¢mico de colunas
-                int larguraTotal = lvTracks.ClientSize.Width - 25;
-
-                if (estaMaximizado)
-                {
-                    lvTracks.Columns[2].Width = 150; // Tempo maior
-                    int resto = larguraTotal - 150;
-                    lvTracks.Columns[0].Width = (int)(resto * 0.65);
-                    lvTracks.Columns[1].Width = (int)(resto * 0.35);
-                }
-                else
-                {
-                    lvTracks.Columns[2].Width = 70;
-                    int resto = larguraTotal - 70;
-                    lvTracks.Columns[0].Width = (int)(resto * 0.60);
-                    lvTracks.Columns[1].Width = (int)(resto * 0.40);
-                }
+                AjustarColunasGrid();
 
                 // Importante: No modo virtual, ÃƒÂ s vezes precisa forÃƒÂ§ar o refresh do layout
                 lvTracks.Refresh();
@@ -3049,22 +3042,36 @@ namespace XP3.Forms
         private void ConfigurarColunasGrid()
         {
             lvTracks.Columns.Clear();
+            lvTracks.Scrollable = true;
 
-            // MÃƒÂºsica: Ajustada para caber as novas colunas finais
             lvTracks.Columns.Add("MÃƒÂºsica", 350);
-
             lvTracks.Columns.Add("Banda", 190);
-
-            // Tempo: 70px, alinhado ÃƒÂ  direita
             lvTracks.Columns.Add("Tempo", 70, HorizontalAlignment.Right);
-
-            // Tocou / Pular / Pulado: largura para um algarismo
-            lvTracks.Columns.Add("T", 22, HorizontalAlignment.Center);
-
+            lvTracks.Columns.Add("T", 30, HorizontalAlignment.Center);
             lvTracks.Columns.Add("P", 22, HorizontalAlignment.Center);
-
             lvTracks.Columns.Add("L", 22, HorizontalAlignment.Center);
+            lvTracks.Columns.Add("Ultima vez", 135, HorizontalAlignment.Left);
+
+            AjustarColunasGrid();
         }
+
+        private void AjustarColunasGrid()
+        {
+            // Proteção básica para garantir que a grid e as 7 colunas existem
+            if (lvTracks == null || lvTracks.Columns.Count < 7) return;
+
+            // --- AJUSTE MANUAL DE LARGURA DAS COLUNAS (EM PIXELS) ---
+            // Vá alterando os valores numéricos abaixo até chegar no visual ideal.
+
+            lvTracks.Columns[0].Width = 340; // 310; // Coluna 0: Música
+            lvTracks.Columns[1].Width = 220; //  200; // Coluna 1: Banda
+            lvTracks.Columns[2].Width = 55;  // Coluna 2: Tempo
+            lvTracks.Columns[3].Width = 30;  // Coluna 3: T
+            lvTracks.Columns[4].Width = 25;  // Coluna 4: P
+            lvTracks.Columns[5].Width = 25;  // Coluna 5: L
+            lvTracks.Columns[6].Width = 135; // Coluna 6: Última Vez
+        }
+
         #endregion
 
         #region BotÃƒÂµes de aÃƒÂ§ÃƒÂ£o
@@ -3330,23 +3337,22 @@ namespace XP3.Forms
 
         private void lvTracks_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
-            // ProteÃƒÂ§ÃƒÂ£o bÃƒÂ¡sica se a lista estiver vazia ou ÃƒÂ­ndice invÃƒÂ¡lido
+            // Proteção básica se a lista estiver vazia ou índice inválido
             if (e.ItemIndex < 0 || e.ItemIndex >= _allTracks.Count) return;
 
             var track = _allTracks[e.ItemIndex];
 
-            // Cria o item da lista
-            ListViewItem item = new ListViewItem(track.Title);
-            item.SubItems.Add(track.BandName);
-            //item.SubItems.Add(track.Duration);
-            item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));
+            // --- PREENCHIMENTO DAS COLUNAS ---
+            ListViewItem item = new ListViewItem(track.Title);                 // Coluna 0: Música
+            item.SubItems.Add(track.BandName);                                 // Coluna 1: Banda
+            item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));             // Coluna 2: Tempo
+            item.SubItems.Add(AlgarismoGrid(track.Vez));                       // Coluna 3: T
+            item.SubItems.Add(AlgarismoGrid(track.Pular));                     // Coluna 4: P
+            item.SubItems.Add(AlgarismoGrid(track.Pulado));                    // Coluna 5: L
+            item.SubItems.Add(FormatarUltimaReproducao(track.LastPlayedAt));   // Coluna 6: Última Vez
 
-            item.SubItems.Add(AlgarismoGrid(track.Vez));
-            item.SubItems.Add(AlgarismoGrid(track.Pular));
-            item.SubItems.Add(AlgarismoGrid(track.Pulado));
-
-            // --- LÃƒâ€œGICA DE DESTAQUE (VERDE) ---
-            // Verifica se esta linha corresponde ÃƒÂ  mÃƒÂºsica que estÃƒÂ¡ tocando agora
+            // --- LÓGICA DE DESTAQUE (CORES E FONTES) ---
+            // Verifica se esta linha corresponde à música que está tocando agora
             bool estaTocando = (_player.CurrentTrack != null && _player.CurrentTrack.Id == track.Id);
             bool retirarDepois = EstaMarcadaParaRetirarDepoisDeTocar(track);
             bool apagarDepois = EstaMarcadaParaApagarDepoisDeTocar(track);
@@ -3373,7 +3379,6 @@ namespace XP3.Forms
             else if (estaTocando)
             {
                 // FUNDO: Um verde claro bonito e suave (PaleGreen)
-                // VocÃƒÂª pode trocar por Color.LightGreen se quiser mais forte
                 item.BackColor = Color.FromArgb(152, 251, 152);
 
                 // TEXTO: Preto (para dar leitura no fundo claro)
@@ -3402,7 +3407,7 @@ namespace XP3.Forms
             }
             else
             {
-                // FUNDO: PadrÃƒÂ£o do seu tema (Escuro)
+                // FUNDO: Padrão do seu tema (Escuro)
                 item.BackColor = Color.FromArgb(30, 30, 30);
 
                 // TEXTO: Branco
@@ -3414,13 +3419,18 @@ namespace XP3.Forms
             // ----------------------------------
 
             e.Item = item;
-        }        
+        }
 
         private string AlgarismoGrid(int valor)
         {
             if (valor < 0) return "0";
             if (valor > 9) return "9";
             return valor.ToString();
+        }
+
+        private string FormatarUltimaReproducao(DateTime? data)
+        {
+            return data.HasValue ? data.Value.ToString("dd/MM HH:mm") : "";
         }
 
         #endregion
