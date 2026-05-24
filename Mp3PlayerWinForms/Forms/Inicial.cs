@@ -1,4 +1,5 @@
-﻿using SQLitePCL;
+using Mp3PlayerWinForms.Services;
+using SQLitePCL;
 using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
@@ -24,6 +25,9 @@ namespace XP3.Forms
         private IniFileService _iniService;
         private GlobalHotkeyService _hotkeyService;
         private KeyPollingService _pollingService;
+        private KeyMonitorService _keyMonitorService; // NOVO: Serviço para monitorar teclas de volume
+        private VolumeControlService _volumeControlService; // NOVO: Serviço para controle de volume
+
         private ContextMenuStrip _menuPlaylistLateral;
 
         private int _currentPlaylistId = 1;
@@ -121,6 +125,8 @@ namespace XP3.Forms
         private DateTime _ultimaAtualizacaoProximaProgramacao = DateTime.MinValue;
         private Label _lblProximaProgramacao;
         private const string VideoDialogFilter = "Videos suportados|*.mp4;*.m4v;*.webm;*.ogv;*.ogg|MP4|*.mp4;*.m4v|WebM|*.webm|Ogg Video|*.ogv;*.ogg|Todos os arquivos|*.*";
+
+        public bool Minimizado = false;
 
         public Inicial()
         {
@@ -786,7 +792,7 @@ namespace XP3.Forms
                         // Marca a mÃƒÂºsica com erro em cinza escuro
                         lvTracks.Items[index].ForeColor = Color.DimGray;
                     }
-                    if (spectrum!=null)
+                    if (spectrum != null)
                     {
                         spectrum.setaFator(1.0f);
                     }
@@ -794,7 +800,8 @@ namespace XP3.Forms
             };
 
             // Drag and Drop
-            lvTracks.DragEnter += (s, e) => {
+            lvTracks.DragEnter += (s, e) =>
+            {
                 if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy;
             };
             lvTracks.DragDrop += LvTracks_DragDrop;
@@ -962,6 +969,53 @@ namespace XP3.Forms
             timerProgresso.Interval = 1000;
             timerProgresso.Start();
 
+            // NOVO: Inicializa o VolumeControlService (depende de _player e lblStatus estarem prontos)
+            _volumeControlService = new VolumeControlService(_player, lblStatus);
+
+            // NOVO: Handlers para o controle de volume via teclado
+            _player.PlaybackError += (s, args) => TratarErroReproducao(args.Item1, args.Item2);
+
+            timerProgresso.Tick += TimerProgresso_Tick;
+            timerProgresso.Interval = 1000;
+            timerProgresso.Start();
+
+            // NOVO: Serviço para controle de volume
+            _volumeControlService = new VolumeControlService(_player, lblStatus);
+
+            // NOVO: Handlers para o controle de volume via teclado
+            void VolumeUpHandler()
+            {
+                ExecutarNoUiThread(() =>
+                {
+                    if (this.Minimizado==false)
+                    {
+                        _volumeControlService.IncreaseVolume();
+                    }
+                    
+                });
+            }
+
+            void VolumeDownHandler()
+            {
+                ExecutarNoUiThread(() =>
+                {
+                    if (this.Minimizado == false)
+                    {
+                        _volumeControlService.DecreaseVolume();
+                    }
+
+                });
+            }
+
+            //void VolumeDownHandler()
+            //{
+            //    ExecutarNoUiThread(() =>
+            //    {
+            //        _volumeControlService?.DecreaseVolume();
+            //    });
+            //}
+
+
             modernSeekBar1.SeekChanged += (s, porcentagem) =>
             {
                 _player.SetPosition(porcentagem);
@@ -980,11 +1034,19 @@ namespace XP3.Forms
                 }));
             };
 
+            // NOVO: Inicializa e assina o KeyMonitorService para controle de volume
+            _keyMonitorService = new KeyMonitorService();
+            _keyMonitorService.OnVolumeUp += VolumeUpHandler;
+            _keyMonitorService.OnVolumeDown += VolumeDownHandler;
+            _keyMonitorService.StartMonitoring();
+
             ConfigurarMenuMusica();
             ConfigurarMenuCorteBarra();
 
             _pollingService.Start();
             this.FormClosing += (s, e) => _hotkeyService.UnregisterAll();
+            this.FormClosing += (s, e) => _keyMonitorService?.Dispose();
+
         }
 
         private void AtualizarMidiaFullscreen(int trackId)
@@ -2292,10 +2354,10 @@ namespace XP3.Forms
                 {
                     _clbPlaylistsLateral.SelectedIndex = index;
 
-                     if (index == 0)
-                     {
-                         AdicionarBandaNaTroca();
-                     }
+                    if (index == 0)
+                    {
+                        AdicionarBandaNaTroca();
+                    }
 
                     return;
                 }
@@ -2386,7 +2448,7 @@ namespace XP3.Forms
 
         private void _clbPlaylistsLateral_ItemCheck(object sender, ItemCheckEventArgs e)
         {
-            if (this.CarregandoListas==false)
+            if (this.CarregandoListas == false)
             {
                 this.BeginInvoke(new Action(() =>
                 {
@@ -2394,7 +2456,7 @@ namespace XP3.Forms
                     _btnCopiarLat.Enabled = true;
                     _btnCopiarLat.BackColor = Color.LightGreen;
                 }));
-            }            
+            }
         }
 
         private void BtnExcluirLat_Click(object sender, EventArgs e)
@@ -2612,7 +2674,7 @@ namespace XP3.Forms
                 }
             }
         }
-        
+
         private Button CriarBotaoLateral(string texto, Color corFundo)
         {
             Button btn = new Button();
@@ -3946,7 +4008,6 @@ namespace XP3.Forms
             }
         }
 
-
         private void btnScan_Click(object sender, EventArgs e)
         {
             var frm = new XP3.Forms.ScannerForm();
@@ -3991,6 +4052,15 @@ namespace XP3.Forms
                 TimerProgresso_Tick(null, null);
             }
 
+        }
+
+        private void Inicial_Resize(object sender, EventArgs e)
+        {
+            this.Minimizado = this.WindowState == FormWindowState.Minimized;
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                this.Minimizado = true;
+            }
         }
 
         #endregion

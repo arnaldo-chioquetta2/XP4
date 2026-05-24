@@ -51,13 +51,13 @@ namespace XP3.Forms
             this.lvTracks.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(30)))), ((int)(((byte)(30)))));
             this.lvTracks.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.lvTracks.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
-    this.colMusica,
-    this.colBanda,
-    this.colDuracao,
-    this.colT,
-    this.colP,
-    this.colL,
-    this.colUltimaVez});
+            this.colMusica,
+            this.colBanda,
+            this.colDuracao,
+            this.colT,
+            this.colP,
+            this.colL,
+            this.colUltimaVez});
             this.lvTracks.Dock = System.Windows.Forms.DockStyle.Fill;
             this.lvTracks.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.lvTracks.ForeColor = System.Drawing.Color.White;
@@ -283,6 +283,7 @@ namespace XP3.Forms
             this.Name = "Inicial";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "XP3 Player";
+            this.Resize += new System.EventHandler(this.Inicial_Resize);
             this.pnlControls.ResumeLayout(false);
             this.pnlControls.PerformLayout();
             this.pnlHeader.ResumeLayout(false);

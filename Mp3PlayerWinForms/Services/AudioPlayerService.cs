@@ -53,6 +53,30 @@ namespace XP3.Services
         public bool IsPlaying => _waveOut?.PlaybackState == PlaybackState.Playing;
         public Track CurrentTrack => (_playlist != null && _currentIndex >= 0 && _currentIndex < _playlist.Count) ? _playlist[_currentIndex] : null;
 
+        // NOVO: Propriedade de controle de volume
+        public float Volume
+        {
+            get => _volume;
+            set
+            {
+                // Clamp the value between 0.1f (10%) and 1.0f (100%)
+                _volume = Math.Max(0.1f, Math.Min(1.0f, value));
+
+                // Apply to the NAudio volume provider if it's active
+                if (_volumeProvider != null)
+                {
+                    if (System.Diagnostics.Debugger.IsAttached)
+                    {
+                        _volumeProvider.Volume = _volume * 0.02f; // Baixinho enquanto programa
+                    }
+                    else
+                    {
+                        _volumeProvider.Volume = _volume;
+                    }
+                }
+            }
+        }
+
         private void _mediaPlayer_MediaEnded(object sender, EventArgs e) => Next();
         public void SetPlaylist(List<Track> tracks) => _playlist = tracks ?? new List<Track>();
 
@@ -298,12 +322,12 @@ namespace XP3.Services
 
                 if (System.Diagnostics.Debugger.IsAttached)
                 {
-                    _volumeProvider.Volume = _volume * 0.02f; // Baixinho enquanto programa
+                    _volumeProvider.Volume = Volume * 0.02f; // Baixinho enquanto programa
                     GravarLog($"[DEBUG] Volume IDE limitado.");
                 }
                 else
                 {
-                    _volumeProvider.Volume = _volume;
+                    _volumeProvider.Volume = Volume;
                 }
 
                 // 5. O pulo do gato para drivers genéricos (Retorno para 16-bit)
