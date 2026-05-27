@@ -306,8 +306,31 @@ namespace XP3.Data
             }
 
             var idsUsados = new HashSet<int>();
+
+            // Gera valor randômico por faixa para desempate nas ordenações
+            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+            {
+                byte[] buf = new byte[4];
+                foreach (var t in tracksOrdenadasPorMenosTocadas)
+                {
+                    rng.GetBytes(buf);
+                    uint v = BitConverter.ToUInt32(buf, 0);
+                    t.RandomTieBreaker = v / (double)UInt32.MaxValue;
+                }
+            }
+
+            // Ordena as menos tocadas: por Vez crescente e desempata usando RandomTieBreaker
+            var menosTocadas = tracksOrdenadasPorMenosTocadas
+                .OrderBy(t => t.Vez)
+                .ThenBy(t => t.RandomTieBreaker)
+                .ThenBy(t => t.LastPlayedAt ?? DateTime.MinValue)
+                .ThenBy(t => t.Id)
+                .ToList();
+
+            // Ordena as mais tocadas: por Vez decrescente e desempata usando RandomTieBreaker
             var maisTocadas = tracksOrdenadasPorMenosTocadas
                 .OrderByDescending(t => t.Vez)
+                .ThenBy(t => t.RandomTieBreaker)
                 .ThenByDescending(t => t.LastPlayedAt ?? DateTime.MinValue)
                 .ThenByDescending(t => t.Id)
                 .ToList();
@@ -329,7 +352,7 @@ namespace XP3.Data
                 }
                 else
                 {
-                    Track menosTocada = ObterProximaMenosTocada(tracksOrdenadasPorMenosTocadas, idsUsados, ref indiceMenosTocada);
+                    Track menosTocada = ObterProximaMenosTocada(menosTocadas, idsUsados, ref indiceMenosTocada);
                     if (menosTocada != null)
                     {
                         resultado.Add(menosTocada);

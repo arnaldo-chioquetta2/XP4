@@ -1701,11 +1701,60 @@ namespace XP3.Forms
                 // ForÃƒÂ§amos o Refresh para o [ APAGAR ] aparecer em todas as invÃƒÂ¡lidas na grid
                 _trackComErroAtual = tracksComErro[0]; // Para fins visuais
                 lvTracks.Refresh();
+
+                var result = MessageBox.Show(
+                    $"Foram encontradas {tracksComErro.Count} mÃƒÂºsicas invÃƒÂ¡lidas em sequÃƒÂªncia.\n\n" +
+                    "Deseja removÃƒÂª-las definitivamente da biblioteca e do disco?",
+                    "Limpeza AutomÃƒÂ¡tica",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+
+                if (result == DialogResult.Yes)
+                {
+                    ExecutarExclusaoEmMassa(tracksComErro);
+                }
+                else
+                {
+                    lblStatus.Text = "MÃƒÂºsicas invÃƒÂ¡lidas mantidas na lista.";
+                }
             }
             else
             {
                 lblStatus.Text = "Nenhuma outra mÃƒÂºsica invÃƒÂ¡lida encontrada em sequÃƒÂªncia.";
             }
+        }
+
+        private void ExecutarExclusaoEmMassa(List<Track> listaParaApagar)
+        {
+            int apagadasDisco = 0;
+
+            foreach (var track in listaParaApagar)
+            {
+                // Apaga do Disco
+                try
+                {
+                    if (File.Exists(track.FilePath))
+                    {
+                        File.Delete(track.FilePath);
+                        apagadasDisco++;
+                    }
+                }
+                catch { /* Arquivo bloqueado ou jÃƒÂ¡ inexistente */ }
+
+                // Apaga do Banco
+                _trackRepo.RemoverMusicaDefinitivamente(track.Id);
+
+                // Remove da MemÃƒÂ³ria
+                _allTracks.Remove(track);
+            }
+
+            // Atualiza Interface
+            lvTracks.VirtualListSize = _allTracks.Count;
+            lvTracks.Refresh();
+            lblTrackCount.Text = $"{_allTracks.Count} mÃƒÂºsicas";
+
+            lblStatus.ForeColor = Color.Cyan;
+            lblStatus.Text = $"Resumo: {listaParaApagar.Count} removidas da lista ({apagadasDisco} do disco).";
         }
 
         private void ConstruirPainelLateral()
