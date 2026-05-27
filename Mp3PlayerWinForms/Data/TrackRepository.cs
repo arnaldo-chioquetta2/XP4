@@ -297,6 +297,75 @@ namespace XP3.Data
             return intercalarMenosEMaisTocadas ? IntercalarMenosEMaisTocadas(tracks) : tracks;
         }
 
+        public List<Track> GetTracksByBand(int bandId)
+        {
+            var tracks = new List<Track>();
+            var progRepo = new ProgrammingRepository();
+            var config = progRepo.ObterConfiguracao();
+
+            try
+            {
+                using (var conn = Database.GetConnection())
+                {
+                    conn.Open();
+                    DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
+                    DateTime limiteRepeticao = DateTime.Now.AddHours(-24);
+
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.TocadoEmG";
+                    string filtroTempo = config.ProgramacaoAtiva ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)" : "";
+                    string sql = $@"SELECT {colunas} FROM Musica m 
+                        LEFT JOIN Banda b ON m.Banda = b.ID 
+                        WHERE m.Banda = @bandId {filtroTempo}
+                        AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
+                        AND (COALESCE(m.Pular, 0) = 0 OR COALESCE(m.Pular, 0) = COALESCE(m.Pulado, 0))
+                        ORDER BY m.vez ASC, m.TocadoEmG ASC";
+
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = sql;
+                        cmd.Parameters.AddWithValue("@bandId", bandId);
+                        if (sql.Contains("@dataLimite")) cmd.Parameters.AddWithValue("@dataLimite", dataLimite.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@limiteRepeticao", limiteRepeticao.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                var t = new Track();
+                                t.Id = reader.GetInt32(0);
+                                t.Title = reader.IsDBNull(1) ? "Sem TÃ­tulo" : reader.GetString(1);
+                                t.FilePath = reader.IsDBNull(2) ? "" : reader.GetString(2);
+
+                                string tempoStr = reader.IsDBNull(3) ? "00:00:00" : reader.GetString(3);
+                                if (TimeSpan.TryParse(tempoStr, out TimeSpan ts)) t.Duration = ts;
+
+                                t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+                                t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
+                                t.CutIni = reader.IsDBNull(6) ? -1 : Convert.ToInt32(reader["CutIni"]);
+                                t.CutFim = reader.IsDBNull(7) ? -1 : Convert.ToInt32(reader["CutFim"]);
+                                t.VideoPath = reader.IsDBNull(8) ? null : reader["VideoPath"].ToString();
+                                t.EqualizacaoPresetId = reader.IsDBNull(9) ? 0 : Convert.ToInt32(reader["Equalizacao"]);
+                                t.EqualizacaoAtiva = reader.IsDBNull(10) || Convert.ToInt32(reader["EqualizacaoAtiva"]) != 0;
+                                t.EqualizacaoBandas = LerBandasMusica(reader, 11);
+                                t.Vez = Convert.ToInt32(reader["Vez"]);
+                                t.Pular = Convert.ToInt32(reader["Pular"]);
+                                t.Pulado = Convert.ToInt32(reader["Pulado"]);
+                                t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
+
+                                tracks.Add(t);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[REPO_ERRO] GetTracksByBand: {ex.Message}");
+            }
+
+            return IntercalarMenosEMaisTocadas(tracks);
+        }
+
         private List<Track> IntercalarMenosEMaisTocadas(List<Track> tracksOrdenadasPorMenosTocadas)
         {
             var resultado = new List<Track>(tracksOrdenadasPorMenosTocadas.Count);

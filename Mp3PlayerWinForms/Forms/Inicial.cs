@@ -120,6 +120,7 @@ namespace XP3.Forms
         private Track _trackEmTrocaDeBanda = null;
         private List<Band> _bandasEmSelecao = new List<Band>();
         private bool _modoMesclagemPlaylistsAtivo = false;
+        private bool _painelLateralMostrandoBandas = false;
         private Playlist _playlistContextoLateral;
         private DateTime _ultimaTrocaRelogio = DateTime.MinValue;
         private DateTime _ultimaAtualizacaoProximaProgramacao = DateTime.MinValue;
@@ -1848,7 +1849,7 @@ namespace XP3.Forms
                     e.Handled = true;
                     e.SuppressKeyPress = true;
                 }
-                else if (e.KeyCode == Keys.Space && !_modoTrocaBandaAtivo && !_modoMesclagemPlaylistsAtivo)
+                else if (e.KeyCode == Keys.Space && !_modoTrocaBandaAtivo && !_modoMesclagemPlaylistsAtivo && !_painelLateralMostrandoBandas)
                 {
                     int index = _clbPlaylistsLateral.SelectedIndex;
                     if (index != -1)
@@ -1873,6 +1874,10 @@ namespace XP3.Forms
                     if (_modoTrocaBandaAtivo && item is Band banda)
                     {
                         ConfirmarTrocaBanda(banda);
+                    }
+                    else if (_painelLateralMostrandoBandas && item is Band bandaBrowse)
+                    {
+                        CarregarBandaParaTocar(bandaBrowse);
                     }
                     else if (_modoMesclagemPlaylistsAtivo)
                     {
@@ -1935,7 +1940,7 @@ namespace XP3.Forms
         private void _clbPlaylistsLateral_MouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right) return;
-            if (_modoTrocaBandaAtivo || _modoEscolhendoProximaLista || _modoMesclagemPlaylistsAtivo) return;
+            if (_modoTrocaBandaAtivo || _modoEscolhendoProximaLista || _modoMesclagemPlaylistsAtivo || _painelLateralMostrandoBandas) return;
 
             int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
             if (index == ListBox.NoMatches) return;
@@ -2214,28 +2219,42 @@ namespace XP3.Forms
                 }
             }
 
-            LoadPlaylistsLateral();
+            if (_painelLateralMostrandoBandas)
+            {
+                LoadBandasLateral();
+            }
+            else
+            {
+                LoadPlaylistsLateral();
+            }
         }
 
         private void CancelarSelecaoAgendada()
         {
             _modoEscolhendoProximaLista = false;
 
-            // 1. Resetar o Label de TÃƒÂ­tulo (ForÃƒÂ§ando a cor original do painel lateral)
-            _lblTituloLateral.Text = "Playlists";
-            _lblTituloLateral.BackColor = Color.FromArgb(45, 45, 48); // Cor exata do _pnlLateral
-            _lblTituloLateral.ForeColor = Color.White;
-
-            // 2. Resetar a Lista Lateral
-            _clbPlaylistsLateral.BackColor = Color.FromArgb(45, 45, 48);
-
-            // 3. Recarrega as listas sem filtro (Modo normal)
-            LoadPlaylistsLateral(filtrarAtual: false);
-
-            // 4. Se houver mÃƒÂºsica selecionada, restaura os checks dela
-            if (lvTracks.SelectedIndices.Count > 0)
+            if (_painelLateralMostrandoBandas)
             {
-                AtualizarPainelLateral(_allTracks[lvTracks.SelectedIndices[0]]);
+                MostrarBandasNoPainelLateral();
+            }
+            else
+            {
+                // 1. Resetar o Label de TÃƒÂ­tulo (ForÃƒÂ§ando a cor original do painel lateral)
+                _lblTituloLateral.Text = "Playlists";
+                _lblTituloLateral.BackColor = Color.FromArgb(45, 45, 48); // Cor exata do _pnlLateral
+                _lblTituloLateral.ForeColor = Color.White;
+
+                // 2. Resetar a Lista Lateral
+                _clbPlaylistsLateral.BackColor = Color.FromArgb(45, 45, 48);
+
+                // 3. Recarrega as listas sem filtro (Modo normal)
+                LoadPlaylistsLateral(filtrarAtual: false);
+
+                // 4. Se houver mÃƒÂºsica selecionada, restaura os checks dela
+                if (lvTracks.SelectedIndices.Count > 0)
+                {
+                    AtualizarPainelLateral(_allTracks[lvTracks.SelectedIndices[0]]);
+                }
             }
 
             // 5. O SEGREDO: ForÃƒÂ§ar o Windows a redesenhar o painel agora mesmo
@@ -2262,7 +2281,7 @@ namespace XP3.Forms
 
             if (_pnlBotoesLateral != null)
             {
-                _pnlBotoesLateral.Visible = true;
+                _pnlBotoesLateral.Visible = !_painelLateralMostrandoBandas;
             }
 
             if (lvTracks.SelectedIndices.Count > 0)
@@ -2272,6 +2291,10 @@ namespace XP3.Forms
                 {
                     AtualizarPainelLateral(_allTracks[index]);
                 }
+            }
+            else if (_painelLateralMostrandoBandas)
+            {
+                LoadBandasLateral();
             }
             else
             {
@@ -2359,6 +2382,12 @@ namespace XP3.Forms
                         AdicionarBandaNaTroca();
                     }
 
+                    return;
+                }
+
+                if (_painelLateralMostrandoBandas)
+                {
+                    _clbPlaylistsLateral.SelectedIndex = index;
                     return;
                 }
 
@@ -3222,6 +3251,156 @@ namespace XP3.Forms
             }
         }
 
+        private void btnBandas_Click(object sender, EventArgs e)
+        {
+            if (_modoTrocaBandaAtivo || _modoEscolhendoProximaLista || _modoMesclagemPlaylistsAtivo)
+            {
+                return;
+            }
+
+            if (_painelLateralMostrandoBandas)
+            {
+                MostrarListasNoPainelLateral();
+            }
+            else
+            {
+                MostrarBandasNoPainelLateral();
+            }
+        }
+
+        private void MostrarBandasNoPainelLateral()
+        {
+            _painelLateralMostrandoBandas = true;
+            btnBandas.Text = "Listas";
+
+            _clbPlaylistsLateral.Items.Clear();
+            _clbPlaylistsLateral.ShowCheckboxes = false;
+            _clbPlaylistsLateral.DisplayMember = "Name";
+            _clbPlaylistsLateral.BackColor = Color.FromArgb(45, 45, 48);
+            _clbPlaylistsLateral.HighlightIndex = -1;
+
+            _lblTituloLateral.Text = "Bandas";
+            _lblTituloLateral.BackColor = Color.FromArgb(45, 45, 48);
+            _lblTituloLateral.ForeColor = Color.White;
+
+            if (_pnlBotoesLateral != null)
+            {
+                _pnlBotoesLateral.Visible = false;
+            }
+
+            LoadBandasLateral();
+        }
+
+        private void MostrarListasNoPainelLateral()
+        {
+            _painelLateralMostrandoBandas = false;
+            btnBandas.Text = "Bandas";
+
+            _clbPlaylistsLateral.ShowCheckboxes = true;
+            _clbPlaylistsLateral.HighlightIndex = -1;
+            _clbPlaylistsLateral.DisplayMember = "Name";
+            _clbPlaylistsLateral.BackColor = Color.FromArgb(45, 45, 48);
+
+            _lblTituloLateral.Text = "Playlists";
+            _lblTituloLateral.BackColor = Color.FromArgb(45, 45, 48);
+            _lblTituloLateral.ForeColor = Color.White;
+
+            if (_pnlBotoesLateral != null)
+            {
+                _pnlBotoesLateral.Visible = true;
+            }
+
+            if (lvTracks.SelectedIndices.Count > 0)
+            {
+                int index = lvTracks.SelectedIndices[0];
+                if (index >= 0 && index < _allTracks.Count)
+                {
+                    AtualizarPainelLateral(_allTracks[index]);
+                    return;
+                }
+            }
+
+            LoadPlaylistsLateral();
+        }
+
+        private void LoadBandasLateral()
+        {
+            try
+            {
+                CarregandoListas = true;
+                _clbPlaylistsLateral.Items.Clear();
+
+                foreach (var banda in _trackRepo.GetAllBands())
+                {
+                    _clbPlaylistsLateral.Items.Add(banda);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.GravarErro("Erro ao carregar bandas lateral", ex);
+            }
+            finally
+            {
+                CarregandoListas = false;
+            }
+        }
+
+        private void CarregarBandaParaTocar(Band banda)
+        {
+            if (banda == null || banda.Id <= 0) return;
+
+            try
+            {
+                lblStatus.Text = $"Carregando banda: {banda.Name}...";
+                lblStatus.ForeColor = Color.LightGray;
+
+                if (lblPlaylistTitle != null)
+                {
+                    lblPlaylistTitle.Text = banda.Name.ToUpper();
+                }
+
+                var tracksDoBanco = _trackRepo.GetTracksByBand(banda.Id);
+
+                _allTracks = tracksDoBanco?
+                    .Where(t => t.Duration.TotalSeconds > 0)
+                    .ToList() ?? new List<Track>();
+
+                if (_player != null)
+                {
+                    _player.SetPlaylist(_allTracks);
+                }
+
+                if (lvTracks != null)
+                {
+                    ConfigurarColunasGrid();
+                    lvTracks.VirtualListSize = _allTracks.Count;
+                    lvTracks.Invalidate();
+                }
+
+                if (lblTrackCount != null)
+                {
+                    lblTrackCount.Text = $"{_allTracks.Count} mÃƒÂºsicas encontradas";
+                }
+
+                if (_allTracks.Count > 0 && _player != null)
+                {
+                    _player.Play(0);
+                    lblStatus.Text = $"Tocando banda: {banda.Name}";
+                    lblStatus.ForeColor = Color.LightGreen;
+                }
+                else
+                {
+                    lblStatus.Text = $"A banda '{banda.Name}' nÃƒÂ£o possui mÃƒÂºsicas disponÃƒÂ­veis.";
+                    lblStatus.ForeColor = Color.Orange;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.GravarErro("CarregarBandaParaTocar", ex);
+                MessageBox.Show($"Erro ao carregar banda: {ex.Message}");
+            }
+        }
+
         #endregion
 
         private void Player_SolicitarTrocaDePlaylist(object sender, int novaListaId)
@@ -3315,6 +3494,7 @@ namespace XP3.Forms
             if (track == null) return;
             if (_modoTrocaBandaAtivo) return;
             if (_modoMesclagemPlaylistsAtivo) return;
+            if (_painelLateralMostrandoBandas) return;
 
             this.CarregandoListas = true;
             _trackEmEdicao = track;

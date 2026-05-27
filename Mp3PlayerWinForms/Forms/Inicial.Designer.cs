@@ -29,6 +29,7 @@ namespace XP3.Forms
             this.colUltimaVez = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.pnlControls = new System.Windows.Forms.Panel();
             this.lblStatusCue = new System.Windows.Forms.Label();
+            this.btnBandas = new System.Windows.Forms.Button();
             this.btnScan = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
             this.btnNext = new System.Windows.Forms.Button();
@@ -109,6 +110,7 @@ namespace XP3.Forms
             // 
             this.pnlControls.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(45)))), ((int)(((byte)(48)))));
             this.pnlControls.Controls.Add(this.lblStatusCue);
+            this.pnlControls.Controls.Add(this.btnBandas);
             this.pnlControls.Controls.Add(this.btnScan);
             this.pnlControls.Controls.Add(this.lblStatus);
             this.pnlControls.Controls.Add(this.btnNext);
@@ -130,6 +132,20 @@ namespace XP3.Forms
             this.lblStatusCue.Size = new System.Drawing.Size(35, 13);
             this.lblStatusCue.TabIndex = 6;
             this.lblStatusCue.Text = "label1";
+            // 
+            // btnBandas
+            // 
+            this.btnBandas.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnBandas.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
+            this.btnBandas.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnBandas.ForeColor = System.Drawing.Color.White;
+            this.btnBandas.Location = new System.Drawing.Point(632, 15);
+            this.btnBandas.Name = "btnBandas";
+            this.btnBandas.Size = new System.Drawing.Size(75, 30);
+            this.btnBandas.TabIndex = 7;
+            this.btnBandas.Text = "Bandas";
+            this.btnBandas.UseVisualStyleBackColor = false;
+            this.btnBandas.Click += new System.EventHandler(this.btnBandas_Click);
             // 
             // btnScan
             // 
@@ -307,6 +323,7 @@ namespace XP3.Forms
         private System.Windows.Forms.Button btnPause;
         private System.Windows.Forms.Button btnPlay;
         private System.Windows.Forms.Label lblStatus;
+        private System.Windows.Forms.Button btnBandas;
         private System.Windows.Forms.Button btnScan;
         private System.Windows.Forms.Panel pnlHeader;
         private System.Windows.Forms.Label lblPlaylistTitle;
