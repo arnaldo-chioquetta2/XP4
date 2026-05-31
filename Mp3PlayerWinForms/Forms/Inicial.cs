@@ -1619,7 +1619,7 @@ namespace XP3.Forms
                     {
                         lvTracks.SelectedIndices.Clear();
                         lvTracks.SelectedIndices.Add(index);
-                        lvTracks.EnsureVisible(index);
+                        GarantirMusicaVisivelNaGrid(index);
 
                         AtualizarPainelLateral(track);
 
@@ -2736,7 +2736,45 @@ namespace XP3.Forms
             return btn;
         }
 
-        #endregion  
+        private void GarantirMusicaVisivelNaGrid(int index)
+        {
+            if (lvTracks == null || index < 0 || index >= lvTracks.VirtualListSize)
+                return;
+
+            try
+            {
+                if (lvTracks.Items.Count == 0)
+                    return;
+
+                int topIndex = lvTracks.TopItem?.Index ?? 0;
+                int itemHeight = lvTracks.GetItemRect(topIndex).Height;
+                if (itemHeight <= 0)
+                {
+                    lvTracks.EnsureVisible(index);
+                    return;
+                }
+
+                int linhasVisiveis = Math.Max(1, lvTracks.ClientSize.Height / itemHeight);
+                int bottomIndex = Math.Min(lvTracks.VirtualListSize - 1, topIndex + linhasVisiveis - 1);
+
+                if (index >= topIndex && index <= bottomIndex)
+                    return;
+
+                int novoTopIndex = index < topIndex
+                    ? index
+                    : Math.Max(0, index - linhasVisiveis + 2);
+
+                novoTopIndex = Math.Min(novoTopIndex, Math.Max(0, lvTracks.VirtualListSize - 1));
+                lvTracks.TopItem = lvTracks.Items[novoTopIndex];
+            }
+            catch (Exception ex)
+            {
+                LogService.GravarErro("GarantirMusicaVisivelNaGrid", ex);
+                try { lvTracks.EnsureVisible(index); } catch { }
+            }
+        }
+
+        #endregion
 
         #region Maximizado
 
@@ -3109,7 +3147,7 @@ namespace XP3.Forms
                         {
                             lvTracks.SelectedIndices.Clear();
                             lvTracks.SelectedIndices.Add(indexEncontrado);
-                            lvTracks.EnsureVisible(indexEncontrado); // Faz o scroll automÃƒÂ¡tico atÃƒÂ© a mÃƒÂºsica
+                            GarantirMusicaVisivelNaGrid(indexEncontrado); // Faz o scroll automÃƒÂ¡tico atÃƒÂ© a mÃƒÂºsica
                         }
 
                         // 4. Carrega a mÃƒÂºsica no Player (Inicia parado ou tocando conforme sua preferÃƒÂªncia)
@@ -4157,7 +4195,7 @@ namespace XP3.Forms
 
                             // Seleciona ela na lista visual para o usuÃƒÂ¡rio ver
                             lvTracks.Items[novoIndice].Selected = true;
-                            lvTracks.EnsureVisible(novoIndice);
+                            GarantirMusicaVisivelNaGrid(novoIndice);
                         }
                         else
                         {
