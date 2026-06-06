@@ -171,6 +171,20 @@ namespace XP3.Forms
                 }
             };
 
+            // --- CRIAÇÃO DO BOTÃO DE EQUALIZAÇÃO ---
+            var btnEqualizacao = new Button();
+            btnEqualizacao.BackColor = Color.FromArgb(60, 60, 60);
+            btnEqualizacao.FlatStyle = FlatStyle.Flat;
+            btnEqualizacao.ForeColor = Color.White;
+            btnEqualizacao.Location = new Point(btnNext.Right + 10, 15);
+            btnEqualizacao.Name = "btnEqualizacao";
+            btnEqualizacao.Size = new Size(50, 30);
+            btnEqualizacao.TabIndex = 8;
+            btnEqualizacao.Text = "EQ";
+            btnEqualizacao.UseVisualStyleBackColor = false;
+            btnEqualizacao.Click += BtnEqualizacao_Click;
+            pnlControls.Controls.Add(btnEqualizacao);
+
             // --- CONFIGURAÇÃO DINÂMICA DA INTERFACE ---
 
             // 1. Barra de Progresso (Custom Control)
@@ -4089,6 +4103,11 @@ namespace XP3.Forms
         }
 
         #region EdiÃƒÂ§ÃƒÂ£oDaGrid
+
+        private void BtnEqualizacao_Click(object sender, EventArgs e)
+        {
+            // Placeholder para futura implementação
+        }
 
         private void Renomear()
         {
