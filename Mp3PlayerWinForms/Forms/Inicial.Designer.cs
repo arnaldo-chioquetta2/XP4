@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows.Forms;
 
 namespace XP3.Forms
@@ -127,7 +127,7 @@ namespace XP3.Forms
             // 
             this.lblStatusCue.AutoSize = true;
             this.lblStatusCue.ForeColor = System.Drawing.Color.GreenYellow;
-            this.lblStatusCue.Location = new System.Drawing.Point(269, 3);
+            this.lblStatusCue.Location = new System.Drawing.Point(313, 3);
             this.lblStatusCue.Name = "lblStatusCue";
             this.lblStatusCue.Size = new System.Drawing.Size(35, 13);
             this.lblStatusCue.TabIndex = 6;
@@ -164,7 +164,7 @@ namespace XP3.Forms
             // lblStatus
             // 
             this.lblStatus.ForeColor = System.Drawing.Color.LightGray;
-            this.lblStatus.Location = new System.Drawing.Point(269, 24);
+            this.lblStatus.Location = new System.Drawing.Point(313, 24);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Size = new System.Drawing.Size(428, 27);
             this.lblStatus.TabIndex = 4;
