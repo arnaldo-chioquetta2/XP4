@@ -4106,7 +4106,17 @@ namespace XP3.Forms
 
         private void BtnEqualizacao_Click(object sender, EventArgs e)
         {
-            // Placeholder para futura implementação
+            using (var form = new FrmEqualizacaoMusica(
+                _trackRepo,
+                (bandas, ativa) =>
+                {
+                },
+                () =>
+                {
+                }))
+            {
+                form.ShowDialog(this);
+            }
         }
 
         private void Renomear()

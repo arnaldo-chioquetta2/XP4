@@ -1,3 +1,4 @@
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -8,12 +9,10 @@ using XP3.Models;
 
 namespace XP3.Forms
 {
-    public class FrmEqualizacaoMusica : Form
+    public class FrmEqualizacaoGeral : Form
     {
         private const string TextoSemEqualizacao = "(Sem equalizacao)";
 
-        private readonly Track _track;
-        private readonly TrackRepository _repo;
         private readonly Action<int[], bool> _previewAction;
         private readonly Action _restoreAction;
 
@@ -33,37 +32,22 @@ namespace XP3.Forms
         private bool _mudando;
         private bool _confirmado;
 
-        public FrmEqualizacaoMusica(Track track, TrackRepository repo, Action<int[], bool> previewAction, Action restoreAction)
+        public FrmEqualizacaoGeral(Action<int[], bool> previewAction, Action restoreAction)
         {
-            _track = track ?? throw new ArgumentNullException(nameof(track));
-            _repo = repo ?? throw new ArgumentNullException(nameof(repo));
             _previewAction = previewAction;
             _restoreAction = restoreAction;
 
             InitializeComponent();
 
-            Load += FrmEqualizacaoMusica_Load;
-            FormClosing += FrmEqualizacaoMusica_FormClosing;
-        }
-
-        public FrmEqualizacaoMusica(TrackRepository repo, Action<int[], bool> previewAction, Action restoreAction)
-        {
-            _track = null;
-            _repo = repo ?? throw new ArgumentNullException(nameof(repo));
-            _previewAction = previewAction;
-            _restoreAction = restoreAction;
-
-            InitializeComponent();
-
-            Load += FrmEqualizacaoMusica_Load;
-            FormClosing += FrmEqualizacaoMusica_FormClosing;
+            Load += FrmEqualizacaoGeral_Load;
+            FormClosing += FrmEqualizacaoGeral_FormClosing;
         }
 
         private void InitializeComponent()
         {
             SuspendLayout();
 
-            Text = "Equalizacao da musica '" + _track.Title + "'";
+            Text = "Equalizacao geral";
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MinimizeBox = true;
@@ -206,37 +190,19 @@ namespace XP3.Forms
             ResumeLayout(false);
         }
 
-        private void FrmEqualizacaoMusica_Load(object sender, EventArgs e)
+        private void FrmEqualizacaoGeral_Load(object sender, EventArgs e)
         {
-            if (_track == null)
-            {
-                RecarregarPresets(0);
-                chkEqualizacaoAtiva.Checked = false;
-                AplicarBandas(EqualizerPreset.CreateFlatBands(), true);
-                AtualizarInfo();
-                AtualizarEstadoAcoes();
-                return;
-            }
+            RecarregarPresets(0);
+            chkEqualizacaoAtiva.Checked = true;
 
-            RecarregarPresets(_track.EqualizacaoPresetId);
-            chkEqualizacaoAtiva.Checked = _track.EqualizacaoAtiva;
-
-            int[] bandas = _track.EqualizacaoBandas != null && _track.EqualizacaoBandas.Any(v => v != 0)
-                ? _track.EqualizacaoBandas
-                : (_track.EqualizacaoPresetId > 0 ? _repo.ObterPresetEqualizacao(_track.EqualizacaoPresetId)?.ToBands() : null);
-
-            AplicarBandas(bandas ?? EqualizerPreset.CreateFlatBands(), true);
+            AplicarBandas(EqualizerPreset.CreateFlatBands(), true);
             AtualizarInfo();
             AtualizarEstadoAcoes();
         }
 
-        private void FrmEqualizacaoMusica_FormClosing(object sender, FormClosingEventArgs e)
+        private void FrmEqualizacaoGeral_FormClosing(object sender, FormClosingEventArgs e)
         {
-            if (!_confirmado && _track != null)
-            {
-                _restoreAction?.Invoke();
-            }
-            else if (!_confirmado)
+            if (!_confirmado)
             {
                 _restoreAction?.Invoke();
             }
@@ -244,7 +210,8 @@ namespace XP3.Forms
 
         private void RecarregarPresets(int presetSelecionado)
         {
-            _presets = _repo.ListarPresetsEqualizacao();
+            var repo = new TrackRepository();
+            _presets = repo.ListarPresetsEqualizacao();
 
             _mudando = true;
             cboPresets.Items.Clear();
@@ -288,7 +255,8 @@ namespace XP3.Forms
             }
             else
             {
-                var preset = _repo.ObterPresetEqualizacao(item.Id);
+                var repo = new TrackRepository();
+                var preset = repo.ObterPresetEqualizacao(item.Id);
                 if (preset != null)
                 {
                     AplicarBandas(preset.ToBands(), true);
@@ -377,7 +345,8 @@ namespace XP3.Forms
                 return;
             }
 
-            int novoId = _repo.InserirPresetEqualizacao(nome, ObterBandasAtuais(), 0);
+            var repo = new TrackRepository();
+            int novoId = repo.InserirPresetEqualizacao(nome, ObterBandasAtuais(), 0);
             RecarregarPresets(novoId);
             AtualizarInfo();
             AtualizarEstadoAcoes();
@@ -392,7 +361,7 @@ namespace XP3.Forms
             }
 
             var resposta = MessageBox.Show(
-                "Deseja realmente deletar esta equalizacao? As musicas vinculadas a ela voltarao para 0.",
+                "Deseja realmente deletar esta equalizacao?",
                 "Deletar EQ",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
@@ -402,11 +371,8 @@ namespace XP3.Forms
                 return;
             }
 
-            _repo.DeletarPresetEqualizacao(item.Id);
-            if (_track.EqualizacaoPresetId == item.Id)
-            {
-                _track.EqualizacaoPresetId = 0;
-            }
+            var repo = new TrackRepository();
+            repo.DeletarPresetEqualizacao(item.Id);
 
             RecarregarPresets(0);
             AplicarBandas(EqualizerPreset.CreateFlatBands(), true);
@@ -416,11 +382,6 @@ namespace XP3.Forms
 
         private void BtnOk_Click(object sender, EventArgs e)
         {
-            int[] bandas = ObterBandasAtuais();
-            _repo.AtualizarBandasEqualizacaoMusica(_track.Id, bandas, chkEqualizacaoAtiva.Checked);
-            _track.EqualizacaoBandas = bandas;
-            _track.EqualizacaoPresetId = 0;
-            _track.EqualizacaoAtiva = chkEqualizacaoAtiva.Checked;
             _confirmado = true;
             DialogResult = DialogResult.OK;
             Close();
@@ -538,7 +499,7 @@ namespace XP3.Forms
             else if (presetId == 0)
             {
                 lblInfo.Text = chkEqualizacaoAtiva.Checked
-                    ? "Sem equalizacao para esta musica."
+                    ? "Sem equalizacao."
                     : "Equalizacao inativa. O audio esta tocando sem processamento.";
             }
             else
@@ -593,3 +554,4 @@ namespace XP3.Forms
         }
     }
 }
+
