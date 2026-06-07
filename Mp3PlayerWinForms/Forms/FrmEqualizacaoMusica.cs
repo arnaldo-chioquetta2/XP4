@@ -63,7 +63,7 @@ namespace XP3.Forms
         {
             SuspendLayout();
 
-            Text = "Equalizacao da musica '" + _track.Title + "'";
+            Text = "Equalizacao de Musica";
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MinimizeBox = true;
