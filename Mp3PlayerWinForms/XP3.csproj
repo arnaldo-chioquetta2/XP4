@@ -158,6 +158,9 @@
     </Compile>
     <Compile Include="Data\ProgrammingRepository.cs" />
     <Compile Include="Features\Programming\ProgrammingService.cs" />
+    <Compile Include="Forms\FrmEqualizacaoGeral.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Forms\FrmEqualizacaoMusica.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -201,6 +204,7 @@
     <Compile Include="Helpers\InputBox.cs" />
     <Compile Include="Models\AppConfig.cs" />
     <Compile Include="Models\ConfigModel.cs" />
+    <Compile Include="Models\EqualizacaoGeralStore.cs" />
     <Compile Include="Models\EqualizerPreset.cs" />
     <Compile Include="Models\ProgramacaoModel.cs" />
     <Compile Include="Program.cs" />

@@ -14,6 +14,8 @@ using XP3.Data;
 using XP3.Models;
 using XP3.Services;
 
+// C:\Users\Dayse\AppData\Roaming\npm\codex resume 019e8be2-36f4-7f10-9c92-210139878dfb
+
 namespace XP3.Forms
 {
     public partial class Inicial : Form
@@ -234,6 +236,8 @@ namespace XP3.Forms
             Batteries.Init();
 
             SetupServices();
+            EqualizacaoGeralStore.Carregar(_iniService);
+            AtualizarVisualBotaoEqualizacao();
 
             this.FormClosing += (s, e) =>
             {
@@ -4104,18 +4108,42 @@ namespace XP3.Forms
 
         #region EdiÃƒÂ§ÃƒÂ£oDaGrid
 
+        private void AtualizarVisualBotaoEqualizacao()
+        {
+            var btnEqualizacao = pnlControls.Controls["btnEqualizacao"] as Button;
+            if (btnEqualizacao == null) return;
+
+            if (EqualizacaoGeralStore.Ativa)
+            {
+                btnEqualizacao.BackColor = Color.DarkGreen;
+                btnEqualizacao.FlatAppearance.BorderColor = Color.LightGreen;
+                btnEqualizacao.FlatAppearance.BorderSize = 2;
+            }
+            else
+            {
+                btnEqualizacao.BackColor = Color.FromArgb(60, 60, 60);
+                btnEqualizacao.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 90);
+                btnEqualizacao.FlatAppearance.BorderSize = 1;
+            }
+        }
+
         private void BtnEqualizacao_Click(object sender, EventArgs e)
         {
-            using (var form = new FrmEqualizacaoMusica(
-                _trackRepo,
+            using (var form = new FrmEqualizacaoGeral(
                 (bandas, ativa) =>
                 {
+                    _player.PreviewEqualizerBands(bandas, ativa);
                 },
                 () =>
                 {
+                    _player.RestaurarEqualizacaoDaTrackAtual();
                 }))
             {
-                form.ShowDialog(this);
+                if (form.ShowDialog(this) == DialogResult.OK)
+                {
+                    AtualizarVisualBotaoEqualizacao();
+                    _player.RestaurarEqualizacaoDaTrackAtual();
+                }
             }
         }
 

@@ -589,23 +589,34 @@ namespace XP3.Services
 
         private int[] ObterBandasDaTrack(Track track)
         {
-            if (track == null || !track.EqualizacaoAtiva)
+            if (track != null && track.EqualizacaoAtiva)
+            {
+                if (track.EqualizacaoBandas != null && track.EqualizacaoBandas.Any(v => v != 0))
+                {
+                    return track.EqualizacaoBandas;
+                }
+
+                if (track.EqualizacaoPresetId > 0)
+                {
+                    var presetMusica = _trackRepo.ObterPresetEqualizacao(track.EqualizacaoPresetId);
+                    if (presetMusica != null)
+                    {
+                        return presetMusica.ToBands();
+                    }
+                }
+            }
+
+            if (!EqualizacaoGeralStore.Ativa)
             {
                 return EqualizerPreset.CreateFlatBands();
             }
 
-            if (track.EqualizacaoBandas != null && track.EqualizacaoBandas.Any(v => v != 0))
+            if (EqualizacaoGeralStore.Bandas != null && EqualizacaoGeralStore.Bandas.Length == EqualizerPreset.BandCount)
             {
-                return track.EqualizacaoBandas;
+                return EqualizacaoGeralStore.Bandas;
             }
 
-            if (track.EqualizacaoPresetId <= 0)
-            {
-                return EqualizerPreset.CreateFlatBands();
-            }
-
-            var preset = _trackRepo.ObterPresetEqualizacao(track.EqualizacaoPresetId);
-            return preset != null ? preset.ToBands() : EqualizerPreset.CreateFlatBands();
+            return EqualizerPreset.CreateFlatBands();
         }
 
         private void RegistrarLogErro(Track track, Exception ex)

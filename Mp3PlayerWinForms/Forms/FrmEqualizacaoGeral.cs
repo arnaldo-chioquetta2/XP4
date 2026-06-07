@@ -193,9 +193,8 @@ namespace XP3.Forms
         private void FrmEqualizacaoGeral_Load(object sender, EventArgs e)
         {
             RecarregarPresets(0);
-            chkEqualizacaoAtiva.Checked = true;
-
-            AplicarBandas(EqualizerPreset.CreateFlatBands(), true);
+            chkEqualizacaoAtiva.Checked = EqualizacaoGeralStore.Ativa;
+            AplicarBandas(EqualizacaoGeralStore.Bandas ?? EqualizerPreset.CreateFlatBands(), true);
             AtualizarInfo();
             AtualizarEstadoAcoes();
         }
@@ -382,6 +381,9 @@ namespace XP3.Forms
 
         private void BtnOk_Click(object sender, EventArgs e)
         {
+            EqualizacaoGeralStore.Ativa = chkEqualizacaoAtiva.Checked;
+            EqualizacaoGeralStore.Bandas = ObterBandasAtuais();
+            EqualizacaoGeralStore.Salvar();
             _confirmado = true;
             DialogResult = DialogResult.OK;
             Close();
