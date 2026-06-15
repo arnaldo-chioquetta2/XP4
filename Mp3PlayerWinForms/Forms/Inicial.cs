@@ -2,7 +2,6 @@ using Mp3PlayerWinForms.Services;
 using SQLitePCL;
 using System;
 using System.Collections.Generic;
-using System.Data.SQLite;
 using System.Drawing;
 using System.IO;
 using System.Linq;
