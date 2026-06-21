@@ -183,6 +183,12 @@
     <Compile Include="Forms\PlaylistEditorForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Forms\BandaPaisForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Forms\BandaPaisForm.Designer.cs">
+      <DependentUpon>BandaPaisForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="Forms\VideoPlayerForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -206,6 +212,7 @@
     <Compile Include="Models\ConfigModel.cs" />
     <Compile Include="Models\EqualizacaoGeralStore.cs" />
     <Compile Include="Models\EqualizerPreset.cs" />
+    <Compile Include="Models\Pais.cs" />
     <Compile Include="Models\ProgramacaoModel.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

@@ -56,29 +56,124 @@ namespace XP3.Data
 
         public int GetOrInsertBand(string bandName)
         {
+            return GetOrInsertBand(bandName, null);
+        }
+
+        public int GetOrInsertBand(string bandName, int? paisId)
+        {
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
 
                 using (var cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT ID FROM Banda WHERE Nome = @name";
+                    cmd.CommandText = "SELECT ID, Pais FROM Banda WHERE Nome = @name";
                     cmd.Parameters.AddWithValue("@name", bandName);
-                    var result = cmd.ExecuteScalar();
-                    if (result != null) return Convert.ToInt32(result);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            int bandId = reader.GetInt32(0);
+                            object paisAtual = reader.IsDBNull(1) ? null : (object)reader.GetInt32(1);
+
+                            if (paisId.HasValue && paisAtual == null)
+                            {
+                                using (var updateCmd = conn.CreateCommand())
+                                {
+                                    updateCmd.CommandText = "UPDATE Banda SET Pais = @pais WHERE ID = @id";
+                                    updateCmd.Parameters.AddWithValue("@pais", paisId.Value);
+                                    updateCmd.Parameters.AddWithValue("@id", bandId);
+                                    updateCmd.ExecuteNonQuery();
+                                }
+                            }
+
+                            return bandId;
+                        }
+                    }
                 }
 
                 using (var cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO Banda (Nome, Lugar) VALUES (@name, ''); 
+                    cmd.CommandText = @"INSERT INTO Banda (Nome, Lugar, Pais) VALUES (@name, '', @pais); 
                                         SELECT last_insert_rowid();";
                     cmd.Parameters.AddWithValue("@name", bandName);
+                    cmd.Parameters.AddWithValue("@pais", paisId.HasValue ? (object)paisId.Value : DBNull.Value);
                     return Convert.ToInt32(cmd.ExecuteScalar());
                 }
             }
         }
 
         // --- CORREÃ‡ÃƒO CRÃTICA 1: IMPEDIR CRIAÃ‡ÃƒO DE ID DUPLICADO ---
+        public List<Pais> GetAllPaises()
+        {
+            var paises = new List<Pais>();
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome FROM Pais ORDER BY Nome", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        paises.Add(new Pais
+                        {
+                            Id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
+                            Nome = reader.IsDBNull(1) ? string.Empty : reader.GetString(1)
+                        });
+                    }
+                }
+            }
+
+            return paises;
+        }
+
+        public int GetOrInsertPais(string nomePais)
+        {
+            string nomeNormalizado = (nomePais ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(nomeNormalizado))
+            {
+                throw new ArgumentException("nomePais não pode ser vazio.", nameof(nomePais));
+            }
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                using (var cmd = new SQLiteCommand("SELECT ID FROM Pais WHERE Nome = @nome", conn))
+                {
+                    cmd.Parameters.AddWithValue("@nome", nomeNormalizado);
+                    var existingId = cmd.ExecuteScalar();
+                    if (existingId != null && existingId != DBNull.Value)
+                    {
+                        return Convert.ToInt32(existingId);
+                    }
+                }
+
+                using (var cmd = new SQLiteCommand("INSERT INTO Pais (Nome) VALUES (@nome); SELECT last_insert_rowid();", conn))
+                {
+                    cmd.Parameters.AddWithValue("@nome", nomeNormalizado);
+                    return Convert.ToInt32(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public void UpdateBandPais(int bandId, int? paisId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                using (var cmd = new SQLiteCommand("UPDATE Banda SET Pais = @pais WHERE ID = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@pais", paisId.HasValue ? (object)paisId.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@id", bandId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
         public int AddTrack(Track track)
         {
             using (var conn = Database.GetConnection())
@@ -222,13 +317,14 @@ namespace XP3.Data
                     DateTime limiteRepeticao = DateTime.Now.AddHours(-24);
 
                     // 2. ATUALIZAMOS O SELECT: IncluÃ­mos m.CutIni e m.CutFim no final
-                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.TocadoEmG";
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.TocadoEmG";
                     string sql;
 
                     if (usarOrdenacaoOriginal)
                     {
                         sql = $@"SELECT {colunas} FROM Musica m 
                         LEFT JOIN Banda b ON m.Banda = b.ID 
+                        LEFT JOIN Pais p ON b.Pais = p.ID
                         JOIN LisMus lm ON m.ID = lm.Musica 
                         WHERE lm.Lista = @listaId
                         AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
@@ -239,6 +335,7 @@ namespace XP3.Data
                         string filtroTempo = config.ProgramacaoAtiva ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)" : "";
                         sql = $@"SELECT {colunas} FROM Musica m 
                         LEFT JOIN Banda b ON m.Banda = b.ID 
+                        LEFT JOIN Pais p ON b.Pais = p.ID
                         JOIN LisMus lm ON m.ID = lm.Musica 
                         WHERE lm.Lista = @listaId {filtroTempo}
                         AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
@@ -269,15 +366,17 @@ namespace XP3.Data
                                 // Banda
                                 t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
                                 t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
+                                t.PaisId = reader.IsDBNull(6) ? (int?)null : reader.GetInt32(6);
+                                t.PaisNome = reader.IsDBNull(7) ? null : reader.GetString(7);
 
                                 // --- NOVOS CAMPOS: CutIni (Ãndice 6) e CutFim (Ãndice 7) ---
                                 // Usamos -1 como fallback caso o banco retorne NULL por algum motivo
-                                t.CutIni = reader.IsDBNull(6) ? -1 : Convert.ToInt32(reader["CutIni"]);
-                                t.CutFim = reader.IsDBNull(7) ? -1 : Convert.ToInt32(reader["CutFim"]);
-                                t.VideoPath = reader.IsDBNull(8) ? null : reader["VideoPath"].ToString();
-                                t.EqualizacaoPresetId = reader.IsDBNull(9) ? 0 : Convert.ToInt32(reader["Equalizacao"]);
-                                t.EqualizacaoAtiva = reader.IsDBNull(10) || Convert.ToInt32(reader["EqualizacaoAtiva"]) != 0;
-                                t.EqualizacaoBandas = LerBandasMusica(reader, 11);
+                                t.CutIni = reader.IsDBNull(8) ? -1 : Convert.ToInt32(reader["CutIni"]);
+                                t.CutFim = reader.IsDBNull(9) ? -1 : Convert.ToInt32(reader["CutFim"]);
+                                t.VideoPath = reader.IsDBNull(10) ? null : reader["VideoPath"].ToString();
+                                t.EqualizacaoPresetId = reader.IsDBNull(11) ? 0 : Convert.ToInt32(reader["Equalizacao"]);
+                                t.EqualizacaoAtiva = reader.IsDBNull(12) || Convert.ToInt32(reader["EqualizacaoAtiva"]) != 0;
+                                t.EqualizacaoBandas = LerBandasMusica(reader, 13);
                                 t.Vez = Convert.ToInt32(reader["Vez"]);
                                 t.Pular = Convert.ToInt32(reader["Pular"]);
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
@@ -311,10 +410,11 @@ namespace XP3.Data
                     DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
                     DateTime limiteRepeticao = DateTime.Now.AddHours(-24);
 
-                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.TocadoEmG";
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.TocadoEmG";
                     string filtroTempo = config.ProgramacaoAtiva ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)" : "";
                     string sql = $@"SELECT {colunas} FROM Musica m 
                         LEFT JOIN Banda b ON m.Banda = b.ID 
+                        LEFT JOIN Pais p ON b.Pais = p.ID
                         WHERE m.Banda = @bandId {filtroTempo}
                         AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
                         AND (COALESCE(m.Pular, 0) = 0 OR COALESCE(m.Pular, 0) = COALESCE(m.Pulado, 0))
@@ -341,12 +441,14 @@ namespace XP3.Data
 
                                 t.BandId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
                                 t.BandName = reader.IsDBNull(5) ? "Desconhecida" : reader.GetString(5);
-                                t.CutIni = reader.IsDBNull(6) ? -1 : Convert.ToInt32(reader["CutIni"]);
-                                t.CutFim = reader.IsDBNull(7) ? -1 : Convert.ToInt32(reader["CutFim"]);
-                                t.VideoPath = reader.IsDBNull(8) ? null : reader["VideoPath"].ToString();
-                                t.EqualizacaoPresetId = reader.IsDBNull(9) ? 0 : Convert.ToInt32(reader["Equalizacao"]);
-                                t.EqualizacaoAtiva = reader.IsDBNull(10) || Convert.ToInt32(reader["EqualizacaoAtiva"]) != 0;
-                                t.EqualizacaoBandas = LerBandasMusica(reader, 11);
+                                t.PaisId = reader.IsDBNull(6) ? (int?)null : reader.GetInt32(6);
+                                t.PaisNome = reader.IsDBNull(7) ? null : reader.GetString(7);
+                                t.CutIni = reader.IsDBNull(8) ? -1 : Convert.ToInt32(reader["CutIni"]);
+                                t.CutFim = reader.IsDBNull(9) ? -1 : Convert.ToInt32(reader["CutFim"]);
+                                t.VideoPath = reader.IsDBNull(10) ? null : reader["VideoPath"].ToString();
+                                t.EqualizacaoPresetId = reader.IsDBNull(11) ? 0 : Convert.ToInt32(reader["Equalizacao"]);
+                                t.EqualizacaoAtiva = reader.IsDBNull(12) || Convert.ToInt32(reader["EqualizacaoAtiva"]) != 0;
+                                t.EqualizacaoBandas = LerBandasMusica(reader, 13);
                                 t.Vez = Convert.ToInt32(reader["Vez"]);
                                 t.Pular = Convert.ToInt32(reader["Pular"]);
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
@@ -1252,6 +1354,38 @@ namespace XP3.Data
                     cmd.Parameters.AddWithValue("@id", bandId);
                     var result = cmd.ExecuteScalar();
                     return result != null ? result.ToString() : "Desconhecida";
+                }
+            }
+        }
+
+        public Band GetBandById(int bandId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                string sql = @"SELECT b.ID, b.Nome, b.Pais AS PaisId, p.Nome AS PaisNome
+                               FROM Banda b
+                               LEFT JOIN Pais p ON b.Pais = p.ID
+                               WHERE b.ID = @id";
+
+                using (var cmd = new SQLiteCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@id", bandId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (!reader.Read())
+                        {
+                            return null;
+                        }
+
+                        return new Band
+                        {
+                            Id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
+                            Name = reader.IsDBNull(1) ? null : reader.GetString(1),
+                            PaisId = reader.IsDBNull(2) ? (int?)null : reader.GetInt32(2),
+                            PaisNome = reader.IsDBNull(3) ? null : reader.GetString(3)
+                        };
+                    }
                 }
             }
         }

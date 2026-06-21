@@ -30,6 +30,7 @@ namespace XP3.Forms
         private VolumeControlService _volumeControlService; // NOVO: Serviço para controle de volume
 
         private ContextMenuStrip _menuPlaylistLateral;
+        private ContextMenuStrip _menuBandasLateral;
 
         private int _currentPlaylistId = 1;
         private bool _emTelaCheia = false;
@@ -98,6 +99,7 @@ namespace XP3.Forms
         private double _trackCutIni = 0;
         private double _trackCutFim = 0;
         private ContextMenuStrip _menuMusica;
+        private ToolStripMenuItem _itemDefinirPaisMusica;
         private ContextMenuStrip _menuCorteBarra;
         private ToolStripMenuItem _itemMarcarCorteBarra;
         private double _percentualCorteBarra;
@@ -122,6 +124,7 @@ namespace XP3.Forms
         private List<Band> _bandasEmSelecao = new List<Band>();
         private bool _modoMesclagemPlaylistsAtivo = false;
         private bool _painelLateralMostrandoBandas = false;
+        private Band _bandaContextoLateral;
         private Playlist _playlistContextoLateral;
         private DateTime _ultimaTrocaRelogio = DateTime.MinValue;
         private DateTime _ultimaAtualizacaoProximaProgramacao = DateTime.MinValue;
@@ -157,6 +160,7 @@ namespace XP3.Forms
 
             ConstruirPainelLateral();
             ConfigurarMenuPlaylistLateral();
+            ConfigurarMenuBandasLateral();
             ConfigurarIndicadorProximaProgramacao();
 
             // Evento de seleção na Grid para atualizar painel lateral
@@ -402,6 +406,7 @@ namespace XP3.Forms
             var itemVideo = new ToolStripMenuItem("Video");
             var itemYouTube = new ToolStripMenuItem("YouTube");
             var itemEqualizacao = new ToolStripMenuItem("Equalização");
+            _itemDefinirPaisMusica = new ToolStripMenuItem("Definir país");
             var itemRetirarDepoisDeTocar = new ToolStripMenuItem("Retirar da lista depois de tocar");
             var itemApagarDepoisDeTocar = new ToolStripMenuItem("Apagar a lista depois de tocar");
             var itemAbrirPasta = new ToolStripMenuItem("Abrir pasta da musica");
@@ -412,6 +417,7 @@ namespace XP3.Forms
             _menuMusica.Items.Add(itemVideo);
             _menuMusica.Items.Add(itemYouTube);
             _menuMusica.Items.Add(itemEqualizacao);
+            _menuMusica.Items.Add(_itemDefinirPaisMusica);
             _menuMusica.Items.Add(itemRetirarDepoisDeTocar);
             _menuMusica.Items.Add(itemApagarDepoisDeTocar);
             _menuMusica.Items.Add(new ToolStripSeparator());
@@ -423,6 +429,7 @@ namespace XP3.Forms
             itemVideo.Click += (s, e) => VincularVideoMusica();
             itemYouTube.Click += (s, e) => EditarUrlYouTubeMusica();
             itemEqualizacao.Click += (s, e) => AbrirEqualizacaoMusica();
+            _itemDefinirPaisMusica.Click += (s, e) => DefinirPaisDaMusicaSelecionada();
             itemRetirarDepoisDeTocar.Click += (s, e) => AlternarRetiradaDepoisDeTocar();
             itemApagarDepoisDeTocar.Click += (s, e) => AlternarApagarDepoisDeTocar();
             itemAbrirPasta.Click += (s, e) => AbrirPasta();
@@ -439,6 +446,7 @@ namespace XP3.Forms
 
                 itemRetirarDepoisDeTocar.Checked = EstaMarcadaParaRetirarDepoisDeTocar(trackSelecionada);
                 itemApagarDepoisDeTocar.Checked = EstaMarcadaParaApagarDepoisDeTocar(trackSelecionada);
+                _itemDefinirPaisMusica.Enabled = trackSelecionada != null && trackSelecionada.BandId > 0;
             };
 
             lvTracks.ContextMenuStrip = _menuMusica;
@@ -593,6 +601,52 @@ namespace XP3.Forms
             item.Selected = true;
             lvTracks.FocusedItem = item;
             lvTracks.ContextMenuStrip = _menuMusica;
+        }
+
+        private void DefinirPaisDaMusicaSelecionada()
+        {
+            var track = ObterTrackSelecionada();
+            if (track == null || track.BandId <= 0)
+            {
+                return;
+            }
+
+            var banda = _trackRepo.GetBandById(track.BandId) ?? new Band
+            {
+                Id = track.BandId,
+                Name = track.BandName,
+                PaisId = track.PaisId,
+                PaisNome = track.PaisNome
+            };
+
+            using (var form = new BandaPaisForm(banda, _trackRepo))
+            {
+                if (form.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+            }
+
+            var bandaAtualizada = _trackRepo.GetBandById(track.BandId);
+            if (bandaAtualizada == null)
+            {
+                return;
+            }
+
+            foreach (var musica in _allTracks.Where(t => t.BandId == bandaAtualizada.Id))
+            {
+                musica.PaisId = bandaAtualizada.PaisId;
+                musica.PaisNome = bandaAtualizada.PaisNome;
+            }
+
+            if (track.BandId == bandaAtualizada.Id)
+            {
+                track.PaisId = bandaAtualizada.PaisId;
+                track.PaisNome = bandaAtualizada.PaisNome;
+            }
+
+            lvTracks.Invalidate();
+            lvTracks.Refresh();
         }
 
         private void ConfigurarIndicadorProximaProgramacao()
@@ -1954,10 +2008,58 @@ namespace XP3.Forms
             _menuPlaylistLateral.Items.Add(itemMudarAoTerminar);
         }
 
+        private void ConfigurarMenuBandasLateral()
+        {
+            _menuBandasLateral = new ContextMenuStrip();
+
+            var itemIndicarPais = new ToolStripMenuItem("Indicar país");
+            itemIndicarPais.Click += (s, e) =>
+            {
+                if (_bandaContextoLateral == null)
+                {
+                    return;
+                }
+
+                using (var form = new BandaPaisForm(_bandaContextoLateral, _trackRepo))
+                {
+                    if (form.ShowDialog(this) != DialogResult.OK)
+                    {
+                        return;
+                    }
+                }
+
+                LoadBandasLateral();
+                if (lvTracks != null)
+                {
+                    lvTracks.Invalidate();
+                }
+
+                if (_allTracks != null && _allTracks.Count > 0)
+                {
+                    lvTracks.Refresh();
+                }
+            };
+
+            _menuBandasLateral.Items.Add(itemIndicarPais);
+        }
+
         private void _clbPlaylistsLateral_MouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right) return;
-            if (_modoTrocaBandaAtivo || _modoEscolhendoProximaLista || _modoMesclagemPlaylistsAtivo || _painelLateralMostrandoBandas) return;
+
+            if (_painelLateralMostrandoBandas)
+            {
+                int bandaIndex = _clbPlaylistsLateral.IndexFromPoint(e.Location);
+                if (bandaIndex == ListBox.NoMatches) return;
+                if (!(_clbPlaylistsLateral.Items[bandaIndex] is Band banda)) return;
+
+                _bandaContextoLateral = banda;
+                _clbPlaylistsLateral.SelectedIndex = bandaIndex;
+                _menuBandasLateral.Show(_clbPlaylistsLateral, e.Location);
+                return;
+            }
+
+            if (_modoTrocaBandaAtivo || _modoEscolhendoProximaLista || _modoMesclagemPlaylistsAtivo) return;
 
             int index = _clbPlaylistsLateral.IndexFromPoint(e.Location);
             if (index == ListBox.NoMatches) return;
@@ -3193,10 +3295,11 @@ namespace XP3.Forms
             lvTracks.Columns.Add("MÃƒÂºsica", 350);
             lvTracks.Columns.Add("Banda", 190);
             lvTracks.Columns.Add("Tempo", 70, HorizontalAlignment.Right);
-            lvTracks.Columns.Add("T", 30, HorizontalAlignment.Center);
+            lvTracks.Columns.Add("T", 45, HorizontalAlignment.Center);
             lvTracks.Columns.Add("P", 22, HorizontalAlignment.Center);
             lvTracks.Columns.Add("L", 22, HorizontalAlignment.Center);
             lvTracks.Columns.Add("Ultima vez", 135, HorizontalAlignment.Left);
+            lvTracks.Columns.Add("País", 110, HorizontalAlignment.Left);
 
             AjustarColunasGrid();
         }
@@ -3204,7 +3307,7 @@ namespace XP3.Forms
         private void AjustarColunasGrid()
         {
             // Proteção básica para garantir que a grid e as 7 colunas existem
-            if (lvTracks == null || lvTracks.Columns.Count < 7) return;
+            if (lvTracks == null || lvTracks.Columns.Count < 8) return;
 
             // --- AJUSTE MANUAL DE LARGURA DAS COLUNAS (EM PIXELS) ---
             // Vá alterando os valores numéricos abaixo até chegar no visual ideal.
@@ -3216,6 +3319,7 @@ namespace XP3.Forms
             lvTracks.Columns[4].Width = 25;  // Coluna 4: P
             lvTracks.Columns[5].Width = 25;  // Coluna 5: L
             lvTracks.Columns[6].Width = 135; // Coluna 6: Última Vez
+            lvTracks.Columns[7].Width = 110; // Coluna 7: País
         }
 
         #endregion
@@ -3647,6 +3751,7 @@ namespace XP3.Forms
             item.SubItems.Add(AlgarismoGrid(track.Pular));                     // Coluna 4: P
             item.SubItems.Add(AlgarismoGrid(track.Pulado));                    // Coluna 5: L
             item.SubItems.Add(FormatarUltimaReproducao(track.LastPlayedAt));   // Coluna 6: Última Vez
+            item.SubItems.Add(track.PaisNome ?? string.Empty);                 // Coluna 7: País
 
             // --- LÓGICA DE DESTAQUE (CORES E FONTES) ---
             // Verifica se esta linha corresponde à música que está tocando agora
@@ -3721,7 +3826,6 @@ namespace XP3.Forms
         private string AlgarismoGrid(int valor)
         {
             if (valor < 0) return "0";
-            if (valor > 9) return "9";
             return valor.ToString();
         }
 

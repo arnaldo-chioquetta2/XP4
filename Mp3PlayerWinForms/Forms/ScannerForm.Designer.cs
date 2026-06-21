@@ -16,6 +16,8 @@
             this.progressBar1 = new System.Windows.Forms.ProgressBar();
             this.txtLog = new System.Windows.Forms.TextBox();
             this.label1 = new System.Windows.Forms.Label();
+            this.lblPais = new System.Windows.Forms.Label();
+            this.cmbPais = new System.Windows.Forms.ComboBox();
             this.btnOkClose = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
@@ -29,11 +31,31 @@
             this.btnSelectFolder.UseVisualStyleBackColor = true;
             this.btnSelectFolder.Click += new System.EventHandler(this.btnSelectFolder_Click);
             // 
+            // lblPais
+            // 
+            this.lblPais.AutoSize = true;
+            this.lblPais.Location = new System.Drawing.Point(12, 85);
+            this.lblPais.Name = "lblPais";
+            this.lblPais.Size = new System.Drawing.Size(75, 13);
+            this.lblPais.TabIndex = 4;
+            this.lblPais.Text = "País da banda";
+            // 
+            // cmbPais
+            // 
+            this.cmbPais.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.cmbPais.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDown;
+            this.cmbPais.FormattingEnabled = true;
+            this.cmbPais.Location = new System.Drawing.Point(93, 82);
+            this.cmbPais.Name = "cmbPais";
+            this.cmbPais.Size = new System.Drawing.Size(479, 21);
+            this.cmbPais.TabIndex = 5;
+            // 
             // progressBar1
             // 
             this.progressBar1.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
-            this.progressBar1.Location = new System.Drawing.Point(12, 48);
+            this.progressBar1.Location = new System.Drawing.Point(12, 109);
             this.progressBar1.Name = "progressBar1";
             this.progressBar1.Size = new System.Drawing.Size(560, 23);
             this.progressBar1.TabIndex = 1;
@@ -45,11 +67,11 @@
             | System.Windows.Forms.AnchorStyles.Right)));
             this.txtLog.BackColor = System.Drawing.Color.Black;
             this.txtLog.ForeColor = System.Drawing.Color.Lime;
-            this.txtLog.Location = new System.Drawing.Point(12, 77);
+            this.txtLog.Location = new System.Drawing.Point(12, 138);
             this.txtLog.Multiline = true;
             this.txtLog.Name = "txtLog";
             this.txtLog.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtLog.Size = new System.Drawing.Size(560, 272);
+            this.txtLog.Size = new System.Drawing.Size(560, 211);
             this.txtLog.TabIndex = 2;
             // 
             // label1
@@ -78,6 +100,8 @@
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(584, 361);
             this.Controls.Add(this.btnOkClose);
+            this.Controls.Add(this.cmbPais);
+            this.Controls.Add(this.lblPais);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.txtLog);
             this.Controls.Add(this.progressBar1);
@@ -94,6 +118,8 @@
         private System.Windows.Forms.ProgressBar progressBar1;
         private System.Windows.Forms.TextBox txtLog;
         private System.Windows.Forms.Label label1;
+        private System.Windows.Forms.Label lblPais;
+        private System.Windows.Forms.ComboBox cmbPais;
         private System.Windows.Forms.Button btnOkClose;
     }
 }

@@ -9,6 +9,8 @@ namespace XP3.Models
         public string Title { get; set; }
         public int BandId { get; set; }
         public string BandName { get; set; }
+        public int? PaisId { get; set; }
+        public string PaisNome { get; set; }
         public string FilePath { get; set; }
         public string VideoPath { get; set; }
         public TimeSpan Duration { get; set; }

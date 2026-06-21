@@ -11,12 +11,40 @@ namespace XP3.Forms
     public partial class ScannerForm : Form
     {
         private FolderScannerService _scanner;
-        private TrackRepository _trackRepo;
+        private readonly TrackRepository _trackRepo;
 
         public ScannerForm()
         {
             InitializeComponent();
+            _trackRepo = new TrackRepository();
             _scanner = new FolderScannerService();
+            CarregarPaises();
+        }
+
+        private void CarregarPaises()
+        {
+            if (cmbPais == null) return;
+
+            var paises = _trackRepo.GetAllPaises();
+
+            cmbPais.DisplayMember = "Nome";
+            cmbPais.ValueMember = "Id";
+            cmbPais.DataSource = null;
+            cmbPais.DataSource = paises;
+            cmbPais.SelectedIndex = -1;
+            cmbPais.Text = string.Empty;
+            cmbPais.DropDownStyle = ComboBoxStyle.DropDown;
+        }
+
+        private int? ObterPaisSelecionadoOuDigitado()
+        {
+            string texto = (cmbPais?.Text ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(texto))
+            {
+                return null;
+            }
+
+            return _trackRepo.GetOrInsertPais(texto);
         }
 
         private async void btnSelectFolder_Click(object sender, EventArgs e)
@@ -54,8 +82,8 @@ namespace XP3.Forms
                     btnSelectFolder.Enabled = false;
                     btnOkClose.Enabled = false;
 
-                    _trackRepo = new TrackRepository();
                     _trackRepo.GetOrCreatePlaylist("AEscolher");
+                    int? paisId = ObterPaisSelecionadoOuDigitado();
 
                     txtLog.Clear();
                     progressBar1.Value = 0;
@@ -73,7 +101,7 @@ namespace XP3.Forms
                             AppendLog(">>> MODO IMPORTAÇÃO: Movimentando arquivos...");
 
                             // Executa a importação
-                            await Task.Run(() => _scanner.ImportarEscanear(pastaOrigem, pastaBase, progress, log));
+                            await Task.Run(() => _scanner.ImportarEscanear(pastaOrigem, pastaBase, progress, log, paisId));
 
                             // --- LÓGICA DE LIMPEZA ---
                             // Como terminou o await, tentamos apagar a pasta de origem (BandaX) que agora deve estar vazia
@@ -82,7 +110,7 @@ namespace XP3.Forms
                         else
                         {
                             AppendLog(">>> MODO ESCANEAMENTO: Atualizando banco local...");
-                            await Task.Run(() => _scanner.ScanFolder(pastaOrigem, progress, log));
+                            await Task.Run(() => _scanner.ScanFolder(pastaOrigem, progress, log, paisId));
                         }
 
                         AppendLog("=== PROCESSO CONCLUÍDO ===");

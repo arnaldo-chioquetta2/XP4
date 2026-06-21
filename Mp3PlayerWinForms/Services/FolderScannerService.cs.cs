@@ -21,6 +21,11 @@ namespace XP3.Services
 
         public void ScanFolder(string folderPath, IProgress<int> progress, IProgress<string> log)
         {
+            ScanFolder(folderPath, progress, log, null);
+        }
+
+        public void ScanFolder(string folderPath, IProgress<int> progress, IProgress<string> log, int? paisId)
+        {
             // Instanciamos o detector para usar durante a varredura
             var detector = new Services.SilenceDetector();
 
@@ -56,7 +61,7 @@ namespace XP3.Services
                 int cFim = detector.AnalisarCutFim(file.FullName);
 
                 // CHAMA O MÉTODO COM OS 7 PARÂMETROS AGORA
-                ProcessFile(file, bandName, songTitle, playlistId, log, cIni, cFim);
+                ProcessFile(file, bandName, songTitle, playlistId, log, cIni, cFim, paisId);
                 progress.Report(5);
             }
 
@@ -80,7 +85,7 @@ namespace XP3.Services
                     int cFim = detector.AnalisarCutFim(file.FullName);
 
                     // CHAMA O MÉTODO COM OS 7 PARÂMETROS
-                    ProcessFile(file, bandName, songTitle, playlistId, log, cIni, cFim);
+                    ProcessFile(file, bandName, songTitle, playlistId, log, cIni, cFim, paisId);
                 }
 
                 int pct = 10 + (int)((double)dirIdx / subDirs.Length * 90);
@@ -92,6 +97,11 @@ namespace XP3.Services
         }
 
         public void ImportarEscanear(string pastaOrigem, string pastaBase, IProgress<int> progress, IProgress<string> log)
+        {
+            ImportarEscanear(pastaOrigem, pastaBase, progress, log, null);
+        }
+
+        public void ImportarEscanear(string pastaOrigem, string pastaBase, IProgress<int> progress, IProgress<string> log, int? paisId)
         {
             // Instanciamos o detector aqui para uso no loop
             var detector = new SilenceDetector();
@@ -185,7 +195,7 @@ namespace XP3.Services
 
                     // IMPORTANTE: Aqui você precisará ajustar o seu método ProcessFile 
                     // para aceitar os parâmetros cIni e cFim e gravá-los no INSERT do banco.
-                    ProcessFile(novoFile, nomeBandaLimpo, tituloMusica, playlistId, log, cIni, cFim);
+                    ProcessFile(novoFile, nomeBandaLimpo, tituloMusica, playlistId, log, cIni, cFim, paisId);
 
                     progress.Report((int)((double)(i + 1) / total * 100));
                 }
@@ -212,7 +222,7 @@ namespace XP3.Services
             }
         }
 
-        private void ProcessFile(FileInfo fileInfo, string bandName, string songTitle, int playlistId, IProgress<string> log, int cutIni, int cutFim)
+        private void ProcessFile(FileInfo fileInfo, string bandName, string songTitle, int playlistId, IProgress<string> log, int cutIni, int cutFim, int? paisId)
         {
             try
             {
@@ -250,7 +260,7 @@ namespace XP3.Services
                 }
                 catch { }
 
-                int bandId = _repo.GetOrInsertBand(bandName);
+                int bandId = _repo.GetOrInsertBand(bandName, paisId);
 
                 var track = new Track
                 {
