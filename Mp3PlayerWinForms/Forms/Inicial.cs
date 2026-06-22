@@ -129,6 +129,10 @@ namespace XP3.Forms
         private DateTime _ultimaTrocaRelogio = DateTime.MinValue;
         private DateTime _ultimaAtualizacaoProximaProgramacao = DateTime.MinValue;
         private Label _lblProximaProgramacao;
+        private int _contadorAprovadasDia;
+        private DateTime _contadorAprovadasDiaReferencia = DateTime.MinValue;
+        private int _ultimaAprovacaoTrackId = -1;
+        private DateTime _ultimaAprovacaoEm = DateTime.MinValue;
         private const string VideoDialogFilter = "Videos suportados|*.mp4;*.m4v;*.webm;*.ogv;*.ogg|MP4|*.mp4;*.m4v|WebM|*.webm|Ogg Video|*.ogv;*.ogg|Todos os arquivos|*.*";
 
         public bool Minimizado = false;
@@ -990,6 +994,7 @@ namespace XP3.Forms
             _iniService = new IniFileService();
 
             _progRepo = new ProgrammingRepository();
+            CarregarContadorAprovadasDoDia();
 
             // --- NOVO: Captura o status do Auto-Cue ---
             _player.OnStatusCueChanged += (msg) =>
@@ -997,7 +1002,7 @@ namespace XP3.Forms
                 // Usamos BeginInvoke porque a anÃƒÂ¡lise de fim vem de uma Task em background
                 if (lblStatusCue != null && !lblStatusCue.IsDisposed)
                 {
-                    ExecutarNoControleQuandoPronto(lblStatusCue, () => lblStatusCue.Text = msg);
+                    ExecutarNoControleQuandoPronto(lblStatusCue, () => AtualizarStatusCue(msg));
                 }
             };
 
@@ -1576,25 +1581,47 @@ namespace XP3.Forms
 
         private void TocaMenos()
         {
-            // 1. Verifica se hÃƒÂ¡ seleÃƒÂ§ÃƒÂ£o no ListView
             if (lvTracks.SelectedIndices.Count == 0) return;
 
-            // 2. Identifica a mÃƒÂºsica selecionada
             int index = lvTracks.SelectedIndices[0];
             var track = _allTracks[index];
 
-            // 3. Executa a lÃƒÂ³gica no banco atravÃƒÂ©s do repositÃƒÂ³rio
-            _trackRepo.TocaMenos(track.Id);
+            IncrementarPularTrack(track);
 
-            // 4. Atualiza a memÃƒÂ³ria para a tela nÃƒÂ£o ficar "mentindo"
-            track.Pular += 1;
-
-            // 5. Feedback visual sem interromper a musica atual
-            lblStatus.Text = $"Penalidade aplicada: {track.Title} tocarÃƒÂ¡ menos.";
+            lblStatus.Text = $"Penalidade aplicada: {track.Title} tocará menos.";
             lblStatus.ForeColor = Color.Orange;
 
-            // 6. Atualiza a lista na tela
             lvTracks.Refresh();
+        }
+
+        private void IncrementarPularTrack(Track track)
+        {
+            if (track == null || track.Id <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                int pularAtualizado = _trackRepo.IncrementarPular(track.Id);
+
+                foreach (var item in _allTracks.Where(t => t.Id == track.Id))
+                {
+                    item.Pular = pularAtualizado;
+                }
+
+                if (_player?.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
+                {
+                    _player.CurrentTrack.Pular = pularAtualizado;
+                }
+
+                track.Pular = pularAtualizado;
+                lvTracks.Invalidate();
+            }
+            catch (Exception ex)
+            {
+                LogService.GravarErro("IncrementarPularTrack", ex);
+            }
         }
 
         private void TratarMudancaDeFaixa(Track track)
@@ -2798,10 +2825,19 @@ namespace XP3.Forms
             var listasDaMusica = _trackRepo.GetPlaylistsByMusicaId(track.Id);
 
             // 3. SE a mÃƒÂºsica estiver em mais de uma lista (AEscolher + Outra), ela sai da triagem
-            if (listasDaMusica.Count > 1)
+            if (_trackRepo.TrackEstaEmMaisDeUmaLista(track.Id))
             {
                 // Remove do Banco de Dados (apenas da relaÃƒÂ§ÃƒÂ£o com AEscolher)
+                if (_ultimaAprovacaoTrackId == track.Id &&
+                    (DateTime.Now - _ultimaAprovacaoEm).TotalSeconds < 5)
+                {
+                    return;
+                }
+
                 _trackRepo.RemoverMusicaDaLista(track.Id, _currentPlaylistId);
+                IncrementarContadorAprovadasDoDia();
+                _ultimaAprovacaoTrackId = track.Id;
+                _ultimaAprovacaoEm = DateTime.Now;
 
                 // Remove da MemÃƒÂ³ria e da Grid Visual
                 // Usamos LINQ para garantir que estamos tirando o objeto certo
@@ -2821,6 +2857,78 @@ namespace XP3.Forms
                     _clbPlaylistsLateral.Items.Clear();
                 }
             }
+        }
+
+        private void CarregarContadorAprovadasDoDia()
+        {
+            var hoje = DateTime.Today;
+            string dataSalva = _iniService.Read("AEscolher", "AprovadasData", string.Empty);
+            string contadorSalvo = _iniService.Read("AEscolher", "AprovadasContador", "0");
+
+            if (!DateTime.TryParse(dataSalva, out var dataReferencia) || dataReferencia.Date != hoje)
+            {
+                _contadorAprovadasDiaReferencia = hoje;
+                _contadorAprovadasDia = 0;
+                SalvarContadorAprovadasDoDia();
+            }
+            else
+            {
+                _contadorAprovadasDiaReferencia = dataReferencia.Date;
+                int.TryParse(contadorSalvo, out _contadorAprovadasDia);
+            }
+
+            AtualizarStatusCue();
+        }
+
+        private void IncrementarContadorAprovadasDoDia()
+        {
+            if (_contadorAprovadasDiaReferencia.Date != DateTime.Today)
+            {
+                _contadorAprovadasDiaReferencia = DateTime.Today;
+                _contadorAprovadasDia = 0;
+            }
+
+            _contadorAprovadasDia++;
+            SalvarContadorAprovadasDoDia();
+            AtualizarStatusCue();
+        }
+
+        private void SalvarContadorAprovadasDoDia()
+        {
+            try
+            {
+                _iniService.Write("AEscolher", "AprovadasData", _contadorAprovadasDiaReferencia.ToString("yyyy-MM-dd"));
+                _iniService.Write("AEscolher", "AprovadasContador", _contadorAprovadasDia.ToString());
+            }
+            catch (Exception ex)
+            {
+                LogService.GravarErro("SalvarContadorAprovadasDoDia", ex);
+            }
+        }
+
+        private void AtualizarStatusCue(string mensagem = null)
+        {
+            if (lblStatusCue == null || lblStatusCue.IsDisposed)
+            {
+                return;
+            }
+
+            string contador = $"Aprovadas hoje: {_contadorAprovadasDia}";
+
+            if (string.IsNullOrWhiteSpace(mensagem))
+            {
+                lblStatusCue.Text = contador;
+                return;
+            }
+
+            if (mensagem.StartsWith("Auto-Cue", StringComparison.OrdinalIgnoreCase) ||
+                mensagem.Equals("Sem cortes", StringComparison.OrdinalIgnoreCase))
+            {
+                lblStatusCue.Text = $"{mensagem} | {contador}";
+                return;
+            }
+
+            lblStatusCue.Text = contador;
         }
 
         private Button CriarBotaoLateral(string texto, Color corFundo)
@@ -4286,29 +4394,13 @@ namespace XP3.Forms
 
         private void btnNext_Click(object sender, EventArgs e)
         {
-            // 1. Identifica a mÃƒÂºsica que estava tocando no momento do clique
             var trackAtual = _player.CurrentTrack;
 
             if (trackAtual != null)
             {
-                try
-                {
-                    // 2. Incrementa o contador no banco de dados
-                    _trackRepo.TocaMenos(trackAtual.Id);
-
-                    // 3. Incrementa no objeto em memÃƒÂ³ria (opcional, mas bom para manter a grid atualizada)
-                    trackAtual.Pular++;
-
-                    // Se vocÃƒÂª quiser ver o contador subindo na Grid imediatamente:
-                    // lvTracks.Refresh(); 
-                }
-                catch (Exception ex)
-                {
-                    // Log silencioso se houver erro no banco, para nÃƒÂ£o travar o Play
-                }
+                IncrementarPularTrack(trackAtual);
             }
 
-            // 4. Segue para a prÃƒÂ³xima mÃƒÂºsica normalmente
             _marcarMusicaAnteriorNaTroca = true;
             _player.Next();
         }

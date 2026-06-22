@@ -1195,6 +1195,25 @@ namespace XP3.Data
             return list;
         }
 
+        public bool TrackEstaEmMaisDeUmaLista(int trackId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                const string sql = @"SELECT COUNT(DISTINCT Lista)
+                                     FROM LisMus
+                                     WHERE Musica = @trackId";
+
+                using (var cmd = new SQLiteCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@trackId", trackId);
+                    var result = cmd.ExecuteScalar();
+                    int count = result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    return count > 1;
+                }
+            }
+        }
+
         public void LimparMusicaDeTodasPlaylists(int musicaId)
         {
             using (var conn = Database.GetConnection())
@@ -1640,18 +1659,30 @@ namespace XP3.Data
 
         #endregion
 
-        public void TocaMenos(int trackId)
+        public int IncrementarPular(int trackId)
         {
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
-                string sql = "UPDATE Musica SET Pular = COALESCE(Pular, 0) + 1 WHERE ID = @Id";
-                using (var command = new SQLiteCommand(sql, connection))
+
+                using (var command = new SQLiteCommand("UPDATE Musica SET Pular = COALESCE(Pular, 0) + 1 WHERE ID = @Id", connection))
                 {
                     command.Parameters.AddWithValue("@Id", trackId);
                     command.ExecuteNonQuery();
                 }
+
+                using (var query = new SQLiteCommand("SELECT COALESCE(Pular, 0) FROM Musica WHERE ID = @Id", connection))
+                {
+                    query.Parameters.AddWithValue("@Id", trackId);
+                    object result = query.ExecuteScalar();
+                    return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                }
             }
+        }
+
+        public void TocaMenos(int trackId)
+        {
+            IncrementarPular(trackId);
         }
 
         public bool RenomearMusica(Track track, string novoNome)
