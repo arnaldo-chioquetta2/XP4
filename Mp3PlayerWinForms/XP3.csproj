@@ -237,6 +237,9 @@
     <Compile Include="Visualizers\VisualizerBase.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Visualizers\VisualizerCarrinhos.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Visualizers\VisualizerCityscape.cs">
       <SubType>Form</SubType>
     </Compile>

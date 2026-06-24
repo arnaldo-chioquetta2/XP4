@@ -82,6 +82,7 @@ namespace XP3.Forms
         private List<Type> _visualizerTypes = new List<Type>
         {
             typeof(XP3.Visualizers.VisualizerRadial),
+            typeof(XP3.Visualizers.VisualizerCarrinhos),
             typeof(XP3.Visualizers.VisualizerMontanhas),
             typeof(XP3.Visualizers.VisualizerLandscape),
             typeof(XP3.Visualizers.VisualizerCityscape),
