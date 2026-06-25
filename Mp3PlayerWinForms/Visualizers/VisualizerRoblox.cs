@@ -36,6 +36,8 @@ namespace XP3.Visualizers
         private DateTime _lastFrameTime = DateTime.Now;
         private readonly HashSet<string> _tilesAbertos = new HashSet<string>();
         private float _hammerPhase;
+        private int _ultimoTileEstradaRow = int.MinValue;
+        private int _ultimoTileEstradaCol = int.MinValue;
 
         // Paleta de Cores Clássica do Roblox (Cores "Plastic")
         private Color _corCeu = Color.FromArgb(117, 186, 255); // "Institutional White" (Sky)
@@ -309,7 +311,8 @@ namespace XP3.Visualizers
         private void AtualizarMarteloECaminho(float deltaTime)
         {
             _hammerPhase += deltaTime * (3f + (_smoothedEnergy * 8f));
-            LimparTilesAbertosAntigos((int)Math.Floor(_worldScroll) - 2);
+            AbrirTileEstradaAtual();
+            LimparTilesAbertosAntigos((int)Math.Floor(_worldScroll));
         }
 
         private string GetTileKey(int row, int col)
@@ -317,13 +320,15 @@ namespace XP3.Visualizers
             return row.ToString() + ":" + col.ToString();
         }
 
-        private void LimparTilesAbertosAntigos(int minVisibleRow)
+        private void LimparTilesAbertosAntigos(int rowOffset)
         {
             if (_tilesAbertos.Count == 0)
             {
                 return;
             }
 
+            int ultimaLinhaVisivel = rowOffset - PLANTACAO_ROWS - 2;
+            int limiteRemocao = ultimaLinhaVisivel - 30;
             List<string> remover = null;
             foreach (string key in _tilesAbertos)
             {
@@ -338,7 +343,7 @@ namespace XP3.Visualizers
                     continue;
                 }
 
-                if (row < minVisibleRow - 4)
+                if (row < limiteRemocao)
                 {
                     if (remover == null)
                     {
@@ -360,29 +365,101 @@ namespace XP3.Visualizers
             }
         }
 
-        private bool TileDeveVirarChao(int globalRow, int col, Rectangle tile, int chaoY, float tileH)
+        private void AbrirTileEstradaAtual()
         {
-            if (_tilesAbertos.Contains(GetTileKey(globalRow, col)))
+            Point impactPoint = GetHammerImpactPoint();
+            if (!TryGetTileFromScreenPoint(impactPoint.X, impactPoint.Y, out int globalRow, out int col))
             {
-                return true;
+                return;
             }
 
-            int colCentro = Math.Max(0, Math.Min(PLANTACAO_COLS - 1, (int)Math.Floor(_playerXNormalized * PLANTACAO_COLS)));
-            bool tocouBaseDoCaminho = tile.Bottom >= chaoY && Math.Abs(col - colCentro) <= 1;
-            if (tocouBaseDoCaminho)
+            if (_ultimoTileEstradaRow == int.MinValue || _ultimoTileEstradaCol == int.MinValue)
             {
-                return true;
+                AbrirTileEstradaComLargura(globalRow, col);
+                _ultimoTileEstradaRow = globalRow;
+                _ultimoTileEstradaCol = col;
+                return;
             }
 
-            bool pertoDaBase = tile.Bottom >= chaoY - (tileH * 2.2f);
-            if (!pertoDaBase)
+            AbrirLinhaEntreTiles(_ultimoTileEstradaRow, _ultimoTileEstradaCol, globalRow, col);
+            _ultimoTileEstradaRow = globalRow;
+            _ultimoTileEstradaCol = col;
+        }
+
+        private void AbrirLinhaEntreTiles(int row1, int col1, int row2, int col2)
+        {
+            int steps = Math.Max(Math.Abs(row2 - row1), Math.Abs(col2 - col1));
+            if (steps <= 0)
             {
-                return false;
+                AbrirTileEstradaComLargura(row2, col2);
+                return;
             }
 
-            return _tilesAbertos.Contains(GetTileKey(globalRow - 1, col)) ||
-                   _tilesAbertos.Contains(GetTileKey(globalRow - 1, col - 1)) ||
-                   _tilesAbertos.Contains(GetTileKey(globalRow - 1, col + 1));
+            for (int i = 0; i <= steps; i++)
+            {
+                float t = i / (float)steps;
+                int row = (int)Math.Round(row1 + ((row2 - row1) * t));
+                int col = (int)Math.Round(col1 + ((col2 - col1) * t));
+                AbrirTileEstradaComLargura(row, col);
+            }
+        }
+
+        private void AbrirTileEstradaComLargura(int row, int col)
+        {
+            if (col < 0 || col >= PLANTACAO_COLS)
+            {
+                return;
+            }
+
+            _tilesAbertos.Add(GetTileKey(row, col));
+
+            int colVizinha = col + 1;
+            if (colVizinha >= PLANTACAO_COLS)
+            {
+                colVizinha = col - 1;
+            }
+
+            if (colVizinha >= 0 && colVizinha < PLANTACAO_COLS)
+            {
+                _tilesAbertos.Add(GetTileKey(row, colVizinha));
+            }
+        }
+
+        private Point GetHammerImpactPoint()
+        {
+            int w = this.Width;
+            int h = this.Height;
+            int margem = (int)(w * 0.18f);
+            int playerX = margem + (int)((w - (margem * 2)) * _playerXNormalized);
+            int playerY = (int)(h * _playerScreenYNormalized);
+            int scale = Math.Max(2, Math.Min(4, h / 210));
+
+            int impactX = playerX + (16 * scale);
+            int impactY = playerY - (18 * scale);
+            return new Point(impactX, impactY);
+        }
+
+        private bool TryGetTileFromScreenPoint(int x, int y, out int globalRow, out int col)
+        {
+            int w = this.Width;
+            int h = this.Height;
+            float startY = h * PLANTACAO_START_Y;
+            float areaHeight = h * PLANTACAO_HEIGHT;
+            float tileW = w / (float)PLANTACAO_COLS;
+            float tileH = areaHeight / PLANTACAO_ROWS;
+            float scrollFracao = _worldScroll - (float)Math.Floor(_worldScroll);
+            float offsetY = scrollFracao * tileH;
+            int rowOffset = (int)Math.Floor(_worldScroll);
+
+            col = (int)Math.Floor(x / tileW);
+            float rowFloat = (y - startY - offsetY) / tileH;
+            int row = (int)Math.Floor(rowFloat);
+            globalRow = rowOffset - row;
+
+            return col >= 0 &&
+                   col < PLANTACAO_COLS &&
+                   row >= -1 &&
+                   row <= PLANTACAO_ROWS;
         }
 
         private float Clamp01OuMargem(float value)
@@ -413,7 +490,6 @@ namespace XP3.Visualizers
             float scrollFracao = _worldScroll - (float)Math.Floor(_worldScroll);
             float offsetY = scrollFracao * tileH;
             int rowOffset = (int)Math.Floor(_worldScroll);
-            int chaoY = (int)(h * CHAO_BASE_Y);
 
             using (Brush terraFundo = new SolidBrush(Color.FromArgb(110, 86, 54)))
             {
@@ -433,13 +509,10 @@ namespace XP3.Visualizers
                         (int)Math.Ceiling(tileW) - 2,
                         (int)Math.Ceiling(tileH) - 2);
 
-                    bool virouChao = TileDeveVirarChao(worldRow, col, tile, chaoY, tileH);
-                    if (virouChao)
-                    {
-                        _tilesAbertos.Add(GetTileKey(worldRow, col));
-                    }
+                    string key = GetTileKey(worldRow, col);
+                    bool aberto = _tilesAbertos.Contains(key);
 
-                    if (virouChao)
+                    if (aberto)
                     {
                         DrawTileVago(g, tile);
                     }
