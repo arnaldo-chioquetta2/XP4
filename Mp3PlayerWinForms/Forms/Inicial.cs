@@ -46,6 +46,7 @@ namespace XP3.Forms
         private TextBox txtEditorGrid;
 
         private XP3.Visualizers.VisualizerBase _visualizerWindow;
+        private bool _abrindoVisualizador;
         private VideoPlayerForm _videoPlayerWindow;
         private YouTubePlayerForm _youtubePlayerWindow;
         private bool _fechandoMidiaFullscreen;
@@ -83,6 +84,7 @@ namespace XP3.Forms
         {
             typeof(XP3.Visualizers.VisualizerRadial),
             typeof(XP3.Visualizers.VisualizerCarrinhos),
+            typeof(XP3.Visualizers.VisualizerRoblox),
             typeof(XP3.Visualizers.VisualizerMontanhas),
             typeof(XP3.Visualizers.VisualizerLandscape),
             typeof(XP3.Visualizers.VisualizerCityscape),
@@ -4168,9 +4170,17 @@ namespace XP3.Forms
                 return;
             }
 
+            if (_abrindoVisualizador)
+            {
+                return;
+            }
+            _abrindoVisualizador = true;
+
             Rectangle boundsAntigos = Rectangle.Empty;
             FormWindowState estadoAntigo = FormWindowState.Normal;
             bool estavaAberto = false;
+            XP3.Visualizers.VisualizerBase visualizadorAntigo = null;
+            int indiceAnterior = _currentVisualizerIndex;
 
             // 2. VERIFICAÃƒâ€¡ÃƒÆ’O DE ESTADO DO PLAYER
             bool estavaTocando = _player != null && _player.IsPlaying;
@@ -4186,9 +4196,8 @@ namespace XP3.Forms
                 boundsAntigos = _visualizerWindow.Bounds;
                 estadoAntigo = _visualizerWindow.WindowState;
 
-                _visualizerWindow.FormClosed -= OnVisualizerClosed;
-                _visualizerWindow.Close();
-                _visualizerWindow.Dispose();
+                visualizadorAntigo = _visualizerWindow;
+                visualizadorAntigo.FormClosed -= OnVisualizerClosed;
                 _visualizerWindow = null;
             }
 
@@ -4196,25 +4205,27 @@ namespace XP3.Forms
             try
             {
                 Type tipoParaCriar = _visualizerTypes[_currentVisualizerIndex];
-                _visualizerWindow = (XP3.Visualizers.VisualizerBase)Activator.CreateInstance(tipoParaCriar);
+                System.Diagnostics.Debug.WriteLine(
+                    $"AbrirVisualizador: index={_currentVisualizerIndex}, total={_visualizerTypes.Count}, tipo={tipoParaCriar?.FullName}, base={AppDomain.CurrentDomain.BaseDirectory}, exe={Application.ExecutablePath}");
+                var novoVisualizador = (XP3.Visualizers.VisualizerBase)Activator.CreateInstance(tipoParaCriar);
 
-                _visualizerWindow.ShowInTaskbar = false;
-                _visualizerWindow.TopMost = true;
+                novoVisualizador.ShowInTaskbar = false;
+                novoVisualizador.TopMost = true;
 
-                _visualizerWindow.RequestNavigation += (s, direcao) =>
+                novoVisualizador.RequestNavigation += (s, direcao) =>
                 {
                     this.BeginInvoke(new Action(() => AbrirVisualizador(_currentVisualizerIndex + direcao)));
                 };
 
-                _visualizerWindow.FormClosed += OnVisualizerClosed;
+                novoVisualizador.FormClosed += OnVisualizerClosed;
 
                 // 5. POSICIONAMENTO (Com a lÃƒÂ³gica de DEBUG restaurada)
                 if (estavaAberto)
                 {
                     // MantÃƒÂ©m a posiÃƒÂ§ÃƒÂ£o da janela anterior (transiÃƒÂ§ÃƒÂ£o suave)
-                    _visualizerWindow.StartPosition = FormStartPosition.Manual;
-                    _visualizerWindow.Bounds = boundsAntigos;
-                    _visualizerWindow.WindowState = estadoAntigo;
+                    novoVisualizador.StartPosition = FormStartPosition.Manual;
+                    novoVisualizador.Bounds = boundsAntigos;
+                    novoVisualizador.WindowState = estadoAntigo;
                 }
                 else
                 {
@@ -4229,31 +4240,50 @@ namespace XP3.Forms
                     if (modoDebug)
                     {
                         // MODO DEV: Abre na tela principal para facilitar o debug
-                        _visualizerWindow.StartPosition = FormStartPosition.CenterScreen;
-                        _visualizerWindow.WindowState = FormWindowState.Maximized;
+                        novoVisualizador.StartPosition = FormStartPosition.CenterScreen;
+                        novoVisualizador.WindowState = FormWindowState.Maximized;
                     }
                     else if (Screen.AllScreens.Length > 1)
                     {
                         // MODO VJ (ProduÃƒÂ§ÃƒÂ£o): Manda para a segunda tela (Projetor/TV)
-                        _visualizerWindow.PosicionarNaSegundaTela();
+                        novoVisualizador.PosicionarNaSegundaTela();
                     }
                     else
                     {
                         // MODO MONITOR ÃƒÅ¡NICO
-                        _visualizerWindow.WindowState = FormWindowState.Maximized;
+                        novoVisualizador.WindowState = FormWindowState.Maximized;
                     }
                     // ---------------------------
 
                     this.WindowState = FormWindowState.Minimized;
                 }
 
-                _visualizerWindow.Show();
-                _visualizerWindow.Activate();
+                novoVisualizador.Show();
+                novoVisualizador.Activate();
+                _visualizerWindow = novoVisualizador;
+
+                if (visualizadorAntigo != null && !visualizadorAntigo.IsDisposed)
+                {
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            if (!visualizadorAntigo.IsDisposed)
+                            {
+                                visualizadorAntigo.Close();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.GravarErro("Fechar visualizador antigo", ex);
+                        }
+                    }));
+                }
 
                 // 6. DADOS E PLAYBACK
                 if (_player.CurrentTrack != null)
                 {
-                    _visualizerWindow.MostrarInfoMusica(_player.CurrentTrack.Title, _player.CurrentTrack.BandName);
+                    novoVisualizador.MostrarInfoMusica(_player.CurrentTrack.Title, _player.CurrentTrack.BandName);
                     AtualizarMidiaFullscreen(_player.CurrentTrack.Id);
                 }
                 else
@@ -4268,12 +4298,49 @@ namespace XP3.Forms
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("Erro ao criar visualizador: " + ex.Message);
+                if (_visualizerWindow == null && visualizadorAntigo != null && !visualizadorAntigo.IsDisposed)
+                {
+                    _currentVisualizerIndex = indiceAnterior;
+                    _visualizerWindow = visualizadorAntigo;
+                    _visualizerWindow.FormClosed -= OnVisualizerClosed;
+                    _visualizerWindow.FormClosed += OnVisualizerClosed;
+                }
+
+                Type tipoFalhou = null;
+                if (_currentVisualizerIndex >= 0 && _currentVisualizerIndex < _visualizerTypes.Count)
+                {
+                    tipoFalhou = _visualizerTypes[_currentVisualizerIndex];
+                }
+
+                string tipoNome = tipoFalhou?.FullName ?? "(tipo desconhecido)";
+                string mensagemDebug =
+                    $"Erro ao criar visualizador: index={_currentVisualizerIndex}, total={_visualizerTypes.Count}, tipo={tipoNome}, base={AppDomain.CurrentDomain.BaseDirectory}, exe={Application.ExecutablePath}\n{ex}";
+                System.Diagnostics.Debug.WriteLine(mensagemDebug);
+                LogService.GravarErro("AbrirVisualizador", ex);
+
+                if (tipoNome == "XP3.Visualizers.VisualizerRoblox")
+                {
+                    MessageBox.Show(
+                        $"Erro ao abrir visualizador Roblox\n{ex.Message}\n{tipoNome}",
+                        "Erro ao abrir visualizador Roblox",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+            }
+            finally
+            {
+                _abrindoVisualizador = false;
             }
         }
 
         private void OnVisualizerClosed(object sender, FormClosedEventArgs e)
         {
+            var visualizadorFechado = sender as XP3.Visualizers.VisualizerBase;
+            if (visualizadorFechado != null && !ReferenceEquals(_visualizerWindow, visualizadorFechado))
+            {
+                return;
+            }
+
             _emTelaCheia = false;
             _visualizerWindow = null;
             FecharMidiaFullscreen();
