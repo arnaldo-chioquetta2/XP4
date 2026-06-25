@@ -85,6 +85,7 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerRadial),
             typeof(XP3.Visualizers.VisualizerCarrinhos),
             typeof(XP3.Visualizers.VisualizerRoblox),
+            typeof(XP3.Visualizers.VisualizerSprunki),
             typeof(XP3.Visualizers.VisualizerMontanhas),
             typeof(XP3.Visualizers.VisualizerLandscape),
             typeof(XP3.Visualizers.VisualizerCityscape),
