@@ -1532,8 +1532,8 @@ namespace XP3.Visualizers
             using (Brush shadow = new SolidBrush(Color.FromArgb(180, 0, 0, 0)))
             {
                 string text = "SCORE " + _score.ToString("D6");
-                g.DrawString(text, font, shadow, 21, h - 39);
-                g.DrawString(text, font, brush, 20, h - 40);
+                g.DrawString(text, font, shadow, 21, h - 74);
+                g.DrawString(text, font, brush, 20, h - 75);
             }
         }
 
