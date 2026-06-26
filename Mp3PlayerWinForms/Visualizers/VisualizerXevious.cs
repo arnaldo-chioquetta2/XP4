@@ -1045,14 +1045,19 @@ namespace XP3.Visualizers
             int pathWidth = (int)band.PathWidth;
             int left = (int)(band.PathCenterX - (pathWidth / 2f));
             int top = (int)y;
+            int segmentWidth = Math.Max(6, pathWidth / 3);
+            int segmentHeight = TERRAIN_BAND_HEIGHT + 4;
+            int gap = Math.Max(0, (pathWidth - (segmentWidth * 3)) / 2);
 
-            using (Brush edge = new SolidBrush(Color.FromArgb(210, 90, 66, 38)))
-            using (Brush fill = new SolidBrush(Color.FromArgb(235, 166, 138, 88)))
-            using (Brush highlight = new SolidBrush(Color.FromArgb(120, 210, 188, 132)))
+            using (Brush leftBrush = new SolidBrush(Color.FromArgb(232, 172, 146, 92)))
+            using (Brush centerBrush = new SolidBrush(Color.FromArgb(238, 184, 156, 102)))
+            using (Brush rightBrush = new SolidBrush(Color.FromArgb(228, 158, 126, 78)))
+            using (Brush highlight = new SolidBrush(Color.FromArgb(95, 224, 198, 140)))
             {
-                g.FillRectangle(edge, left - 2, top, pathWidth + 4, TERRAIN_BAND_HEIGHT);
-                g.FillRectangle(fill, left, top + 1, pathWidth, TERRAIN_BAND_HEIGHT - 2);
-                g.FillRectangle(highlight, left + 2, top + 2, Math.Max(6, pathWidth / 4), 2);
+                g.FillRectangle(leftBrush, left, top - 1, segmentWidth, segmentHeight);
+                g.FillRectangle(centerBrush, left + segmentWidth + gap, top - 1, segmentWidth, segmentHeight);
+                g.FillRectangle(rightBrush, left + (segmentWidth * 2) + (gap * 2), top - 1, segmentWidth, segmentHeight);
+                g.FillRectangle(highlight, left + 2, top + 1, Math.Max(4, segmentWidth / 2), 2);
             }
         }
 
