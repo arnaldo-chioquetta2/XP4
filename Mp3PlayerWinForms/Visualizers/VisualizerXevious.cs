@@ -29,6 +29,7 @@ namespace XP3.Visualizers
             public float X;
             public float Y;
             public int Type;
+            public bool Active;
             public float RespawnTimer;
             public float Phase;
         }
@@ -41,20 +42,41 @@ namespace XP3.Visualizers
             public float MaxLife;
         }
 
+        private class TerrainBand
+        {
+            public float WorldY;
+            public float PathCenterX;
+            public float PathWidth;
+            public bool HasWater;
+            public float WaterX;
+            public float WaterWidth;
+            public bool HasLake;
+            public float LakeX;
+            public float LakeWidth;
+            public int ObjectType;
+            public float ObjectX;
+            public float TextureSeed;
+        }
+
         private const int MAX_BULLETS = 40;
         private const int MAX_ENEMIES = 8;
         private const int MAX_EXPLOSIONS = 20;
         private const int MAX_ENEMY_BULLETS = 30;
+        private const int SCORE_PER_ENEMY = 90;
         private const float MOTHERSHIP_INTERVAL = 60f;
         private const float MOTHERSHIP_ENTER_TIME = 4f;
         private const float MOTHERSHIP_HOLD_TIME = 6f;
         private const float MOTHERSHIP_EXIT_TIME = 4f;
+        private const float GAME_OVER_DURATION = 7.0f;
+        private const int TERRAIN_BAND_HEIGHT = 12;
+        private const int TERRAIN_EXTRA_BANDS = 30;
 
         private readonly Random _random = new Random();
         private readonly List<Bullet> _bullets = new List<Bullet>();
         private readonly List<EnemyBullet> _enemyBullets = new List<EnemyBullet>();
         private readonly List<Enemy> _enemies = new List<Enemy>();
         private readonly List<Explosion> _explosions = new List<Explosion>();
+        private readonly List<TerrainBand> _terrainBands = new List<TerrainBand>();
 
         private float _time;
         private float _scroll;
@@ -71,6 +93,14 @@ namespace XP3.Visualizers
         private float _mothershipTimer;
         private float _mothershipCooldown;
         private int _mothershipPhase;
+        private float _terrainOffset;
+        private float _nextTerrainWorldY;
+        private int _terrainWidth;
+        private int _terrainHeight;
+        private Random _terrainRandom;
+        private int _score;
+        private bool _gameOver;
+        private float _gameOverTimer;
         private DateTime _lastFrameTime = DateTime.Now;
 
         public VisualizerXevious()
@@ -105,12 +135,14 @@ namespace XP3.Visualizers
                 _midEnergy = (_midEnergy * 0.84f) + (mid * 0.16f);
                 _trebleEnergy = (_trebleEnergy * 0.84f) + (treble * 0.16f);
                 _time += deltaTime * (0.85f + (_smoothedEnergy * 1.9f));
-                _scroll += deltaTime * (0.55f + (_smoothedEnergy * 1.35f) + (_bassEnergy * 0.75f));
-                if (_scroll > 1f)
+                float scrollSpeed = deltaTime * (0.55f + (_smoothedEnergy * 1.35f) + (_bassEnergy * 0.75f));
+                _scroll += scrollSpeed;
+                if (_scroll > 1000000f)
                 {
-                    _scroll -= (float)Math.Floor(_scroll);
+                    _scroll -= 500000f;
                 }
 
+                AtualizarTerreno(deltaTime, Width, Height);
                 AtualizarObjetos(deltaTime, Width, Height);
                 AtualizarMothership(deltaTime, Width, Height);
                 Invalidate();
@@ -148,6 +180,13 @@ namespace XP3.Visualizers
             int w = Width;
             int h = Height;
 
+            if (_gameOver)
+            {
+                DrawGameOver(g, w, h);
+                DesenharTexto(g, w, h);
+                return;
+            }
+
             DrawBackground(g, w, h, energy);
             DrawHUD(g, w, h, energy, bass, mid, treble);
             DrawScrollingTerrain(g, w, h, scroll, energy, mid, time);
@@ -156,6 +195,7 @@ namespace XP3.Visualizers
             DrawEnemies(g, w, h, time, mid, energy);
             DrawEnemyBullets(g, w, h, treble);
             DrawBullets(g, w, h, treble);
+            DrawScore(g, w, h);
             DrawPlayerShip(g, w / 2, (int)(h * 0.80f), energy, bass);
             DrawExplosions(g);
             DesenharTexto(g, w, h);
@@ -288,16 +328,143 @@ namespace XP3.Visualizers
                     X = 0.15f + (i * 0.12f),
                     Y = 0.12f + ((i % 3) * 0.10f),
                     Type = i % 3,
+                    Active = false,
                     RespawnTimer = 0f,
                     Phase = i * 0.75f
                 });
             }
         }
 
+        private float GetEnemySpawnEnergy()
+        {
+            float e = (_smoothedEnergy * 0.72f) + (_bassEnergy * 0.28f);
+            if (_energy <= 0.001f)
+            {
+                return 0f;
+            }
+
+            return Clamp01(e);
+        }
+
+        private int GetTargetEnemyCount()
+        {
+            float e = GetEnemySpawnEnergy();
+            if (e < 0.08f)
+            {
+                return 0;
+            }
+
+            return Math.Max(1, Math.Min(MAX_ENEMIES, (int)Math.Ceiling(e * MAX_ENEMIES)));
+        }
+
+        private void AtivarInimigo(Enemy enemy, int index, int slot, int w, int h)
+        {
+            enemy.Active = true;
+            enemy.Type = (index + slot) % 3;
+            enemy.RespawnTimer = 0f;
+            enemy.Phase = (index * 0.55f) + _time + (slot * 0.35f);
+            enemy.X = 0.12f + (((index * 0.13f) + (slot * 0.09f)) % 0.72f);
+            enemy.Y = -0.08f - (slot * 0.07f);
+            if (w > 0)
+            {
+                enemy.X = Math.Max(0.08f, Math.Min(0.84f, enemy.X));
+            }
+        }
+
+        private void AtualizarInimigosPorMusica(float deltaTime, int w, int h)
+        {
+            if (_gameOver)
+            {
+                for (int i = 0; i < _enemies.Count; i++)
+                {
+                    _enemies[i].Active = false;
+                }
+
+                _enemyShootTimer = 0f;
+                return;
+            }
+
+            int target = GetTargetEnemyCount();
+            for (int i = 0; i < _enemies.Count; i++)
+            {
+                Enemy enemy = _enemies[i];
+                if (enemy.RespawnTimer > 0f)
+                {
+                    enemy.RespawnTimer -= deltaTime;
+                    if (enemy.RespawnTimer < 0f)
+                    {
+                        enemy.RespawnTimer = 0f;
+                    }
+                }
+            }
+
+            if (target == 0)
+            {
+                for (int i = 0; i < _enemies.Count; i++)
+                {
+                    _enemies[i].Active = false;
+                }
+
+                _enemyBullets.Clear();
+                _enemyShootTimer = 0f;
+                return;
+            }
+
+            int activeCount = 0;
+            for (int i = 0; i < _enemies.Count; i++)
+            {
+                Enemy enemy = _enemies[i];
+                if (enemy.Active && enemy.RespawnTimer <= 0f)
+                {
+                    activeCount++;
+                }
+            }
+
+            for (int i = 0; i < _enemies.Count && activeCount < target; i++)
+            {
+                Enemy enemy = _enemies[i];
+                if (enemy.Active || enemy.RespawnTimer > 0f)
+                {
+                    continue;
+                }
+
+                AtivarInimigo(enemy, i, activeCount, w, h);
+                activeCount++;
+            }
+
+            if (activeCount > target)
+            {
+                for (int i = _enemies.Count - 1; i >= 0 && activeCount > target; i--)
+                {
+                    Enemy enemy = _enemies[i];
+                    if (!enemy.Active || enemy.RespawnTimer > 0f)
+                    {
+                        continue;
+                    }
+
+                    enemy.Active = false;
+                    activeCount--;
+                }
+            }
+        }
+
         private void AtualizarObjetos(float deltaTime, int w, int h)
         {
             InicializarInimigos();
+
+            if (_gameOver)
+            {
+                _gameOverTimer += deltaTime;
+                AtualizarExplosoes(deltaTime);
+                if (_gameOverTimer >= GAME_OVER_DURATION)
+                {
+                    ReiniciarXevious();
+                }
+                return;
+            }
+
             AtualizarTiros(deltaTime, w, h);
+            AtualizarInimigosPorMusica(deltaTime, w, h);
             AtualizarInimigos(deltaTime, w, h);
             AtualizarEnemyBullets(deltaTime, w, h);
             VerificarColisoes(w, h);
@@ -317,7 +484,7 @@ namespace XP3.Visualizers
                 _shootTimer = 0f;
                 if (_bullets.Count < MAX_BULLETS)
                 {
-                    float baseX = w / 2f + (float)Math.Sin(_time * 3.1f) * (4f + _bassEnergy * 10f);
+                    float baseX = GetPlayerShipX(w, _smoothedEnergy, _bassEnergy);
                     float baseY = h * 0.78f;
                     SpawnBullet(baseX, baseY);
                 }
@@ -356,16 +523,8 @@ namespace XP3.Visualizers
             for (int i = 0; i < _enemies.Count; i++)
             {
                 Enemy enemy = _enemies[i];
-                if (enemy.RespawnTimer > 0f)
+                if (!enemy.Active || enemy.RespawnTimer > 0f)
                 {
-                    enemy.RespawnTimer -= deltaTime;
-                    if (enemy.RespawnTimer <= 0f)
-                    {
-                        enemy.X = 0.12f + ((i * 0.13f) % 0.72f);
-                        enemy.Y = 0.10f + ((i % 4) * 0.09f);
-                        enemy.Type = (enemy.Type + 1) % 3;
-                        enemy.Phase = i * 0.55f + _time;
-                    }
                     continue;
                 }
 
@@ -394,12 +553,17 @@ namespace XP3.Visualizers
                 return;
             }
 
+            if (GetTargetEnemyCount() == 0)
+            {
+                return;
+            }
+
             int idx = (int)((_time * 2.0f) % _enemies.Count);
             for (int i = 0; i < _enemies.Count; i++)
             {
                 int j = (idx + i) % _enemies.Count;
                 Enemy enemy = _enemies[j];
-                if (enemy.RespawnTimer > 0f)
+                if (!enemy.Active || enemy.RespawnTimer > 0f)
                 {
                     continue;
                 }
@@ -446,35 +610,68 @@ namespace XP3.Visualizers
         {
             for (int i = _bullets.Count - 1; i >= 0; i--)
             {
-                Bullet bullet = _bullets[i];
-                bool hit = false;
-
                 for (int j = 0; j < _enemies.Count; j++)
                 {
                     Enemy enemy = _enemies[j];
-                    if (enemy.RespawnTimer > 0f)
+                    if (!enemy.Active || enemy.RespawnTimer > 0f)
                     {
                         continue;
                     }
 
+                    Bullet bullet = _bullets[i];
                     float ex = enemy.X * w;
                     float ey = enemy.Y * h;
                     float dx = bullet.X - ex;
                     float dy = bullet.Y - ey;
                     float dist2 = (dx * dx) + (dy * dy);
-                    float radius = 18f + (_midEnergy * 4f);
+                    float radius = 30f + (_midEnergy * 6f);
                     if (dist2 <= radius * radius)
                     {
-                        hit = true;
+                        enemy.Active = false;
                         enemy.RespawnTimer = 2.2f + (float)_random.NextDouble() * 2.8f;
+                        _score += SCORE_PER_ENEMY;
                         CriarExplosao(ex, ey);
+                        _bullets.RemoveAt(i);
                         break;
                     }
                 }
+            }
 
-                if (hit)
+            VerificarColisaoPlayerInimigo(w, h);
+        }
+
+        private void VerificarColisaoPlayerInimigo(int w, int h)
+        {
+            if (_gameOver || w <= 0 || h <= 0)
+            {
+                return;
+            }
+
+            float playerX = GetPlayerShipX(w, _smoothedEnergy, _bassEnergy);
+            float playerY = h * 0.80f;
+            float playerRadius = 26f;
+
+            for (int i = 0; i < _enemies.Count; i++)
+            {
+                Enemy enemy = _enemies[i];
+                if (!enemy.Active || enemy.RespawnTimer > 0f)
                 {
-                    _bullets.RemoveAt(i);
+                    continue;
+                }
+
+                float enemyX = (enemy.X * w) + (float)Math.Sin(enemy.Phase + (_time * 0.7f) + (_midEnergy * 2.2f)) * (w * (0.04f + _midEnergy * 0.05f));
+                float enemyY = (enemy.Y * h) + (float)Math.Cos(enemy.Phase + (_time * 1.3f)) * (6f + _midEnergy * 10f) + (_scroll * 12f);
+                float enemyRadius = 30f + (_midEnergy * 6f);
+                float dx = playerX - enemyX;
+                float dy = playerY - enemyY;
+                float combinedRadius = playerRadius + enemyRadius;
+
+                if ((dx * dx) + (dy * dy) <= combinedRadius * combinedRadius)
+                {
+                    enemy.Active = false;
+                    enemy.RespawnTimer = 2.2f + (float)_random.NextDouble() * 2.8f;
+                    IniciarGameOver(playerX, playerY);
+                    return;
                 }
             }
         }
@@ -584,10 +781,36 @@ namespace XP3.Visualizers
 
         private void DrawScrollingTerrain(Graphics g, int w, int h, float scroll, float energy, float mid, float time)
         {
-            DrawWater(g, w, h, scroll, time);
-            DrawGreenTerrainTexture(g, w, h, scroll, energy, mid, time);
-            DrawDirtPaths(g, w, h, scroll, energy, mid);
-            DrawGroundObjects(g, w, h, scroll, energy, mid, time);
+            if (w <= 0 || h <= 0)
+            {
+                return;
+            }
+
+            if (_terrainBands.Count == 0 || _terrainWidth != w || _terrainHeight != h)
+            {
+                InicializarTerreno(w, h);
+            }
+
+            using (Brush baseBrush = new SolidBrush(Color.FromArgb(255, 28, 88, 40)))
+            {
+                g.FillRectangle(baseBrush, 0, 0, w, h);
+            }
+
+            for (int i = 0; i < _terrainBands.Count; i++)
+            {
+                TerrainBand band = _terrainBands[i];
+                float screenY = (i * TERRAIN_BAND_HEIGHT) + _terrainOffset - TERRAIN_BAND_HEIGHT;
+                if (screenY > h || screenY + TERRAIN_BAND_HEIGHT < 0)
+                {
+                    continue;
+                }
+
+                DrawTerrainBandTexture(g, band, screenY, w, energy, mid);
+                DrawTerrainBandWater(g, band, screenY);
+                DrawTerrainBandPath(g, band, screenY);
+                DrawTerrainBandObjects(g, band, screenY, energy, mid);
+            }
+
             DrawBase(g, w, h, energy, time);
         }
 
@@ -603,182 +826,245 @@ namespace XP3.Visualizers
             }
         }
 
-        private void DrawGreenTerrainTexture(Graphics g, int w, int h, float scroll, float energy, float mid, float time)
+        private void InicializarTerreno(int w, int h)
         {
-            using (Brush baseBrush = new SolidBrush(Color.FromArgb(255, 28, 88, 40)))
+            _terrainBands.Clear();
+            _terrainWidth = Math.Max(1, w);
+            _terrainHeight = Math.Max(1, h);
+            _terrainOffset = 0f;
+            _nextTerrainWorldY = 0f;
+            _terrainRandom = new Random(12345);
+
+            TerrainBand previous = null;
+            int bandCount = (_terrainHeight / TERRAIN_BAND_HEIGHT) + TERRAIN_EXTRA_BANDS;
+            for (int i = 0; i < bandCount; i++)
             {
-                g.FillRectangle(baseBrush, 0, 0, w, h);
+                TerrainBand band = CriarTerrainBand(_nextTerrainWorldY, _terrainWidth, previous);
+                _terrainBands.Add(band);
+                previous = band;
+                _nextTerrainWorldY += TERRAIN_BAND_HEIGHT;
+            }
+        }
+
+        private TerrainBand CriarTerrainBand(float worldY, int w, TerrainBand previous)
+        {
+            TerrainBand band = new TerrainBand();
+            band.WorldY = worldY;
+            band.TextureSeed = (float)_terrainRandom.NextDouble();
+
+            float previousPathX = previous == null ? w * 0.55f : previous.PathCenterX;
+            float previousPathWidth = previous == null ? w * 0.12f : previous.PathWidth;
+            float pathShift = ((float)_terrainRandom.NextDouble() - 0.5f) * Math.Max(10f, w * 0.03f);
+            band.PathCenterX = Math.Max(w * 0.14f, Math.Min(w * 0.86f, previousPathX + pathShift));
+            band.PathWidth = Math.Max(28f, Math.Min(54f, previousPathWidth + (((float)_terrainRandom.NextDouble() - 0.5f) * 6f)));
+
+            bool continueWater = previous != null && previous.HasWater && _terrainRandom.NextDouble() < 0.78;
+            bool startWater = !continueWater && _terrainRandom.NextDouble() < 0.11;
+            band.HasWater = continueWater || startWater;
+            if (band.HasWater)
+            {
+                float previousWaterX = previous != null && previous.HasWater ? previous.WaterX : (w * (0.08f + (float)_terrainRandom.NextDouble() * 0.18f));
+                float previousWaterWidth = previous != null && previous.HasWater ? previous.WaterWidth : (w * (0.11f + (float)_terrainRandom.NextDouble() * 0.06f));
+                band.WaterX = Math.Max(0f, Math.Min(w * 0.42f, previousWaterX + (((float)_terrainRandom.NextDouble() - 0.5f) * w * 0.02f)));
+                band.WaterWidth = Math.Max(w * 0.09f, Math.Min(w * 0.22f, previousWaterWidth + (((float)_terrainRandom.NextDouble() - 0.5f) * w * 0.015f)));
             }
 
-            int cell = Math.Max(4, Math.Min(10, w / 80));
-            int shift = (int)(scroll * (cell * 3));
+            bool continueLake = previous != null && previous.HasLake && _terrainRandom.NextDouble() < 0.72;
+            bool startLake = !continueLake && _terrainRandom.NextDouble() < 0.06;
+            band.HasLake = continueLake || startLake;
+            if (band.HasLake)
+            {
+                float previousLakeX = previous != null && previous.HasLake ? previous.LakeX : (w * (0.28f + (float)_terrainRandom.NextDouble() * 0.42f));
+                float previousLakeWidth = previous != null && previous.HasLake ? previous.LakeWidth : (w * (0.08f + (float)_terrainRandom.NextDouble() * 0.08f));
+                band.LakeX = Math.Max(w * 0.18f, Math.Min(w * 0.82f, previousLakeX + (((float)_terrainRandom.NextDouble() - 0.5f) * w * 0.03f)));
+                band.LakeWidth = Math.Max(w * 0.07f, Math.Min(w * 0.18f, previousLakeWidth + (((float)_terrainRandom.NextDouble() - 0.5f) * w * 0.02f)));
+            }
+
+            double objectRoll = _terrainRandom.NextDouble();
+            if (objectRoll < 0.07)
+            {
+                band.ObjectType = 1;
+                band.ObjectX = w * (0.18f + ((float)_terrainRandom.NextDouble() * 0.64f));
+            }
+            else if (objectRoll < 0.11)
+            {
+                band.ObjectType = 2;
+                band.ObjectX = w * (0.22f + ((float)_terrainRandom.NextDouble() * 0.56f));
+            }
+
+            return band;
+        }
+
+        private void AtualizarTerreno(float deltaTime, int w, int h)
+        {
+            if (w <= 0 || h <= 0)
+            {
+                return;
+            }
+
+            if (_terrainBands.Count == 0 || _terrainWidth != w || _terrainHeight != h)
+            {
+                InicializarTerreno(w, h);
+            }
+
+            float terrainSpeed = deltaTime * (110f + (_smoothedEnergy * 180f) + (_bassEnergy * 120f));
+            _terrainOffset += terrainSpeed;
+
+            while (_terrainOffset >= TERRAIN_BAND_HEIGHT)
+            {
+                _terrainOffset -= TERRAIN_BAND_HEIGHT;
+
+                if (_terrainBands.Count > 0)
+                {
+                    _terrainBands.RemoveAt(_terrainBands.Count - 1);
+                }
+
+                TerrainBand previousTop = _terrainBands.Count > 0 ? _terrainBands[0] : null;
+                float newWorldY = previousTop == null ? _nextTerrainWorldY : previousTop.WorldY - TERRAIN_BAND_HEIGHT;
+                TerrainBand newBand = CriarTerrainBand(newWorldY, w, previousTop);
+                _terrainBands.Insert(0, newBand);
+
+                if (_terrainBands.Count > (_terrainHeight / TERRAIN_BAND_HEIGHT) + TERRAIN_EXTRA_BANDS + 2)
+                {
+                    _terrainBands.RemoveAt(_terrainBands.Count - 1);
+                }
+            }
+        }
+
+        private void IniciarGameOver(float x, float y)
+        {
+            if (_gameOver)
+            {
+                return;
+            }
+
+            _gameOver = true;
+            _gameOverTimer = 0f;
+            CriarExplosao(x, y);
+            _bullets.Clear();
+            _enemyBullets.Clear();
+        }
+
+        private void ReiniciarXevious()
+        {
+            _gameOver = false;
+            _gameOverTimer = 0f;
+            _score = 0;
+            _shootTimer = 0f;
+            _enemyShootTimer = 0f;
+            _bullets.Clear();
+            _enemyBullets.Clear();
+            _explosions.Clear();
+            _enemies.Clear();
+            InicializarInimigos();
+            _mothershipActive = false;
+            _mothershipTimer = 0f;
+            _mothershipPhase = 0;
+            _mothershipCooldown = 0f;
+        }
+
+        private void DrawTerrainBandTexture(Graphics g, TerrainBand band, float y, int w, float energy, float mid)
+        {
+            int cell = 6;
             int cols = (w / cell) + 2;
-            int rows = (h / cell) + 3;
+            int bandCellY = (int)(band.WorldY / TERRAIN_BAND_HEIGHT);
 
-            for (int row = -1; row < rows; row++)
+            for (int col = -1; col < cols; col++)
             {
-                for (int col = -1; col < cols; col++)
+                int n = Noise01(col + (int)(band.TextureSeed * 97f), bandCellY);
+                int m = Noise01(col + (int)(band.PathCenterX * 0.1f), bandCellY / 3);
+                int x = col * cell;
+                Color color;
+
+                if (m > 216)
                 {
-                    int worldY = (row * cell) + shift;
-                    int worldCellY = worldY / cell;
-                    int n = Noise01(col, worldCellY);
-                    int macro = Noise01(col / 5, worldCellY / 7);
-                    int x = col * cell;
-                    int y = worldY;
+                    color = Color.FromArgb(18, 78, 32);
+                }
+                else if (n < 80)
+                {
+                    color = Color.FromArgb(26, 92, 38);
+                }
+                else if (n < 152)
+                {
+                    color = Color.FromArgb(34, 106, 46);
+                }
+                else if (n < 216)
+                {
+                    color = Color.FromArgb(48, 124, 58);
+                }
+                else
+                {
+                    color = Color.FromArgb(20, 84, 34);
+                }
 
-                    Color c;
-                    if (macro > 220)
-                    {
-                        c = Color.FromArgb(255, 18, 74, 30);
-                    }
-                    else if (n < 130)
-                    {
-                        c = Color.FromArgb(255, 34, 104, 46);
-                    }
-                    else if (n < 190)
-                    {
-                        c = Color.FromArgb(255, 44, 120, 55);
-                    }
-                    else if (n < 228)
-                    {
-                        c = Color.FromArgb(255, 58, 138, 64);
-                    }
-                    else
-                    {
-                        c = Color.FromArgb(255, 18, 70, 30);
-                    }
+                int pulse = (int)(Math.Sin((_time * 1.9f) + (col * 0.3f) + bandCellY * 0.2f) * (1 + mid * 1.5f));
+                int px = x + ((n % 3) - 1);
+                int py = (int)y + ((n / 5) % 2) - pulse;
 
-                    int pulse = (int)(Math.Sin((_time * 2.1f) + (col * 0.35f) + (row * 0.22f)) * (1 + mid * 2f));
-                    int size = cell - 1;
-                    int px = x + ((n % 3) - 1);
-                    int py = y + ((n / 3) % 3) - 1 - pulse;
+                using (Brush brush = new SolidBrush(color))
+                {
+                    g.FillRectangle(brush, px, py, cell + 1, TERRAIN_BAND_HEIGHT + 1);
+                }
 
-                    using (Brush b = new SolidBrush(c))
+                if ((n % 9) == 0)
+                {
+                    using (Brush detail = new SolidBrush(Color.FromArgb(110 + (int)(energy * 60f), 118, 176, 94)))
                     {
-                        g.FillRectangle(b, px, py, size, size);
-                    }
-
-                    if ((n % 11) == 0)
-                    {
-                        using (Brush light = new SolidBrush(Color.FromArgb(160 + (int)(energy * 50f), 110, 170, 96)))
-                        {
-                            g.FillRectangle(light, px + 1, py + 1, Math.Max(1, size / 3), Math.Max(1, size / 3));
-                        }
-                    }
-                    else if ((macro > 184) && ((col + worldCellY) % 7 == 0))
-                    {
-                        using (Brush wet = new SolidBrush(Color.FromArgb(190, 28, 92, 62)))
-                        {
-                            g.FillRectangle(wet, px, py, Math.Max(1, size / 2), Math.Max(1, size / 2));
-                        }
-                    }
-                    else if ((n % 9) == 0)
-                    {
-                        using (Brush dark = new SolidBrush(Color.FromArgb(120, 18, 60, 26)))
-                        {
-                            g.FillRectangle(dark, px, py, Math.Max(1, size / 2), Math.Max(1, size / 2));
-                        }
+                        g.FillRectangle(detail, px + 1, py + 1, 2, 2);
                     }
                 }
             }
         }
 
-        private float GetPathCenterX(float worldY, int w, int pathIndex)
+        private void DrawTerrainBandWater(Graphics g, TerrainBand band, float y)
         {
-            float baseX = (pathIndex == 0) ? w * 0.64f : w * 0.36f;
-            float wave = (float)Math.Sin(worldY * 0.0055f + pathIndex * 2.3f) * w * 0.09f;
-            float wave2 = (float)Math.Sin(worldY * 0.013f + pathIndex * 0.9f) * w * 0.045f;
-            float wave3 = (float)Math.Sin(worldY * 0.031f + pathIndex * 1.7f) * w * 0.015f;
-            return baseX + wave + wave2 + wave3;
-        }
-
-        private void DrawDirtPaths(Graphics g, int w, int h, float scroll, float energy, float mid)
-        {
-            int bandH = Math.Max(8, h / 80);
-            int offset = (int)(scroll * 90f);
-            int bands = (h / bandH) + 3;
-
-            for (int band = -1; band < bands; band++)
+            using (Brush water = new SolidBrush(Color.FromArgb(220, 44, 112, 198)))
+            using (Brush foam = new SolidBrush(Color.FromArgb(130, 210, 240, 255)))
             {
-                int screenY = (band * bandH) - (offset % bandH);
-                float worldY = screenY + (scroll * 220f);
-
-                for (int pathIndex = 0; pathIndex < 2; pathIndex++)
+                if (band.HasWater)
                 {
-                    float centerX = GetPathCenterX(worldY, w, pathIndex);
-                    int width = (int)(20 + (Math.Sin(worldY * 0.025f + pathIndex) * 5f) + (energy * 5f));
-                    int left = (int)(centerX - (width / 2f));
+                    int wx = (int)band.WaterX;
+                    int ww = (int)band.WaterWidth;
+                    int wobble = (int)(Math.Sin((band.WorldY * 0.03f) + band.TextureSeed * 8f) * 6f);
+                    g.FillRectangle(water, wx + wobble, (int)y, ww, TERRAIN_BAND_HEIGHT + 1);
+                    g.FillRectangle(foam, wx + wobble + 4, (int)y + 2, Math.Max(4, ww / 7), 2);
+                }
 
-                    using (Brush edge = new SolidBrush(Color.FromArgb(210, 90, 66, 38)))
-                    using (Brush fill = new SolidBrush(Color.FromArgb(235, 166, 138, 88)))
-                    using (Brush highlight = new SolidBrush(Color.FromArgb(120, 210, 188, 132)))
-                    {
-                        g.FillRectangle(edge, left - 2, screenY, width + 4, bandH);
-                        g.FillRectangle(fill, left, screenY + 1, width, bandH - 2);
-                        if ((band + pathIndex) % 3 == 0)
-                        {
-                            g.FillRectangle(highlight, left + 2, screenY + 2, Math.Max(1, width / 4), Math.Max(1, bandH / 3));
-                        }
-                    }
+                if (band.HasLake)
+                {
+                    int lw = (int)band.LakeWidth;
+                    int lx = (int)(band.LakeX - (lw / 2f));
+                    g.FillRectangle(water, lx, (int)y + 1, lw, TERRAIN_BAND_HEIGHT - 2);
+                    g.FillRectangle(foam, lx + 3, (int)y + 3, Math.Max(4, lw / 6), 2);
                 }
             }
         }
 
-        private void DrawWater(Graphics g, int w, int h, float scroll, float time)
+        private void DrawTerrainBandPath(Graphics g, TerrainBand band, float y)
         {
-            int baseWaterW = Math.Max(64, (int)(w * 0.16f));
-            int offset = (int)(scroll * 70f);
+            int pathWidth = (int)band.PathWidth;
+            int left = (int)(band.PathCenterX - (pathWidth / 2f));
+            int top = (int)y;
 
-            using (Brush water = new SolidBrush(Color.FromArgb(220, 42, 110, 195)))
-            using (Brush foam = new SolidBrush(Color.FromArgb(120, 210, 240, 255)))
+            using (Brush edge = new SolidBrush(Color.FromArgb(210, 90, 66, 38)))
+            using (Brush fill = new SolidBrush(Color.FromArgb(235, 166, 138, 88)))
+            using (Brush highlight = new SolidBrush(Color.FromArgb(120, 210, 188, 132)))
             {
-                for (int y = -24; y < h + 24; y += 8)
-                {
-                    int yy = y + (offset % 8);
-                    int leftW = baseWaterW + (int)(Math.Sin((y + offset) * 0.02f) * 12f);
-                    g.FillRectangle(water, 0, yy, leftW, 6);
-                    if ((y / 8) % 3 == 0)
-                    {
-                        g.FillRectangle(foam, 6, yy + 1, 4, 2);
-                    }
-
-                    if ((y / 16) % 5 == 0)
-                    {
-                        int inletW = Math.Max(20, (int)(w * 0.08f));
-                        int inletX = (int)(w * 0.18f + Math.Sin((y + offset) * 0.015f) * w * 0.09f);
-                        int inletH = 18 + (int)(Math.Sin((y + offset) * 0.025f) * 4f);
-                        g.FillRectangle(water, inletX, yy, inletW, inletH);
-                        g.FillRectangle(water, inletX - 4, yy + 4, inletW / 2, inletH + 4);
-                        g.FillRectangle(foam, inletX + 2, yy + 2, 4, 2);
-                    }
-                }
+                g.FillRectangle(edge, left - 2, top, pathWidth + 4, TERRAIN_BAND_HEIGHT);
+                g.FillRectangle(fill, left, top + 1, pathWidth, TERRAIN_BAND_HEIGHT - 2);
+                g.FillRectangle(highlight, left + 2, top + 2, Math.Max(6, pathWidth / 4), 2);
             }
         }
 
-        private void DrawGroundObjects(Graphics g, int w, int h, float scroll, float energy, float mid, float time)
+        private void DrawTerrainBandObjects(Graphics g, TerrainBand band, float y, float energy, float mid)
         {
-            int spacing = Math.Max(42, w / 12);
-            int rows = (h / spacing) + 4;
-            int offset = (int)(scroll * 120f);
-
-            for (int row = -1; row < rows; row++)
+            if (band.ObjectType == 1)
             {
-                int screenY = (row * spacing) - (offset % spacing);
-                float worldY = screenY + (scroll * 260f);
-
-                if ((row & 1) == 0)
-                {
-                    DrawGroundTurret(g, (int)(w * 0.22f + Math.Sin(worldY * 0.02f) * 18f), screenY + 6, energy, mid);
-                }
-                if (row % 3 == 0)
-                {
-                    DrawGroundTurret(g, (int)(w * 0.78f + Math.Cos(worldY * 0.018f) * 16f), screenY + 10, energy, mid);
-                }
-
-                if (row % 5 == 0)
-                {
-                    DrawGroundBase(g, (int)(w * 0.52f + Math.Sin(worldY * 0.015f) * 26f), screenY + 8, energy, mid);
-                }
+                DrawGroundTurret(g, (int)band.ObjectX, (int)y + 2, energy, mid);
+            }
+            else if (band.ObjectType == 2)
+            {
+                DrawGroundBase(g, (int)band.ObjectX, (int)y + 2, energy, mid);
             }
         }
 
@@ -831,6 +1117,16 @@ namespace XP3.Visualizers
                     new Point(x - 10, y)
                 });
             }
+        }
+
+        private int GetPlayerShipX(int width, float energy, float bass)
+        {
+            float lateral = (float)Math.Sin(_time * 3.2f) * ((2f + energy * 2.5f + bass * 4f) * 40f);
+            float margin = 40f;
+            float x = (width / 2f) + lateral;
+            if (x < margin) x = margin;
+            if (x > width - margin) x = width - margin;
+            return (int)x;
         }
 
         private void DrawMothership(Graphics g, int w, int h)
@@ -1013,7 +1309,7 @@ namespace XP3.Visualizers
 
         private void DrawPlayerShip(Graphics g, int x, int y, float energy, float bass)
         {
-            int sway = (int)(Math.Sin(_time * 3.2f) * (2 + energy * 2.5f + bass * 4f));
+            int sway = GetPlayerShipX(Width, energy, bass) - x;
             int pulse = (int)((energy * 8f) + (bass * 10f));
             int wingSpan = 19 + (int)(energy * 5f);
             int bodyH = 24;
@@ -1030,57 +1326,66 @@ namespace XP3.Visualizers
             {
                 int cx = x + sway;
                 int topY = y - 16;
+                Point[] body =
+                {
+                    new Point(cx, topY - 4),
+                    new Point(cx - 7, topY + 2),
+                    new Point(cx - 10, topY + 9),
+                    new Point(cx - 8, topY + 17),
+                    new Point(cx - 3, topY + 22),
+                    new Point(cx + 3, topY + 22),
+                    new Point(cx + 8, topY + 17),
+                    new Point(cx + 10, topY + 9),
+                    new Point(cx + 7, topY + 2)
+                };
+                Point[] leftWing =
+                {
+                    new Point(cx - 8, topY + 9),
+                    new Point(cx - wingSpan - 12, topY + 11),
+                    new Point(cx - wingSpan - 6, topY + 16),
+                    new Point(cx - 7, topY + 15)
+                };
+                Point[] rightWing =
+                {
+                    new Point(cx + 8, topY + 9),
+                    new Point(cx + wingSpan + 12, topY + 11),
+                    new Point(cx + wingSpan + 6, topY + 16),
+                    new Point(cx + 7, topY + 15)
+                };
+                Point[] tail =
+                {
+                    new Point(cx - 7, topY + 15),
+                    new Point(cx + 7, topY + 15),
+                    new Point(cx + 10, topY + 22),
+                    new Point(cx - 10, topY + 22)
+                };
 
                 g.FillEllipse(shadow, cx - 18, y + 16, 36, 7);
 
-                g.FillPolygon(white, new[]
-                {
-                    new Point(cx, topY - 2),
-                    new Point(cx - 8, topY + 3),
-                    new Point(cx - 12, topY + 10),
-                    new Point(cx - 10, topY + 16),
-                    new Point(cx - 3, topY + 20),
-                    new Point(cx + 3, topY + 20),
-                    new Point(cx + 10, topY + 16),
-                    new Point(cx + 12, topY + 10),
-                    new Point(cx + 8, topY + 3)
-                });
+                g.FillPolygon(white, body);
+                g.FillPolygon(whiteSoft, leftWing);
+                g.FillPolygon(whiteSoft, rightWing);
+                g.FillPolygon(whiteSoft, tail);
 
-                g.FillRectangle(whiteSoft, cx - 5, topY + 1, 10, bodyH - 2);
                 g.FillRectangle(blueDark, cx - 2, topY + 2, 4, bodyH - 4);
                 g.FillRectangle(blue, cx - 1, topY + 5, 2, bodyH - 10);
-                g.FillRectangle(blue, cx - 6, topY + 11, 12, 3);
-
-                g.FillRectangle(white, cx - wingSpan - 10, topY + 9, wingSpan, 5);
-                g.FillRectangle(white, cx + 10, topY + 9, wingSpan, 5);
-                g.FillRectangle(blueDark, cx - wingSpan - 8, topY + 10, wingSpan - 2, 2);
-                g.FillRectangle(blueDark, cx + 10, topY + 10, wingSpan - 2, 2);
-                g.FillRectangle(blue, cx - wingSpan - 5, topY + 9, 4, 5);
-                g.FillRectangle(blue, cx + wingSpan + 1, topY + 9, 4, 5);
-
-                g.FillRectangle(whiteSoft, cx - 11, topY + 14, 22, 8);
-                g.FillRectangle(blueDark, cx - 1, topY + 14, 2, 8);
-                g.FillRectangle(blue, cx - 2, topY + 16, 4, 4);
+                g.FillRectangle(blue, cx - 5, topY + 11, 10, 3);
+                g.FillRectangle(blueDark, cx - wingSpan - 8, topY + 11, wingSpan - 4, 2);
+                g.FillRectangle(blueDark, cx + 12, topY + 11, wingSpan - 4, 2);
+                g.FillRectangle(blue, cx - wingSpan - 4, topY + 10, 3, 4);
+                g.FillRectangle(blue, cx + wingSpan + 1, topY + 10, 3, 4);
+                g.FillRectangle(blueDark, cx - 6, topY + 18, 12, 2);
 
                 g.FillRectangle(engineGlow, cx - 6, topY + 20 + pulse / 3, 12, 6 + pulse / 3);
                 g.FillRectangle(orange, cx - 3, topY + 22 + pulse / 3, 6, 4 + pulse / 4);
                 g.FillRectangle(orange, cx - 11, topY + 21 + pulse / 4, 4, 5 + pulse / 4);
                 g.FillRectangle(orange, cx + 7, topY + 21 + pulse / 4, 4, 5 + pulse / 4);
 
-                g.FillRectangle(blueDark, cx - 9, topY + 3, 18, 2);
-                g.FillRectangle(blueDark, cx - 7, topY + 18, 14, 2);
-                g.DrawPolygon(outline, new[]
-                {
-                    new Point(cx, topY - 2),
-                    new Point(cx - 8, topY + 3),
-                    new Point(cx - 12, topY + 10),
-                    new Point(cx - 10, topY + 16),
-                    new Point(cx - 3, topY + 20),
-                    new Point(cx + 3, topY + 20),
-                    new Point(cx + 10, topY + 16),
-                    new Point(cx + 12, topY + 10),
-                    new Point(cx + 8, topY + 3)
-                });
+                g.FillRectangle(blueDark, cx - 8, topY + 3, 16, 2);
+                g.DrawPolygon(outline, body);
+                g.DrawPolygon(outline, leftWing);
+                g.DrawPolygon(outline, rightWing);
+                g.DrawPolygon(outline, tail);
             }
         }
 
@@ -1091,7 +1396,7 @@ namespace XP3.Visualizers
             for (int i = 0; i < _enemies.Count; i++)
             {
                 Enemy enemy = _enemies[i];
-                if (enemy.RespawnTimer > 0f)
+                if (!enemy.Active || enemy.RespawnTimer > 0f)
                 {
                     continue;
                 }
@@ -1104,7 +1409,7 @@ namespace XP3.Visualizers
 
         private void DrawEnemy(Graphics g, float x, float y, int type, float energy, float mid)
         {
-            int size = 16 + (int)(energy * 3f);
+            int size = (16 + (int)(energy * 3f)) * 2;
             int edgeAlpha = 180 + (int)(mid * 60f);
             using (Brush body = new SolidBrush(Color.FromArgb(190, 160, 166, 174)))
             using (Brush sideDark = new SolidBrush(Color.FromArgb(160, 82, 88, 96)))
@@ -1116,32 +1421,32 @@ namespace XP3.Visualizers
             {
                 g.FillEllipse(shadow, x - size / 2, y + size / 2, size, 6);
                 g.FillRectangle(body, x - size / 2, y - size / 2 + 1, size, size - 2);
-                g.FillRectangle(sideDark, x - size / 2, y - size / 2 + 1, 4, size - 2);
-                g.FillRectangle(sideLight, x + size / 2 - 4, y - size / 2 + 1, 4, size - 2);
-                g.FillRectangle(core, x - 4, y - 4, 8, 8);
-                g.FillRectangle(detail, x - 2, y - 2, 4, 4);
+                g.FillRectangle(sideDark, x - size / 2, y - size / 2 + 1, 8, size - 2);
+                g.FillRectangle(sideLight, x + size / 2 - 8, y - size / 2 + 1, 8, size - 2);
+                g.FillRectangle(core, x - 8, y - 8, 16, 16);
+                g.FillRectangle(detail, x - 4, y - 4, 8, 8);
                 if (type == 0)
                 {
-                    g.FillRectangle(detail, x - 7, y + 1, 3, 3);
-                    g.FillRectangle(detail, x + 4, y + 1, 3, 3);
-                    g.FillRectangle(core, x - 2, y - size / 2 - 3, 4, 4);
+                    g.FillRectangle(detail, x - 14, y - size / 2 - 4, 6, 6);
+                    g.FillRectangle(detail, x + 8, y - size / 2 - 4, 6, 6);
+                    g.FillRectangle(core, x - 4, y + size / 2 - 2, 8, 8);
                 }
                 else if (type == 1)
                 {
-                    g.FillRectangle(detail, x - 2, y - size / 2 - 3, 4, 4);
-                    g.FillRectangle(core, x - size / 2 + 4, y + 4, size - 8, 2);
+                    g.FillRectangle(detail, x - 4, y + size / 2 - 2, 8, 8);
+                    g.FillRectangle(core, x - size / 2 + 8, y - size / 2 + 4, size - 16, 4);
                 }
                 else
                 {
-                    g.FillRectangle(detail, x - size / 2 - 2, y - size / 2 - 2, 4, 4);
-                    g.FillRectangle(detail, x + size / 2 - 2, y - size / 2 - 2, 4, 4);
-                    g.FillRectangle(core, x - 3, y + size / 2 - 5, 6, 4);
+                    g.FillRectangle(detail, x - size / 2 - 4, y - size / 2 - 4, 8, 8);
+                    g.FillRectangle(detail, x + size / 2 - 4, y - size / 2 - 4, 8, 8);
+                    g.FillRectangle(core, x - 6, y + size / 2 - 10, 12, 8);
                 }
                 if (_trebleEnergy > 0.2f)
                 {
                     using (Brush glow = new SolidBrush(Color.FromArgb(90 + (int)(_trebleEnergy * 90f), 110, 230, 255)))
                     {
-                        g.FillEllipse(glow, x - 6, y - 6, 12, 12);
+                        g.FillEllipse(glow, x - 12, y - 2, 24, 24);
                     }
                 }
                 g.DrawRectangle(edge, x - size / 2, y - size / 2, size, size);
@@ -1217,6 +1522,74 @@ namespace XP3.Visualizers
             {
                 Explosion ex = _explosions[i];
                 DrawExplosion(g, ex.X, ex.Y, ex.Life, ex.MaxLife);
+            }
+        }
+
+        private void DrawScore(Graphics g, int w, int h)
+        {
+            using (Font font = new Font("Arial", Math.Max(12f, w / 45f), FontStyle.Bold))
+            using (Brush brush = new SolidBrush(Color.Yellow))
+            using (Brush shadow = new SolidBrush(Color.FromArgb(180, 0, 0, 0)))
+            {
+                string text = "SCORE " + _score.ToString("D6");
+                g.DrawString(text, font, shadow, 21, h - 39);
+                g.DrawString(text, font, brush, 20, h - 40);
+            }
+        }
+
+        private float DrawCenteredShadowedText(Graphics g, string text, Font font, Brush shadowBrush, Brush textBrush, float y, int width, float shadowOffset)
+        {
+            SizeF size = g.MeasureString(text, font);
+            float x = (width - size.Width) * 0.5f;
+            g.DrawString(text, font, shadowBrush, x + shadowOffset, y + shadowOffset);
+            g.DrawString(text, font, textBrush, x, y);
+            return size.Height;
+        }
+
+        private void DrawGameOver(Graphics g, int w, int h)
+        {
+            GraphicsState state = g.Save();
+            try
+            {
+                g.ResetTransform();
+                g.ResetClip();
+
+                using (Brush black = new SolidBrush(Color.Black))
+                using (Brush title = new SolidBrush(Color.FromArgb(255, 255, 92, 64)))
+                using (Brush subtitle = new SolidBrush(Color.FromArgb(255, 110, 220, 255)))
+                using (Brush scoreBrush = new SolidBrush(Color.Yellow))
+                using (Brush shadow = new SolidBrush(Color.FromArgb(220, 0, 0, 0)))
+                using (Brush spark = new SolidBrush(Color.FromArgb(120, 255, 210, 110)))
+                using (Font gameFont = new Font("Arial Black", Math.Max(32f, h * 0.08f), FontStyle.Bold))
+                using (Font titleFont = new Font("Arial Black", Math.Max(24f, h * 0.045f), FontStyle.Bold))
+                using (Font scoreFont = new Font("Arial", Math.Max(22f, h * 0.04f), FontStyle.Bold))
+                {
+                    g.FillRectangle(black, 0, 0, w, h);
+
+                    for (int i = 0; i < 18; i++)
+                    {
+                        int x = (int)((i * 71 + (_time * 80f)) % Math.Max(1, w));
+                        int y = (int)((i * 43 + (_time * 46f)) % Math.Max(1, h));
+                        if (y > h * 0.28f && y < h * 0.82f)
+                        {
+                            continue;
+                        }
+
+                        int size = 1 + (i % 2);
+                        g.FillRectangle(spark, x, y, size, size);
+                    }
+
+                    float centerY = h * 0.32f;
+                    float gameHeight = DrawCenteredShadowedText(g, "GAME OVER", gameFont, shadow, title, centerY, w, 4f);
+                    float xeviousY = centerY + gameHeight + 18f;
+                    float xeviousHeight = DrawCenteredShadowedText(g, "XEVIOUS", titleFont, shadow, subtitle, xeviousY, w, 3f);
+                    float scoreY = xeviousY + xeviousHeight + 22f;
+                    DrawCenteredShadowedText(g, "SCORE " + _score.ToString("D6"), scoreFont, shadow, scoreBrush, scoreY, w, 2f);
+                }
+            }
+            finally
+            {
+                g.Restore(state);
             }
         }
 
