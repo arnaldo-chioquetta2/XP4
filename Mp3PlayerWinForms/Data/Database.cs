@@ -10,6 +10,8 @@ namespace XP3.Data
 
         public static SQLiteConnection GetConnection()
         {
+            System.Diagnostics.Debug.WriteLine("[DB] ConnectionString: " + ConnectionString);
+            System.Diagnostics.Debug.WriteLine("[DB] DatabasePath: " + AppConfig.DatabasePath);
             return new SQLiteConnection(ConnectionString);
         }
     }

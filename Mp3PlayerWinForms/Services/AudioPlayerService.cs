@@ -684,16 +684,62 @@ namespace XP3.Services
 
         private void TocarProximaFaixaValida(int indiceInicial)
         {
-            if (TryEncontrarFaixaTocavel(indiceInicial, false, out int indiceTocavel, out _, out string motivo))
+            if (_playlist == null || _playlist.Count == 0)
             {
-                // Alterar esta linha para passar isUserInitiated = false (valor padrão)
-                Play(indiceTocavel, false, false);
+                GravarLog("[NEXT] Ignorado: playlist vazia ou nula.");
+                Stop();
                 return;
             }
 
-            GravarLog(motivo);
+            int total = _playlist.Count;
+            int inicio = indiceInicial < 0 ? 0 : indiceInicial % total;
+
+            for (int i = 0; i < total; i++)
+            {
+                int candidato = (inicio + i) % total;
+                var track = _playlist[candidato];
+                if (track == null || string.IsNullOrWhiteSpace(track.FilePath) || !File.Exists(track.FilePath))
+                {
+                    continue;
+                }
+
+                if (DevePularPorPularPulado(track))
+                {
+                    int novoPulado = _trackRepo.IncrementarPulado(track.Id);
+                    AtualizarPuladoEmMemoria(track.Id, novoPulado);
+                    GravarLog($"[PULAR] Faixa cinza pulada: ID={track.Id}; Titulo={track.Title}; Pulado={novoPulado}; Pular={track.Pular}");
+                    continue;
+                }
+
+                if (track.Pular > 0 && track.Pulado >= track.Pular)
+                {
+                    int novoPulado = _trackRepo.ResetarPulado(track.Id);
+                    AtualizarPuladoEmMemoria(track.Id, novoPulado);
+                    GravarLog($"[PULAR] Pulado resetado antes de tocar: ID={track.Id}; Titulo={track.Title}");
+                }
+
+                Play(candidato, false, false);
+                return;
+            }
+
+            GravarLog("[NEXT] Nenhuma faixa elegível encontrada após varrer a playlist.");
             Stop();
-            NotificarPlaybackError(CurrentTrack, motivo);
+            NotificarPlaybackError(CurrentTrack, "[AUDIO] Nenhuma faixa elegível encontrada na playlist.");
+        }
+
+        private bool DevePularPorPularPulado(Track track)
+        {
+            return track != null && track.Pular > 0 && track.Pulado < track.Pular;
+        }
+
+        private void AtualizarPuladoEmMemoria(int trackId, int novoPulado)
+        {
+            if (_playlist == null) return;
+
+            foreach (var item in _playlist.Where(t => t != null && t.Id == trackId))
+            {
+                item.Pulado = novoPulado;
+            }
         }
 
         private bool ArquivoNaoEncontrado(Exception ex)

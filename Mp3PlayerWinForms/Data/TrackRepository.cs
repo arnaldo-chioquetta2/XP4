@@ -339,7 +339,6 @@ namespace XP3.Data
                         JOIN LisMus lm ON m.ID = lm.Musica 
                         WHERE lm.Lista = @listaId {filtroTempo}
                         AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
-                        AND (COALESCE(m.Pular, 0) = 0 OR COALESCE(m.Pular, 0) = COALESCE(m.Pulado, 0))
                         GROUP BY m.ID ORDER BY m.vez ASC, m.TocadoEmG ASC";
                     }
 
@@ -352,6 +351,9 @@ namespace XP3.Data
 
                         using (var reader = cmd.ExecuteReader())
                         {
+                            int total = 0;
+                            int comVez = 0;
+                            int maxVez = 0;
                             while (reader.Read())
                             {
                                 var t = new Track();
@@ -382,8 +384,18 @@ namespace XP3.Data
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
                                 t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
 
+                                total++;
+                                if (t.Vez > 0) comVez++;
+                                if (t.Vez > maxVez) maxVez = t.Vez;
+                                if (t.Vez > 0 && comVez <= 5)
+                                {
+                                    Debug.WriteLine($"[VEZ][Playlist] ID={t.Id}; Nome={t.Title}; Vez={t.Vez}");
+                                }
+
                                 tracks.Add(t);
                             }
+
+                            Debug.WriteLine($"[VEZ][Playlist] playlistId={playlistId}; total={total}; comVez={comVez}; maxVez={maxVez}");
                         }
                     }
                 }
@@ -416,8 +428,6 @@ namespace XP3.Data
                         LEFT JOIN Banda b ON m.Banda = b.ID 
                         LEFT JOIN Pais p ON b.Pais = p.ID
                         WHERE m.Banda = @bandId {filtroTempo}
-                        AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
-                        AND (COALESCE(m.Pular, 0) = 0 OR COALESCE(m.Pular, 0) = COALESCE(m.Pulado, 0))
                         ORDER BY m.vez ASC, m.TocadoEmG ASC";
 
                     using (var cmd = conn.CreateCommand())
@@ -429,6 +439,9 @@ namespace XP3.Data
 
                         using (var reader = cmd.ExecuteReader())
                         {
+                            int total = 0;
+                            int comVez = 0;
+                            int maxVez = 0;
                             while (reader.Read())
                             {
                                 var t = new Track();
@@ -454,8 +467,18 @@ namespace XP3.Data
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
                                 t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
 
+                                total++;
+                                if (t.Vez > 0) comVez++;
+                                if (t.Vez > maxVez) maxVez = t.Vez;
+                                if (t.Vez > 0 && comVez <= 5)
+                                {
+                                    Debug.WriteLine($"[VEZ][Band] ID={t.Id}; Nome={t.Title}; Vez={t.Vez}");
+                                }
+
                                 tracks.Add(t);
                             }
+
+                            Debug.WriteLine($"[VEZ][Band] bandId={bandId}; total={total}; comVez={comVez}; maxVez={maxVez}");
                         }
                     }
                 }
@@ -625,7 +648,7 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand("SELECT ID, Nome, Lugar, Banda, VideoPath, COALESCE(Equalizacao, 0), COALESCE(EqualizacaoAtiva, 1), COALESCE(EqMus0, 0), COALESCE(EqMus1, 0), COALESCE(EqMus2, 0), COALESCE(EqMus3, 0), COALESCE(EqMus4, 0), COALESCE(EqMus5, 0), COALESCE(EqMus6, 0), COALESCE(EqMus7, 0), COALESCE(EqMus8, 0), COALESCE(EqMus9, 0) FROM Musica WHERE ID = @id", conn))
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome, Lugar, Banda, VideoPath, COALESCE(Equalizacao, 0), COALESCE(EqualizacaoAtiva, 1), COALESCE(EqMus0, 0), COALESCE(EqMus1, 0), COALESCE(EqMus2, 0), COALESCE(EqMus3, 0), COALESCE(EqMus4, 0), COALESCE(EqMus5, 0), COALESCE(EqMus6, 0), COALESCE(EqMus7, 0), COALESCE(EqMus8, 0), COALESCE(EqMus9, 0), COALESCE(Pular, 0), COALESCE(Pulado, 0) FROM Musica WHERE ID = @id", conn))
                 {
                     cmd.Parameters.AddWithValue("@id", id);
                     using (var reader = cmd.ExecuteReader())
@@ -641,7 +664,9 @@ namespace XP3.Data
                                 VideoPath = reader.IsDBNull(4) ? null : reader.GetString(4),
                                 EqualizacaoPresetId = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
                                 EqualizacaoAtiva = reader.IsDBNull(6) || reader.GetInt32(6) != 0,
-                                EqualizacaoBandas = LerBandasMusica(reader, 7)
+                                EqualizacaoBandas = LerBandasMusica(reader, 7),
+                                Pular = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
+                                Pulado = reader.IsDBNull(18) ? 0 : reader.GetInt32(18)
                             };
                         }
                     }
@@ -1677,6 +1702,43 @@ namespace XP3.Data
                     object result = query.ExecuteScalar();
                     return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
                 }
+            }
+        }
+
+        public int IncrementarPulado(int trackId)
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                using (var command = new SQLiteCommand("UPDATE Musica SET Pulado = COALESCE(Pulado, 0) + 1 WHERE ID = @Id", connection))
+                {
+                    command.Parameters.AddWithValue("@Id", trackId);
+                    command.ExecuteNonQuery();
+                }
+
+                using (var query = new SQLiteCommand("SELECT COALESCE(Pulado, 0) FROM Musica WHERE ID = @Id", connection))
+                {
+                    query.Parameters.AddWithValue("@Id", trackId);
+                    object result = query.ExecuteScalar();
+                    return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                }
+            }
+        }
+
+        public int ResetarPulado(int trackId)
+        {
+            using (var connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                using (var command = new SQLiteCommand("UPDATE Musica SET Pulado = 0 WHERE ID = @Id", connection))
+                {
+                    command.Parameters.AddWithValue("@Id", trackId);
+                    command.ExecuteNonQuery();
+                }
+
+                return 0;
             }
         }
 

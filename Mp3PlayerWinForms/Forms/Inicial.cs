@@ -2,6 +2,7 @@ using Mp3PlayerWinForms.Services;
 using SQLitePCL;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -3332,6 +3333,12 @@ namespace XP3.Forms
                     .Where(t => t.Duration.TotalSeconds > 0)
                     .ToList() ?? new List<Track>();
 
+                Debug.WriteLine($"[GRID STATE][Playlist] _allTracks={_allTracks.Count}; cinza={_allTracks.Count(t => DeveMostrarCinzaPorPular(t))}");
+                foreach (var t in _allTracks.Where(t => DeveMostrarCinzaPorPular(t)).Take(5))
+                {
+                    Debug.WriteLine($"[GRID STATE][Playlist] Exemplo ID={t.Id}; Nome={t.Title}; Pular={t.Pular}; Pulado={t.Pulado}");
+                }
+
                 if (_player != null)
                     _player.SetPlaylist(_allTracks);
 
@@ -3638,6 +3645,12 @@ namespace XP3.Forms
                     .Where(t => t.Duration.TotalSeconds > 0)
                     .ToList() ?? new List<Track>();
 
+                Debug.WriteLine($"[GRID STATE][Band] _allTracks={_allTracks.Count}; cinza={_allTracks.Count(t => DeveMostrarCinzaPorPular(t))}");
+                foreach (var t in _allTracks.Where(t => DeveMostrarCinzaPorPular(t)).Take(5))
+                {
+                    Debug.WriteLine($"[GRID STATE][Band] Exemplo ID={t.Id}; Nome={t.Title}; Pular={t.Pular}; Pulado={t.Pulado}");
+                }
+
                 if (_player != null)
                 {
                     _player.SetPlaylist(_allTracks);
@@ -3856,6 +3869,10 @@ namespace XP3.Forms
             if (e.ItemIndex < 0 || e.ItemIndex >= _allTracks.Count) return;
 
             var track = _allTracks[e.ItemIndex];
+            if (DeveMostrarCinzaPorPular(track) && e.ItemIndex < 5)
+            {
+                Debug.WriteLine($"[GRID ITEM] index={e.ItemIndex}; ID={track.Id}; Nome={track.Title}; Pular={track.Pular}; Pulado={track.Pulado}");
+            }
 
             // --- PREENCHIMENTO DAS COLUNAS ---
             ListViewItem item = new ListViewItem(track.Title);                 // Coluna 0: Música
@@ -3866,6 +3883,7 @@ namespace XP3.Forms
             item.SubItems.Add(AlgarismoGrid(track.Pulado));                    // Coluna 5: L
             item.SubItems.Add(FormatarUltimaReproducao(track.LastPlayedAt));   // Coluna 6: Última Vez
             item.SubItems.Add(track.PaisNome ?? string.Empty);                 // Coluna 7: País
+            item.UseItemStyleForSubItems = false;
 
             // --- LÓGICA DE DESTAQUE (CORES E FONTES) ---
             // Verifica se esta linha corresponde à música que está tocando agora
@@ -3932,6 +3950,15 @@ namespace XP3.Forms
                 // Fonte normal
                 item.Font = lvTracks.Font;
             }
+
+            if (!estaTocando && DeveMostrarCinzaPorPular(track))
+            {
+                item.ForeColor = Color.Gray;
+                foreach (ListViewItem.ListViewSubItem subItem in item.SubItems)
+                {
+                    subItem.ForeColor = Color.Gray;
+                }
+            }
             // ----------------------------------
 
             e.Item = item;
@@ -3946,6 +3973,12 @@ namespace XP3.Forms
         private string FormatarUltimaReproducao(DateTime? data)
         {
             return data.HasValue ? data.Value.ToString("dd/MM HH:mm") : "";
+        }
+
+        private bool DeveMostrarCinzaPorPular(Track track)
+        {
+            if (track == null) return false;
+            return track.Pular > 0 && track.Pulado < track.Pular;
         }
 
         #endregion
