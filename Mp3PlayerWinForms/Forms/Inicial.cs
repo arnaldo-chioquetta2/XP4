@@ -53,6 +53,7 @@ namespace XP3.Forms
         private bool _fechandoMidiaFullscreen;
         private bool _encerrandoAplicacaoPorSeguranca;
         private List<Track> _allTracks = new List<Track>();
+        private readonly HashSet<int> _tracksComPularAlteradoNaSessao = new HashSet<int>();
         private bool _listaAtualEhBanda = false;
 
         private ModernSeekBar modernSeekBar1;
@@ -1595,6 +1596,10 @@ namespace XP3.Forms
             var track = _allTracks[index];
 
             IncrementarPularTrack(track);
+            if (track != null)
+            {
+                _tracksComPularAlteradoNaSessao.Add(track.Id);
+            }
 
             lblStatus.Text = $"Penalidade aplicada: {track.Title} tocará menos.";
             lblStatus.ForeColor = Color.Orange;
@@ -2924,6 +2929,17 @@ namespace XP3.Forms
             }
 
             string contador = $"Aprovadas hoje: {_contadorAprovadasDia}";
+            bool estaNaAEscolher = lblPlaylistTitle != null &&
+                                   lblPlaylistTitle.Text.Trim().Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase);
+
+            if (estaNaAEscolher && _contadorAprovadasDia == 0)
+            {
+                lblStatusCue.Visible = false;
+                lblStatusCue.Text = string.Empty;
+                return;
+            }
+
+            lblStatusCue.Visible = true;
 
             if (string.IsNullOrWhiteSpace(mensagem))
             {
@@ -3342,6 +3358,7 @@ namespace XP3.Forms
                 {
                     Debug.WriteLine($"[GRID STATE][Playlist] Exemplo ID={t.Id}; Nome={t.Title}; Pular={t.Pular}; Pulado={t.Pulado}");
                 }
+                _tracksComPularAlteradoNaSessao.Clear();
 
                 if (_player != null)
                 {
@@ -3658,6 +3675,7 @@ namespace XP3.Forms
                 {
                     Debug.WriteLine($"[GRID STATE][Band] Exemplo ID={t.Id}; Nome={t.Title}; Pular={t.Pular}; Pulado={t.Pulado}");
                 }
+                _tracksComPularAlteradoNaSessao.Clear();
 
                 if (_player != null)
                 {
@@ -3893,6 +3911,11 @@ namespace XP3.Forms
             item.SubItems.Add(FormatarUltimaReproducao(track.LastPlayedAt));   // Coluna 6: Última Vez
             item.SubItems.Add(track.PaisNome ?? string.Empty);                 // Coluna 7: País
             item.UseItemStyleForSubItems = false;
+
+            if (_tracksComPularAlteradoNaSessao.Contains(track.Id))
+            {
+                item.SubItems[4].Font = new Font(lvTracks.Font, FontStyle.Bold);
+            }
 
             // --- LÓGICA DE DESTAQUE (CORES E FONTES) ---
             // Verifica se esta linha corresponde à música que está tocando agora

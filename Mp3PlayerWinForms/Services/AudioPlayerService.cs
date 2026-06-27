@@ -97,6 +97,22 @@ namespace XP3.Services
         private bool _userOverriddenProgrammedPlaylist = false;
         // ----------------------------------------------------
 
+        private bool ListaAtualEhAEscolher()
+        {
+            try
+            {
+                if (_trackRepo == null || CurrentPlaylistId <= 0)
+                    return false;
+
+                string nomeLista = _trackRepo.GetPlaylistName(CurrentPlaylistId);
+                return string.Equals(nomeLista, "AESCOLHER", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         //public event Action<string> OnStatusCueChanged;
 
         public bool ProgramacaoAtiva
@@ -494,7 +510,24 @@ namespace XP3.Services
                 }
 
                 // GATILHO DA PROGRAMAÇÃO (Requisito 2.1)
-                if (_programacaoAtiva)
+                if (finishedNaturally && ListaAtualEhAEscolher() && !ExisteProximaFaixaValidaSemWrap())
+                {
+                    var todasProgramacoesAEscolher = _progRepo.ListarProgramacao();
+                    int? idPlaylistProgramadaAEscolher = _progService.SugerirPlaylistPorHorario(todasProgramacoesAEscolher);
+
+                    if (idPlaylistProgramadaAEscolher.HasValue && idPlaylistProgramadaAEscolher.Value != CurrentPlaylistId)
+                    {
+                        GravarLog($"[AESCOLHER] Fim natural detectado. Carregando lista programada {idPlaylistProgramadaAEscolher.Value} mesmo com programação {(_programacaoAtiva ? "LIGADA" : "DESLIGADA")}.");
+                        NotificarTrocaPlaylist(idPlaylistProgramadaAEscolher.Value);
+                        _handlingPlaybackStopped = false;
+                        return;
+                    }
+
+                    GravarLog("[AESCOLHER] Fim natural detectado, mas nenhuma lista programada diferente foi encontrada.");
+                    return;
+                }
+
+                if (_programacaoAtiva && !ListaAtualEhAEscolher())
                 {
                     var todasProgramacoes = _progRepo.ListarProgramacao();
                     int? idPlaylistProgramada = _progService.SugerirPlaylistPorHorario(todasProgramacoes);
@@ -583,6 +616,33 @@ namespace XP3.Services
                     _handlingPlaybackStopped = false;
                 }
             });
+        }
+
+        private bool ExisteProximaFaixaValidaSemWrap()
+        {
+            if (_playlist == null || _playlist.Count == 0)
+                return false;
+
+            int inicio = _currentIndex + 1;
+            if (inicio < 0)
+                inicio = 0;
+
+            for (int i = inicio; i < _playlist.Count; i++)
+            {
+                var track = _playlist[i];
+                if (track == null || string.IsNullOrWhiteSpace(track.FilePath) || !File.Exists(track.FilePath))
+                    continue;
+
+                if (DevePularPorPularPulado(track))
+                    continue;
+
+                if (track.Pular > 0 && track.Pulado >= track.Pular)
+                    continue;
+
+                return true;
+            }
+
+            return false;
         }
 
         public void Dispose() => Stop();
