@@ -13,29 +13,32 @@ namespace XP3.Visualizers
             public Color AccentColor;
             public int AccessoryType;
             public int ExpressionType;
+            public int MotionType;
+            public int BandIndex;
             public float Phase;
         }
 
         private readonly CharacterSpec[] _characters =
         {
-            new CharacterSpec { BodyColor = Color.FromArgb(244, 88, 92), AccentColor = Color.FromArgb(255, 221, 87), AccessoryType = 0, ExpressionType = 0, Phase = 0.1f },
-            new CharacterSpec { BodyColor = Color.FromArgb(72, 178, 245), AccentColor = Color.FromArgb(34, 44, 72), AccessoryType = 1, ExpressionType = 1, Phase = 0.7f },
-            new CharacterSpec { BodyColor = Color.FromArgb(96, 204, 116), AccentColor = Color.FromArgb(52, 124, 62), AccessoryType = 2, ExpressionType = 0, Phase = 1.3f },
-            new CharacterSpec { BodyColor = Color.FromArgb(252, 181, 60), AccentColor = Color.FromArgb(118, 62, 24), AccessoryType = 3, ExpressionType = 2, Phase = 1.9f },
-            new CharacterSpec { BodyColor = Color.FromArgb(183, 109, 235), AccentColor = Color.FromArgb(246, 238, 255), AccessoryType = 4, ExpressionType = 1, Phase = 2.5f },
-            new CharacterSpec { BodyColor = Color.FromArgb(42, 46, 58), AccentColor = Color.FromArgb(125, 230, 255), AccessoryType = 5, ExpressionType = 2, Phase = 3.1f },
-            new CharacterSpec { BodyColor = Color.FromArgb(255, 128, 194), AccentColor = Color.FromArgb(255, 240, 250), AccessoryType = 6, ExpressionType = 0, Phase = 3.7f },
-            new CharacterSpec { BodyColor = Color.FromArgb(94, 196, 184), AccentColor = Color.FromArgb(25, 96, 116), AccessoryType = 7, ExpressionType = 1, Phase = 4.3f },
-            new CharacterSpec { BodyColor = Color.FromArgb(238, 226, 92), AccentColor = Color.FromArgb(240, 116, 64), AccessoryType = 8, ExpressionType = 0, Phase = 4.9f },
-            new CharacterSpec { BodyColor = Color.FromArgb(124, 92, 62), AccentColor = Color.FromArgb(72, 162, 70), AccessoryType = 9, ExpressionType = 2, Phase = 5.5f },
-            new CharacterSpec { BodyColor = Color.FromArgb(230, 230, 238), AccentColor = Color.FromArgb(94, 118, 150), AccessoryType = 10, ExpressionType = 1, Phase = 6.1f },
-            new CharacterSpec { BodyColor = Color.FromArgb(65, 58, 132), AccentColor = Color.FromArgb(255, 214, 88), AccessoryType = 11, ExpressionType = 0, Phase = 6.7f },
-            new CharacterSpec { BodyColor = Color.FromArgb(255, 104, 48), AccentColor = Color.FromArgb(65, 42, 34), AccessoryType = 12, ExpressionType = 2, Phase = 7.3f },
-            new CharacterSpec { BodyColor = Color.FromArgb(76, 156, 92), AccentColor = Color.FromArgb(236, 198, 104), AccessoryType = 13, ExpressionType = 1, Phase = 7.9f }
+            new CharacterSpec { BodyColor = Color.FromArgb(244, 88, 92), AccentColor = Color.FromArgb(255, 221, 87), AccessoryType = 0, ExpressionType = 0, MotionType = 0, BandIndex = 0, Phase = 0.1f },
+            new CharacterSpec { BodyColor = Color.FromArgb(72, 178, 245), AccentColor = Color.FromArgb(34, 44, 72), AccessoryType = 1, ExpressionType = 1, MotionType = 1, BandIndex = 1, Phase = 0.7f },
+            new CharacterSpec { BodyColor = Color.FromArgb(96, 204, 116), AccentColor = Color.FromArgb(52, 124, 62), AccessoryType = 2, ExpressionType = 0, MotionType = 2, BandIndex = 2, Phase = 1.3f },
+            new CharacterSpec { BodyColor = Color.FromArgb(252, 181, 60), AccentColor = Color.FromArgb(118, 62, 24), AccessoryType = 3, ExpressionType = 2, MotionType = 3, BandIndex = 3, Phase = 1.9f },
+            new CharacterSpec { BodyColor = Color.FromArgb(183, 109, 235), AccentColor = Color.FromArgb(246, 238, 255), AccessoryType = 4, ExpressionType = 1, MotionType = 4, BandIndex = 4, Phase = 2.5f },
+            new CharacterSpec { BodyColor = Color.FromArgb(42, 46, 58), AccentColor = Color.FromArgb(125, 230, 255), AccessoryType = 5, ExpressionType = 2, MotionType = 5, BandIndex = 5, Phase = 3.1f },
+            new CharacterSpec { BodyColor = Color.FromArgb(255, 128, 194), AccentColor = Color.FromArgb(255, 240, 250), AccessoryType = 6, ExpressionType = 0, MotionType = 6, BandIndex = 6, Phase = 3.7f },
+            new CharacterSpec { BodyColor = Color.FromArgb(94, 196, 184), AccentColor = Color.FromArgb(25, 96, 116), AccessoryType = 7, ExpressionType = 1, MotionType = 0, BandIndex = 7, Phase = 4.3f },
+            new CharacterSpec { BodyColor = Color.FromArgb(238, 226, 92), AccentColor = Color.FromArgb(240, 116, 64), AccessoryType = 8, ExpressionType = 0, MotionType = 1, BandIndex = 8, Phase = 4.9f },
+            new CharacterSpec { BodyColor = Color.FromArgb(124, 92, 62), AccentColor = Color.FromArgb(72, 162, 70), AccessoryType = 9, ExpressionType = 2, MotionType = 2, BandIndex = 9, Phase = 5.5f },
+            new CharacterSpec { BodyColor = Color.FromArgb(230, 230, 238), AccentColor = Color.FromArgb(94, 118, 150), AccessoryType = 10, ExpressionType = 1, MotionType = 3, BandIndex = 10, Phase = 6.1f },
+            new CharacterSpec { BodyColor = Color.FromArgb(65, 58, 132), AccentColor = Color.FromArgb(255, 214, 88), AccessoryType = 11, ExpressionType = 0, MotionType = 4, BandIndex = 11, Phase = 6.7f },
+            new CharacterSpec { BodyColor = Color.FromArgb(255, 104, 48), AccentColor = Color.FromArgb(65, 42, 34), AccessoryType = 12, ExpressionType = 2, MotionType = 5, BandIndex = 12, Phase = 7.3f },
+            new CharacterSpec { BodyColor = Color.FromArgb(76, 156, 92), AccentColor = Color.FromArgb(236, 198, 104), AccessoryType = 13, ExpressionType = 1, MotionType = 6, BandIndex = 13, Phase = 7.9f }
         };
 
         private float _energy;
         private float _smoothedEnergy;
+        private float[] _characterEnergies;
         private DateTime _lastFrameTime = DateTime.Now;
         private float _time;
 
@@ -60,6 +63,7 @@ namespace XP3.Visualizers
                 _fftData = data == null ? null : (float[])data.Clone();
                 _energy = CalcularEnergia(_fftData);
                 _smoothedEnergy = (_smoothedEnergy * 0.86f) + (_energy * 0.14f);
+                AtualizarEnergiasDosPersonagens();
                 _time += deltaTime * (0.85f + (_smoothedEnergy * 1.8f));
             }
         }
@@ -77,10 +81,12 @@ namespace XP3.Visualizers
             g.PixelOffsetMode = PixelOffsetMode.Half;
 
             float energy;
+            float[] characterEnergies;
             float time;
             lock (SyncLock)
             {
                 energy = _smoothedEnergy;
+                characterEnergies = _characterEnergies == null ? null : (float[])_characterEnergies.Clone();
                 time = _time;
             }
 
@@ -91,7 +97,8 @@ namespace XP3.Visualizers
             for (int i = 0; i < _characters.Length; i++)
             {
                 PointF position = GetCharacterPosition(i, w, h);
-                DrawCharacter(g, _characters[i], position, i, w, h, energy, time);
+                float characterEnergy = (characterEnergies != null && i < characterEnergies.Length) ? characterEnergies[i] : energy;
+                DrawCharacter(g, _characters[i], position, i, w, h, characterEnergy, time);
             }
 
             DesenharTexto(g, w, h);
@@ -112,6 +119,69 @@ namespace XP3.Visualizers
             }
 
             return Math.Min(1f, sum / limit);
+        }
+
+        private void AtualizarEnergiasDosPersonagens()
+        {
+            int count = _characters.Length;
+            if (count <= 0)
+            {
+                _characterEnergies = null;
+                return;
+            }
+
+            if (_characterEnergies == null || _characterEnergies.Length != count)
+            {
+                _characterEnergies = new float[count];
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                float targetEnergy = GetCharacterBandEnergy(i, count);
+                float current = _characterEnergies[i];
+                float factor = targetEnergy > current ? 0.35f : 0.12f;
+                _characterEnergies[i] = current + ((targetEnergy - current) * factor);
+            }
+        }
+
+        private float GetCharacterBandEnergy(int index, int count)
+        {
+            if (_fftData == null || _fftData.Length == 0 || count <= 0)
+            {
+                return 0f;
+            }
+
+            int startBin = 2;
+            int endBin = Math.Min(_fftData.Length, 128);
+            if (endBin <= startBin)
+            {
+                return 0f;
+            }
+
+            int usable = Math.Max(1, endBin - startBin);
+            int bandSize = Math.Max(1, usable / count);
+            int start = startBin + (index * bandSize);
+            int end = (index == count - 1) ? endBin : Math.Min(endBin, start + bandSize);
+            if (start >= end)
+            {
+                return 0f;
+            }
+
+            float sum = 0f;
+            int n = 0;
+            for (int i = start; i < end; i++)
+            {
+                sum += Math.Abs(_fftData[i]);
+                n++;
+            }
+
+            if (n == 0)
+            {
+                return 0f;
+            }
+
+            float energy = (sum / n) * 14f;
+            return Math.Max(0f, Math.Min(1f, energy));
         }
 
         private void DrawBackground(Graphics g, int w, int h, float energy, float time)
@@ -174,16 +244,53 @@ namespace XP3.Visualizers
         private void DrawCharacter(Graphics g, CharacterSpec c, PointF position, int index, int w, int h, float energy, float time)
         {
             float baseScale = Math.Max(0.75f, Math.Min(1.35f, Math.Min(w / 920f, h / 640f)));
+            float wave = (float)Math.Sin(time * 2.6f + c.Phase);
+            float waveFast = (float)Math.Sin(time * 6.0f + c.Phase * 1.7f);
+            float waveSlow = (float)Math.Sin(time * 1.35f + c.Phase * 0.8f);
+
+            float offsetX = 0f;
+            float offsetY = 0f;
             float pulse = 1f + (energy * 0.10f);
-            float bounce = (float)Math.Sin(time * 2.6f + c.Phase) * (4f + energy * 10f);
+
+            switch (c.MotionType)
+            {
+                case 0:
+                    offsetY = -energy * 28f + wave * (2f + energy * 4f);
+                    break;
+                case 1:
+                    offsetX = wave * energy * 18f;
+                    break;
+                case 2:
+                    pulse += energy * 0.18f + waveFast * 0.02f;
+                    break;
+                case 3:
+                    offsetY = waveFast * energy * 10f;
+                    break;
+                case 4:
+                    offsetX = waveFast * energy * 12f;
+                    offsetY = waveSlow * energy * 4f;
+                    break;
+                case 5:
+                    offsetY = waveFast * energy * 5f;
+                    pulse += energy * 0.08f;
+                    break;
+                case 6:
+                    pulse += energy * 0.05f;
+                    offsetX = waveSlow * energy * 6f;
+                    break;
+                default:
+                    offsetY = wave * (4f + energy * 10f);
+                    break;
+            }
+
             float scale = baseScale * pulse;
 
             float bodyW = 42f * scale;
             float bodyH = 82f * scale;
             float headW = 50f * scale;
             float headH = 44f * scale;
-            float x = position.X;
-            float y = position.Y + bounce;
+            float x = position.X + offsetX;
+            float y = position.Y + offsetY;
 
             RectangleF shadow = new RectangleF(x - bodyW * 0.65f, y + bodyH * 0.47f, bodyW * 1.3f, 10f * scale);
             RectangleF body = new RectangleF(x - bodyW / 2f, y - bodyH * 0.15f, bodyW, bodyH);
