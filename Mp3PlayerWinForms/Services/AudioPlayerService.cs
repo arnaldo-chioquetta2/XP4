@@ -29,6 +29,7 @@ namespace XP3.Services
         private int _currentIndex = -1;
         private bool _isNextCallInitiated = false;
         private bool _handlingPlaybackStopped = false;
+        public bool AplicarRegraPularPulado { get; set; } = true;
 
         public event EventHandler<Track> TrackChanged;
         public event EventHandler<Track> TrackFinishedNaturally;
@@ -688,6 +689,12 @@ namespace XP3.Services
             {
                 GravarLog("[NEXT] Ignorado: playlist vazia ou nula.");
                 Stop();
+                return;
+            }
+
+            if (!AplicarRegraPularPulado)
+            {
+                Play(indiceInicial, false, false);
                 return;
             }
 

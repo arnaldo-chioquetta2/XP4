@@ -53,6 +53,7 @@ namespace XP3.Forms
         private bool _fechandoMidiaFullscreen;
         private bool _encerrandoAplicacaoPorSeguranca;
         private List<Track> _allTracks = new List<Track>();
+        private bool _listaAtualEhBanda = false;
 
         private ModernSeekBar modernSeekBar1;
         private bool _mostrarTempoRestante = false;
@@ -2724,6 +2725,7 @@ namespace XP3.Forms
             if (estavaTocandoEsta && _allTracks.Count > 0)
             {
                 // Atualiza a lista interna do player, pois ela diminuiu
+                _player.AplicarRegraPularPulado = !_listaAtualEhBanda;
                 _player.SetPlaylist(_allTracks);
 
                 // Se apagamos a mÃƒÂºsica #5, a antiga #6 virou a #5. 
@@ -2802,6 +2804,7 @@ namespace XP3.Forms
                 // --- CONTINUAR TOCANDO ---
                 if (precisaPular && _allTracks.Count > 0)
                 {
+                    _player.AplicarRegraPularPulado = !_listaAtualEhBanda;
                     _player.SetPlaylist(_allTracks);
                     if (indiceParaTocarDepois >= _allTracks.Count) indiceParaTocarDepois = 0;
                     _player.Play(indiceParaTocarDepois);
@@ -3332,6 +3335,7 @@ namespace XP3.Forms
                 _allTracks = tracksDoBanco?
                     .Where(t => t.Duration.TotalSeconds > 0)
                     .ToList() ?? new List<Track>();
+                _listaAtualEhBanda = false;
 
                 Debug.WriteLine($"[GRID STATE][Playlist] _allTracks={_allTracks.Count}; cinza={_allTracks.Count(t => DeveMostrarCinzaPorPular(t))}");
                 foreach (var t in _allTracks.Where(t => DeveMostrarCinzaPorPular(t)).Take(5))
@@ -3340,7 +3344,10 @@ namespace XP3.Forms
                 }
 
                 if (_player != null)
+                {
+                    _player.AplicarRegraPularPulado = true;
                     _player.SetPlaylist(_allTracks);
+                }
 
                 // 4. Interface
                 if (lvTracks != null)
@@ -3644,6 +3651,7 @@ namespace XP3.Forms
                 _allTracks = tracksDoBanco?
                     .Where(t => t.Duration.TotalSeconds > 0)
                     .ToList() ?? new List<Track>();
+                _listaAtualEhBanda = true;
 
                 Debug.WriteLine($"[GRID STATE][Band] _allTracks={_allTracks.Count}; cinza={_allTracks.Count(t => DeveMostrarCinzaPorPular(t))}");
                 foreach (var t in _allTracks.Where(t => DeveMostrarCinzaPorPular(t)).Take(5))
@@ -3653,6 +3661,7 @@ namespace XP3.Forms
 
                 if (_player != null)
                 {
+                    _player.AplicarRegraPularPulado = false;
                     _player.SetPlaylist(_allTracks);
                 }
 
@@ -3977,7 +3986,7 @@ namespace XP3.Forms
 
         private bool DeveMostrarCinzaPorPular(Track track)
         {
-            if (track == null) return false;
+            if (track == null || _listaAtualEhBanda) return false;
             return track.Pular > 0 && track.Pulado < track.Pular;
         }
 
