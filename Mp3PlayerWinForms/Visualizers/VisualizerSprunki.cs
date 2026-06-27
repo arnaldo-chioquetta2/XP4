@@ -187,35 +187,73 @@ namespace XP3.Visualizers
         private void DrawBackground(Graphics g, int w, int h, float energy, float time)
         {
             g.Clear(Color.FromArgb(22, 18, 42));
+            DrawSkyHeader(g, w, h, energy, time);
 
             using (LinearGradientBrush bg = new LinearGradientBrush(
                 new Rectangle(0, 0, Math.Max(1, w), Math.Max(1, h)),
-                Color.FromArgb(34, 28, 72),
-                Color.FromArgb(12, 18, 42),
+                Color.FromArgb(30, 24, 62),
+                Color.FromArgb(12, 16, 36),
                 LinearGradientMode.Vertical))
-            using (Brush floor = new SolidBrush(Color.FromArgb(42, 38, 72)))
-            using (Brush panel = new SolidBrush(Color.FromArgb(45, 52, 96)))
-            using (Pen line = new Pen(Color.FromArgb(85, 236, 210, 120), Math.Max(2, h / 220)))
-            using (Pen wave = new Pen(Color.FromArgb(100, 255, 255, 255), Math.Max(2, h / 260)))
+            using (Brush floor = new SolidBrush(Color.FromArgb(90, 190, 80)))
+            using (Brush sideBorder = new SolidBrush(Color.FromArgb(110, 70, 35)))
+            using (Brush bottomBorder = new SolidBrush(Color.White))
             {
-                g.FillRectangle(bg, 0, 0, w, h);
-                g.FillRectangle(panel, 0, (int)(h * 0.10f), w, (int)(h * 0.14f));
-                g.FillRectangle(floor, 0, (int)(h * 0.72f), w, h);
+                int skyH = Math.Max(150, h / 4);
+                int floorTop = (int)(h * 0.72f);
+                int sideBorderWidth = Math.Max(16, w / 60);
+                int bottomBorderHeight = Math.Max(16, h / 36);
 
-                int spacing = Math.Max(42, w / 12);
-                int offset = (int)((time * 18f) % spacing);
-                for (int x = -spacing + offset; x < w + spacing; x += spacing)
-                {
-                    g.DrawLine(line, x, (int)(h * 0.10f), x + spacing / 2, (int)(h * 0.24f));
-                    g.DrawLine(line, x + spacing / 2, (int)(h * 0.24f), x + spacing, (int)(h * 0.10f));
-                }
+                g.FillRectangle(bg, 0, skyH, w, h - skyH);
+                g.FillRectangle(floor, 0, floorTop, w, h - floorTop);
+                g.FillRectangle(sideBorder, 0, floorTop, sideBorderWidth, h - floorTop);
+                g.FillRectangle(sideBorder, w - sideBorderWidth, floorTop, sideBorderWidth, h - floorTop);
+                g.FillRectangle(bottomBorder, 0, h - bottomBorderHeight, w, bottomBorderHeight);
+            }
+        }
 
-                int centerY = (int)(h * 0.18f);
-                for (int x = 0; x < w; x += 14)
-                {
-                    int y = centerY + (int)(Math.Sin((x * 0.035f) + time * 2.4f) * (10 + energy * 20));
-                    g.DrawLine(wave, x, centerY, x + 8, y);
-                }
+        private void DrawSkyHeader(Graphics g, int w, int h, float energy, float time)
+        {
+            int skyH = Math.Max(150, h / 4);
+            using (LinearGradientBrush sky = new LinearGradientBrush(
+                new Rectangle(0, 0, Math.Max(1, w), skyH),
+                Color.FromArgb(135, 206, 235),
+                Color.FromArgb(118, 190, 230),
+                LinearGradientMode.Vertical))
+            {
+                g.FillRectangle(sky, 0, 0, w, skyH);
+            }
+
+            float cloudEnergy = Math.Max(0f, Math.Min(1f, energy * 1.25f + 0.05f));
+            int cloudCount = 2 + (int)(cloudEnergy * 5f);
+            int baseAlpha = 90 + (int)(cloudEnergy * 130f);
+            float baseScale = (0.72f + (cloudEnergy * 0.82f)) * 4f;
+            float speed = 8f + (cloudEnergy * 24f);
+
+            for (int i = 0; i < cloudCount; i++)
+            {
+                float lane = (i + 1f) / (cloudCount + 1f);
+                float baseX = (w * lane) + (float)Math.Sin(time * 0.35f + i * 1.47f) * (w * 0.08f);
+                float travel = (time * speed * (0.35f + (i * 0.07f))) % (w + 260f);
+                float x = -150f + ((baseX + travel) % (w + 260f));
+                float y = 12f + (lane * (skyH - 42f)) + (float)Math.Sin(i * 1.9f + time * 0.2f) * 8f;
+                float scale = baseScale * (0.80f + ((i % 3) * 0.09f));
+                int alpha = Math.Max(80, Math.Min(230, baseAlpha - (i * 5)));
+
+                DrawCloud(g, x, y, scale, alpha);
+            }
+        }
+
+        private void DrawCloud(Graphics g, float x, float y, float scale, float alpha)
+        {
+            float w = 78f * scale;
+            float h = 34f * scale;
+            using (Brush cloud = new SolidBrush(Color.FromArgb((int)alpha, Color.White)))
+            {
+                g.FillEllipse(cloud, x + w * 0.20f, y + h * 0.08f, w * 0.58f, h * 0.62f);
+                g.FillEllipse(cloud, x + w * 0.02f, y + h * 0.20f, w * 0.44f, h * 0.48f);
+                g.FillEllipse(cloud, x + w * 0.42f, y + h * 0.16f, w * 0.48f, h * 0.50f);
+                g.FillEllipse(cloud, x + w * 0.28f, y, w * 0.30f, h * 0.58f);
+                g.FillRectangle(cloud, x + w * 0.14f, y + h * 0.34f, w * 0.58f, h * 0.28f);
             }
         }
 
