@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Drawing;
+using System.Diagnostics;
 using System.Windows.Forms;
 using XP3.Data; // Para acessar o Database.GetConnection()
 using XP3.Models; // Para acessar o ProgramacaoModel
@@ -18,9 +19,86 @@ namespace XP3 // Atualizado para o namespace do novo projeto
         private string Tague = "";
         private object Cont;
         private BotaoSelec OBotaoSelec = null;
-        private int MaxAltura = 1440;
+        private const int MinutosDiaMax = 1439;
+        private int MaxAltura = 1439;
 
         private ProgrammingRepository _progRepo;
+
+        private void LogProg(string mensagem)
+        {
+            Debug.WriteLine("[PROG] " + mensagem);
+        }
+
+        private string DescPainel(Control c)
+        {
+            if (c == null) return "(null)";
+
+            var p = c as ScrollableControl;
+            if (p != null)
+            {
+                return string.Format(
+                    "{0} Type={1} AutoScroll={2} AutoScrollPos={3} DisplayRect={4} Client={5} Controls={6}",
+                    c.Name,
+                    c.GetType().Name,
+                    p.AutoScroll,
+                    p.AutoScrollPosition,
+                    p.DisplayRectangle,
+                    p.ClientRectangle,
+                    c.Controls.Count
+                );
+            }
+
+            return string.Format(
+                "{0} Type={1} Location={2} Size={3} Client={4} Controls={5}",
+                c.Name,
+                c.GetType().Name,
+                c.Location,
+                c.Size,
+                c.ClientRectangle,
+                c.Controls.Count
+            );
+        }
+
+        private string DescBotao(Control bt)
+        {
+            if (bt == null) return "(null)";
+
+            return string.Format(
+                "{0} Type={1} Parent={2} Location={3} Top={4} Left={5} Size={6} Bounds={7}",
+                bt.Name,
+                bt.GetType().Name,
+                bt.Parent != null ? bt.Parent.Name : "(sem parent)",
+                bt.Location,
+                bt.Top,
+                bt.Left,
+                bt.Size,
+                bt.Bounds
+            );
+        }
+
+        private int ConverterYConteudoParaTopControle(Panel painel, int yConteudo)
+        {
+            if (painel == null)
+                return yConteudo;
+
+            int topControle = yConteudo + painel.AutoScrollPosition.Y;
+            LogProg(string.Format(
+                "SetTopControle painel={0} scrollY={1} yConteudo={2} topControle={3}",
+                painel.Name,
+                painel.AutoScrollPosition.Y,
+                yConteudo,
+                topControle
+            ));
+            return topControle;
+        }
+
+        private int ConverterTopControleParaYConteudo(Panel painel, Control controle)
+        {
+            if (painel == null || controle == null)
+                return 0;
+
+            return controle.Top - painel.AutoScrollPosition.Y;
+        }
 
         public Programacao()
         {
@@ -34,7 +112,80 @@ namespace XP3 // Atualizado para o namespace do novo projeto
             this.panel4.DragOver += new DragEventHandler(this.Paineis_DragOver);
             this.panel5.DragOver += new DragEventHandler(this.Paineis_DragOver);
             ConfigurarComboTempo();
+            ConfigurarAreaCompletaDoDia();
             Listas();
+        }
+
+        private void ConfigurarAreaCompletaDoDia()
+        {
+            Size areaCompleta = new Size(0, MaxAltura + 1);
+            panel1.AutoScrollMinSize = areaCompleta;
+            panel2.AutoScrollMinSize = areaCompleta;
+            panel3.AutoScrollMinSize = areaCompleta;
+            panel4.AutoScrollMinSize = areaCompleta;
+            panel5.AutoScrollMinSize = areaCompleta;
+        }
+
+        private int ObterYConteudo(Panel panel, int yLocal)
+        {
+            if (panel == null)
+                return yLocal;
+
+            return yLocal - panel.AutoScrollPosition.Y;
+        }
+
+        private int ConverterYParaMinutoDoDia(Panel panel, int yLocal, out int yConteudo)
+        {
+            yConteudo = ObterYConteudo(panel, yLocal);
+
+            if (yConteudo < 0)
+                yConteudo = 0;
+
+            if (yConteudo > MaxAltura)
+                yConteudo = MaxAltura;
+
+            int minuto = (int)Math.Round(yConteudo * MinutosDiaMax / (double)MaxAltura);
+
+            if (minuto < 0)
+                minuto = 0;
+
+            if (minuto > MinutosDiaMax)
+                minuto = MinutosDiaMax;
+
+            LogProg(string.Format(
+                "ConverterYParaMinutoDoDia painel={0} yLocal={1} scroll={2} display={3} yConteudo={4} MaxAltura={5} minuto={6} hora={7:00}:{8:00}",
+                panel != null ? panel.Name : "(null)",
+                yLocal,
+                panel != null ? panel.AutoScrollPosition.ToString() : "(null)",
+                panel != null ? panel.DisplayRectangle.ToString() : "(null)",
+                yConteudo,
+                MaxAltura,
+                minuto,
+                minuto / 60,
+                minuto % 60
+            ));
+
+            return minuto;
+        }
+
+        private int ConverterMinutoDoDiaParaY(int minuto)
+        {
+            if (minuto < 0)
+                minuto = 0;
+
+            if (minuto > MinutosDiaMax)
+                minuto = MinutosDiaMax;
+
+            int y = (int)Math.Round(minuto * MaxAltura / (double)MinutosDiaMax);
+            LogProg(string.Format(
+                "ConverterMinutoDoDiaParaY minuto={0} hora={1:00}:{2:00} MaxAltura={3} y={4}",
+                minuto,
+                minuto / 60,
+                minuto % 60,
+                MaxAltura,
+                y
+            ));
+            return y;
         }
 
         private void ConfigurarComboTempo()
@@ -69,16 +220,29 @@ namespace XP3 // Atualizado para o namespace do novo projeto
         private void Programacao_Load(object sender, EventArgs e)
         {
             // Substituímos o DalHelper pelo nosso repositório criado na Fase 1
+            LogProg("Programacao_Load inicio MaxAltura=" + MaxAltura);
+            LogProg("panel1=" + DescPainel(panel1));
+            LogProg("panel2=" + DescPainel(panel2));
+            LogProg("panel3=" + DescPainel(panel3));
+            LogProg("panel4=" + DescPainel(panel4));
+            LogProg("panel5=" + DescPainel(panel5));
+
             var programacoes = _progRepo.ListarProgramacao();
 
             foreach (var prog in programacoes)
             {
-                Single siHora = prog.HorarioInicio.Hour;
-                Single siMinute = prog.HorarioInicio.Minute;
-                Single sMinuto = siMinute / 60f;
-                siHora += sMinuto;
-                Single Prop = siHora / 24f;
-                Single Top = this.MaxAltura * Prop;
+                int minuto = (prog.HorarioInicio.Hour * 60) + prog.HorarioInicio.Minute;
+                int Top = ConverterMinutoDoDiaParaY(minuto);
+                LogProg(string.Format(
+                    "Programacao_Load progId={0} playlistId={1} hora={2:00}:{3:00} minuto={4} y={5} periodicidade={6}",
+                    prog.Id,
+                    prog.PlaylistId,
+                    prog.HorarioInicio.Hour,
+                    prog.HorarioInicio.Minute,
+                    minuto,
+                    Top,
+                    prog.Periodicidade
+                ));
 
                 string Hora = prog.HorarioInicio.Hour.ToString("00") + ":" + prog.HorarioInicio.Minute.ToString("00");
                 string Texto = prog.NomePlaylist + " " + Hora;
@@ -132,6 +296,7 @@ namespace XP3 // Atualizado para o namespace do novo projeto
         private void CarregaBotao(string Nome, string Texto, int I, Panel Painel, Int16 IdLista, Single Top)
         {
             // 1. Instanciação usando a classe customizada (XP3.BotaoProgramacao)
+            LogProg("CarregaBotao inicio painel=" + DescPainel(Painel) + " TopArg=" + Top + " Nome=" + Nome + " Texto=" + Texto + " IdLista=" + IdLista + " I=" + I);
             BotaoProgramacao bt = new BotaoProgramacao();
 
             bt.AllowDrop = true; // Essencial para aceitar o "soltar"
@@ -140,7 +305,9 @@ namespace XP3 // Atualizado para o namespace do novo projeto
             bt.Name = Nome;
             bt.Size = new Size(194, 23);
             bt.TabIndex = 11;
-            bt.Top = (int)Top;
+            int yConteudo = (int)Top;
+            bt.Top = ConverterYConteudoParaTopControle(Painel, yConteudo);
+            LogProg("CarregaBotao apos Top: " + DescBotao(bt));
 
             // 2. Estilização Visual (Padrão Dark XP3)
             bt.FlatStyle = FlatStyle.Flat;
@@ -154,6 +321,7 @@ namespace XP3 // Atualizado para o namespace do novo projeto
             int NrBts = Painel.Controls.Count;
             bt.Tag = Painel.Tag + "|" + NrBts.ToString() + "|" + IdLista.ToString();
             bt.Text = Texto;
+            LogProg("CarregaBotao antes Add: " + DescBotao(bt));
 
             // 4. LIGAÇÃO DOS EVENTOS (Os 5 cavaleiros do funcionamento perfeito)
 
@@ -170,6 +338,7 @@ namespace XP3 // Atualizado para o namespace do novo projeto
 
             // 5. Adiciona ao Painel de destino
             Painel.Controls.Add(bt);
+            LogProg("CarregaBotao depois Add: " + DescBotao(bt));
         }
 
         // METODO: bt_MouseDoubleClick
@@ -178,6 +347,7 @@ namespace XP3 // Atualizado para o namespace do novo projeto
         private void bt_MouseDoubleClick(object sender, MouseEventArgs e)
         {
             Button bt = (Button)sender;
+            LogProg("bt_MouseDoubleClick antes: " + DescBotao(bt));
 
             // 1. Extrai o nome da playlist e o horário atual
             string nomePlaylist = bt.Text;
@@ -202,14 +372,23 @@ namespace XP3 // Atualizado para o namespace do novo projeto
                 int minutos = int.Parse(partesHora[1]);
 
                 // 4. MATEMÁTICA: Converter Horário para Pixels (Top)
-                // Baseado na altura de 400px e 1440 minutos no dia
+                // Baseado em 1439 minutos no dia para chegar até 23:59
                 float minutosTotais = (horas * 60) + minutos;
-                float proporcao = minutosTotais / 1440f;
-                int novoTop = (int)(proporcao * MaxAltura);
+                float proporcao = minutosTotais / MinutosDiaMax;
+                int minutoTotal = (int)Math.Round(proporcao * MinutosDiaMax);
+                int novoTop = ConverterMinutoDoDiaParaY(minutoTotal);
+                LogProg(string.Format(
+                    "bt_MouseDoubleClick minutoNovo={0} hora={1:00}:{2:00} novoTop={3}",
+                    minutoTotal,
+                    horas,
+                    minutos,
+                    novoTop
+                ));
 
                 // 5. Atualiza o botão e a interface
-                bt.Top = novoTop;
+                bt.Top = ConverterYConteudoParaTopControle(bt.Parent as Panel, novoTop);
                 bt.Text = nomePlaylist + " " + horas.ToString("00") + ":" + minutos.ToString("00");
+                LogProg("bt_MouseDoubleClick depois: " + DescBotao(bt));
 
                 button1.Enabled = true; // Habilita o botão Salvar
             }
@@ -290,21 +469,38 @@ namespace XP3 // Atualizado para o namespace do novo projeto
         // caia exatamente na altura onde o mouse foi solto.
         private void Paineis_DragDrop(ref DragEventArgs e, ref Panel Painel)
         {
+            Control botaoAfetado = null;
+            LogProg("========== DRAGDROP INICIO ==========");
+            LogProg("Painel alvo: " + DescPainel(Painel));
+            LogProg(string.Format("Mouse e.X={0} e.Y={1}", e.X, e.Y));
+            LogProg(string.Format("Scroll antes={0}", Painel.AutoScrollPosition));
+            LogProg(string.Format("DisplayRectangle={0}", Painel.DisplayRectangle));
+            LogProg(string.Format("Controls no painel={0}", Painel.Controls.Count));
+            try
+            {
+                LogProg("Data formats: " + string.Join(", ", e.Data.GetFormats()));
+            }
+            catch
+            {
+                LogProg("Data formats: (erro ao ler)");
+            }
             // 1. Converte a coordenada da TELA para a coordenada dentro do PAINEL
             Point pontoLocal = Painel.PointToClient(new Point(e.X, e.Y));
-            int iPos = pontoLocal.Y;
+            int yConteudo;
+            int minuto = ConverterYParaMinutoDoDia(Painel, pontoLocal.Y, out yConteudo);
 
-            // 2. Limita a posição para não sair do painel (0 a 400)
-            if (iPos < 0) iPos = 0;
-            if (iPos > MaxAltura) iPos = MaxAltura;
-
-            // 3. Calcula a proporção baseada na altura máxima (400px)
-            float PropBt = (float)iPos / (float)MaxAltura;
-
-            // 4. Dedução do novo horário (24h * 60min = 1440)
-            float Momento = 1440 * PropBt;
-            int Hora = (int)Momento / 60;
-            int Minuto = (int)Momento % 60;
+            // 2. Converte o minuto de volta para hora/minuto
+            int Hora = minuto / 60;
+            int Minuto = minuto % 60;
+            int yBotao = ConverterMinutoDoDiaParaY(minuto);
+            LogProg(string.Format(
+                "DragDrop calculado minuto={0} hora={1:00}:{2:00} yBotao={3} yConteudo={4}",
+                minuto,
+                Hora,
+                Minuto,
+                yBotao,
+                yConteudo
+            ));
 
             // 5. Lógica de atualização visual do botão (mesma que você já tinha)
             string[] partes = this.Tague.Split('|');
@@ -323,23 +519,58 @@ namespace XP3 // Atualizado para o namespace do novo projeto
                 // Criar novo botão vindo da lista da esquerda
                 int Cont = Painel.Controls.Count;
                 string nmBot = "Bt" + Cont.ToString();
-                CarregaBotao(nmBot, Texto, Cont, Painel, this.OBotaoSelec.IdLista, iPos);
+                LogProg("Ramo: criar novo botao");
+                LogProg("Antes de CarregaBotao: " + DescPainel(Painel));
+                CarregaBotao(nmBot, Texto, Cont, Painel, this.OBotaoSelec.IdLista, yBotao);
+                if (Painel.Controls.Count > 0)
+                {
+                    botaoAfetado = Painel.Controls[Painel.Controls.Count - 1];
+                    LogProg("Depois de criar: " + DescBotao(botaoAfetado));
+                }
             }
             else if (this.OBotaoSelec.pnSelecionado == NrPainelOrigem)
             {
                 // Reposicionar botão dentro do mesmo painel
-                Painel.Controls[Item].Top = iPos;
+                LogProg("Ramo: mover no mesmo painel");
+                if (Item >= 0 && Item < Painel.Controls.Count)
+                {
+                    LogProg("Antes mover: " + DescBotao(Painel.Controls[Item]));
+                }
+                Painel.Controls[Item].Top = ConverterYConteudoParaTopControle(Painel, yBotao);
                 Painel.Controls[Item].Text = Texto;
+                if (Item >= 0 && Item < Painel.Controls.Count)
+                {
+                    botaoAfetado = Painel.Controls[Item];
+                    LogProg("Depois mover: " + DescBotao(botaoAfetado));
+                }
             }
             else
             {
                 // Mover botão de um painel de dia para outro
+                LogProg("Ramo: mover entre painéis");
+                LogProg("Antes de ApagaBotao: painel=" + DescPainel(Painel));
                 this.ApagaBotao();
                 int Cont = Painel.Controls.Count;
                 string nmBot = "Bt" + Cont.ToString();
-                CarregaBotao(nmBot, Texto, Cont, Painel, this.OBotaoSelec.IdLista, iPos);
+                LogProg("Antes de CarregaBotao (troca de painel): " + DescPainel(Painel));
+                CarregaBotao(nmBot, Texto, Cont, Painel, this.OBotaoSelec.IdLista, yBotao);
+                if (Painel.Controls.Count > 0)
+                {
+                    botaoAfetado = Painel.Controls[Painel.Controls.Count - 1];
+                    LogProg("Depois de trocar painel: " + DescBotao(botaoAfetado));
+                }
             }
 
+            LogProg("Scroll final=" + Painel.AutoScrollPosition);
+            if (Painel.Controls.Count > 0)
+            {
+                LogProg("Botão final ultimo controle: " + DescBotao(Painel.Controls[Painel.Controls.Count - 1]));
+            }
+            if (botaoAfetado != null)
+            {
+                LogProg("Botão final afetado: " + DescBotao(botaoAfetado));
+            }
+            LogProg("========== DRAGDROP FIM ==========");
             button1.Enabled = true;
         }
 
@@ -496,15 +727,10 @@ namespace XP3 // Atualizado para o namespace do novo projeto
                 {
                     // Mesma matemática do Drop, calculada enquanto o mouse se move
                     Point pontoLocal = painelAlvo.PointToClient(new Point(e.X, e.Y));
-                    int iPos = pontoLocal.Y;
-
-                    if (iPos < 0) iPos = 0;
-                    if (iPos > MaxAltura) iPos = MaxAltura;
-
-                    float PropBt = (float)iPos / (float)MaxAltura;
-                    float Momento = 1440 * PropBt;
-                    int Hora = (int)Momento / 60;
-                    int Minuto = (int)Momento % 60;
+                    int yConteudo;
+                    int minuto = ConverterYParaMinutoDoDia(painelAlvo, pontoLocal.Y, out yConteudo);
+                    int Hora = minuto / 60;
+                    int Minuto = minuto % 60;
 
                     // Atualiza a barra de título instantaneamente
                     this.Text = $"Agendando para: {Hora:00}:{Minuto:00}";
