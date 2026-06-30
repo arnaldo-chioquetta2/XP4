@@ -175,6 +175,7 @@ namespace XP3.Forms
             ConfigurarMenuPlaylistLateral();
             ConfigurarMenuBandasLateral();
             ConfigurarIndicadorProximaProgramacao();
+            this.Activated += Inicial_Activated;
 
             // Evento de seleção na Grid para atualizar painel lateral
             lvTracks.SelectedIndexChanged += (s, e) =>
@@ -2987,6 +2988,65 @@ namespace XP3.Forms
             /* Mas para nÃƒÂ£o complicar seu cÃƒÂ³digo atual, use o spacer que jÃƒÂ¡ tÃƒÂ­nhamos: */
 
             return btn;
+        }
+
+        private void Inicial_Activated(object sender, EventArgs e)
+        {
+            AjustarGridParaMusicaAtualAoGanharFoco();
+        }
+
+        private void AjustarGridParaMusicaAtualAoGanharFoco()
+        {
+            if (lvTracks == null || !lvTracks.IsHandleCreated)
+                return;
+
+            if (_allTracks == null || _allTracks.Count == 0)
+                return;
+
+            var trackAtual = _player?.CurrentTrack;
+            if (trackAtual == null)
+                return;
+
+            int index = _allTracks.FindIndex(t => t.Id == trackAtual.Id);
+            if (index < 0 || index >= _allTracks.Count)
+                return;
+
+            int primeiroVisivel = lvTracks.TopItem != null ? lvTracks.TopItem.Index : 0;
+            int itemHeight = lvTracks.Font != null ? lvTracks.Font.Height : 16;
+            if (itemHeight <= 0)
+                itemHeight = 16;
+
+            int linhasVisiveis = Math.Max(1, lvTracks.ClientSize.Height / itemHeight);
+            int ultimoVisivel = primeiroVisivel + linhasVisiveis - 1;
+
+            if (index >= primeiroVisivel && index <= ultimoVisivel)
+                return;
+
+            RolarGridParaIndiceComoPrimeiro(index);
+        }
+
+        private void RolarGridParaIndiceComoPrimeiro(int index)
+        {
+            if (lvTracks == null || !lvTracks.IsHandleCreated || index < 0 || index >= lvTracks.VirtualListSize)
+                return;
+
+            try
+            {
+                if (lvTracks.Items.Count > index)
+                {
+                    lvTracks.TopItem = lvTracks.Items[index];
+                }
+                else
+                {
+                    lvTracks.EnsureVisible(index);
+                }
+            }
+            catch
+            {
+                try { lvTracks.EnsureVisible(index); } catch { }
+            }
+
+            lvTracks.Invalidate();
         }
 
         private void GarantirMusicaVisivelNaGrid(int index)
