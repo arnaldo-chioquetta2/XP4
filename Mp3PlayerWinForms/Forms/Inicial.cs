@@ -2172,7 +2172,7 @@ namespace XP3.Forms
 
                 if (_player != null && _allTracks.Count > 0)
                 {
-                    _player.Play(0);
+                    _player.PlayAutomatico(0);
                 }
             }
 
@@ -2280,7 +2280,7 @@ namespace XP3.Forms
 
             if (_player != null && _allTracks.Count > 0)
             {
-                _player.Play(0);
+                _player.PlayAutomatico(0);
             }
 
             lblStatus.Text = $"Lista mesclada criada: {nomeNovaLista}";
@@ -2738,7 +2738,7 @@ namespace XP3.Forms
                 // EntÃƒÂ£o mandamos tocar o mesmo ÃƒÂ­ndice.
                 if (indiceParaTocarDepois >= _allTracks.Count) indiceParaTocarDepois = 0; // Volta pro inicio se era a ÃƒÂºltima
 
-                _player.Play(indiceParaTocarDepois);
+                _player.PlayAutomatico(indiceParaTocarDepois);
             }
         }
 
@@ -2813,7 +2813,7 @@ namespace XP3.Forms
                     _player.AplicarRegraPularPulado = !_listaAtualEhBanda;
                     _player.SetPlaylist(_allTracks);
                     if (indiceParaTocarDepois >= _allTracks.Count) indiceParaTocarDepois = 0;
-                    _player.Play(indiceParaTocarDepois);
+                    _player.PlayAutomatico(indiceParaTocarDepois);
                 }
 
                 _trackEmEdicao = null;
@@ -3324,7 +3324,7 @@ namespace XP3.Forms
                 if (lvTracks.VirtualListSize > 0)
                 {
                     LogService.GravarInfo("TrocaAgendada", "Dando play na primeira mÃƒÂºsica da nova lista.");
-                    _player.Play(0);
+                    _player.PlayAutomatico(0);
                 }
                 else
                 {
@@ -3401,7 +3401,7 @@ namespace XP3.Forms
 
                         if (_allTracks.Count > 0 && _player != null)
                         {
-                            _player.Play(0);
+                            _player.PlayAutomatico(0);
                         }
                         return;
                     }
@@ -3423,6 +3423,7 @@ namespace XP3.Forms
                 if (_player != null)
                 {
                     _player.AplicarRegraPularPulado = true;
+                    Debug.WriteLine($"[PULAR] LoadPlaylist lista={_currentPlaylistId} AplicarRegraPularPulado={_player.AplicarRegraPularPulado}");
                     _player.SetPlaylist(_allTracks);
                 }
 
@@ -3478,7 +3479,7 @@ namespace XP3.Forms
                         // Nota: O Play dispara o evento TrackChanged, que jÃƒÂ¡ atualiza labels e spectrum
                         if (_player != null)
                         {
-                            _player.Play(indexEncontrado);
+                            _player.PlayAutomatico(indexEncontrado);
                         }
 
                         AtualizarPainelLateral(track);
@@ -3605,7 +3606,7 @@ namespace XP3.Forms
 
                 if (_allTracks.Count > 0)
                 {
-                    _player.Play(0);
+                    _player.PlayAutomatico(0);
                 }
 
             }
@@ -3740,6 +3741,7 @@ namespace XP3.Forms
                 if (_player != null)
                 {
                     _player.AplicarRegraPularPulado = false;
+                    Debug.WriteLine($"[PULAR] Banda AplicarRegraPularPulado={_player.AplicarRegraPularPulado}");
                     _player.SetPlaylist(_allTracks);
                 }
 
@@ -3757,7 +3759,7 @@ namespace XP3.Forms
 
                 if (_allTracks.Count > 0 && _player != null)
                 {
-                    _player.Play(0);
+                    _player.PlayAutomatico(0);
                     lblStatus.Text = $"Tocando banda: {banda.Name}";
                     lblStatus.ForeColor = Color.LightGreen;
                 }
@@ -3796,7 +3798,7 @@ namespace XP3.Forms
             // 3. Inicia a reproduÃƒÂ§ÃƒÂ£o da primeira mÃƒÂºsica da nova lista
             if (_allTracks.Count > 0 && _player != null)
             {
-                _player.Play(0);
+                _player.PlayAutomatico(0);
             }
         }
 
@@ -4649,7 +4651,7 @@ namespace XP3.Forms
                         {
                             // A mÃƒÂºsica sumiu da lista?? (Raro, mas possÃƒÂ­vel se foi deletada no scan)
                             // Nesse caso, tocamos a primeira da nova lista
-                            if (lvTracks.Items.Count > 0) _player.Play(0);
+                            if (lvTracks.Items.Count > 0) _player.PlayAutomatico(0);
                         }
                     }
                     else
@@ -4658,7 +4660,7 @@ namespace XP3.Forms
                         // MAS SÃƒâ€œ SE O USUÃƒÂRIO QUISER (Geralmente Scan nÃƒÂ£o deve dar Play sozinho se estava parado)
                         // Se quiser manter o comportamento original de dar play:
                         if (lvTracks.Items.Count > 0 && !estavaTocando)
-                            _player.Play(0);
+                            _player.PlayAutomatico(0);
                     }
                 }
                 catch { }
@@ -4696,7 +4698,7 @@ namespace XP3.Forms
                     // Toca a primeira mÃƒÂºsica automaticamente
                     if (lvTracks.Items.Count > 0)
                     {
-                        _player.Play(0);
+                        _player.PlayAutomatico(0);
                     }
                 }
                 catch (Exception ex)

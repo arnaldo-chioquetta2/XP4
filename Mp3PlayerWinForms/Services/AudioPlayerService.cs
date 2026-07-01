@@ -249,6 +249,25 @@ namespace XP3.Services
 
         public void Play(int index) => Play(index, false, true); // Atualizar esta linha
 
+        public void PlayAutomatico(int index, bool ignorarBloqueio24Horas = false)
+        {
+            GravarLog($"[PLAY_AUTO] Solicitado index={index}; ignorar24h={ignorarBloqueio24Horas}; aplicarPular={AplicarRegraPularPulado}; playlistCount={_playlist?.Count ?? 0}");
+
+            if (_playlist == null || _playlist.Count == 0)
+            {
+                GravarLog("[PLAY_AUTO] Ignorado: playlist vazia ou nula.");
+                return;
+            }
+
+            if (AplicarRegraPularPulado)
+            {
+                TocarProximaFaixaValida(index);
+                return;
+            }
+
+            Play(index, ignorarBloqueio24Horas, false);
+        }
+
         public void Play(int index, bool ignorarBloqueio24Horas = false, bool isUserInitiated = false) // Modificar esta linha
         {
             GravarLog($"[PLAY] Solicitado index={index}; ignorar24h={ignorarBloqueio24Horas}; usuario={isUserInitiated}; playlistCount={_playlist?.Count ?? 0}; currentIndex={_currentIndex}");
@@ -274,6 +293,26 @@ namespace XP3.Services
             }
 
             GravarLog($"[PLAY] Faixa selecionada indexReal={indiceTocavel}; ID={track.Id}; Titulo={track.Title}; Arquivo={track.FilePath}");
+
+            if (!isUserInitiated && AplicarRegraPularPulado && track.Pular > 0 && track.Pulado < track.Pular)
+            {
+                int puladoAntes = track.Pulado;
+                int novoPulado = _trackRepo.IncrementarPulado(track.Id);
+                AtualizarPuladoEmMemoria(track.Id, novoPulado);
+                GravarLog($"[PULAR] BLOQUEADO ANTES DE TOCAR id={track.Id}; titulo={track.Title}; pular={track.Pular}; puladoAntes={puladoAntes}; puladoDepois={novoPulado}; origem=automatico");
+                TocarProximaFaixaValida(indiceTocavel + 1);
+                return;
+            }
+
+            if (!isUserInitiated)
+            {
+                GravarLog($"[PULAR] VAI TOCAR id={track.Id} titulo={track.Title} pular={track.Pular} pulado={track.Pulado} aplicar={AplicarRegraPularPulado} origem=automatico");
+            }
+            else
+            {
+                GravarLog($"[PULAR] VAI TOCAR id={track.Id} titulo={track.Title} pular={track.Pular} pulado={track.Pulado} aplicar={AplicarRegraPularPulado} origem=manual");
+            }
+
             Stop();
             _currentIndex = indiceTocavel;
 
@@ -770,11 +809,13 @@ namespace XP3.Services
                     continue;
                 }
 
+                GravarLog($"[PULAR] candidato id={track.Id}; titulo={track.Title}; pular={track.Pular}; pulado={track.Pulado}; aplicar={AplicarRegraPularPulado}");
+
                 if (DevePularPorPularPulado(track))
                 {
                     int novoPulado = _trackRepo.IncrementarPulado(track.Id);
                     AtualizarPuladoEmMemoria(track.Id, novoPulado);
-                    GravarLog($"[PULAR] Faixa cinza pulada: ID={track.Id}; Titulo={track.Title}; Pulado={novoPulado}; Pular={track.Pular}");
+                    GravarLog($"[PULAR] pulando id={track.Id}; puladoAntes={track.Pulado}; puladoDepois={novoPulado}; pular={track.Pular}");
                     continue;
                 }
 
@@ -782,7 +823,7 @@ namespace XP3.Services
                 {
                     int novoPulado = _trackRepo.ResetarPulado(track.Id);
                     AtualizarPuladoEmMemoria(track.Id, novoPulado);
-                    GravarLog($"[PULAR] Pulado resetado antes de tocar: ID={track.Id}; Titulo={track.Title}");
+                    GravarLog($"[PULAR] tocando id={track.Id}; resetando pulado para {novoPulado}; titulo={track.Title}");
                 }
 
                 Play(candidato, false, false);
