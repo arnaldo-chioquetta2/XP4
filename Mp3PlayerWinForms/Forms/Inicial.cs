@@ -2922,6 +2922,29 @@ namespace XP3.Forms
             }
         }
 
+        private bool ListaAtualEhAEscolher()
+        {
+            try
+            {
+                if (_trackRepo != null && _currentPlaylistId > 0)
+                {
+                    string nomeLista = _trackRepo.GetPlaylistName(_currentPlaylistId);
+                    if (!string.IsNullOrWhiteSpace(nomeLista) &&
+                        nomeLista.Trim().Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return lblPlaylistTitle != null &&
+                   !string.IsNullOrWhiteSpace(lblPlaylistTitle.Text) &&
+                   lblPlaylistTitle.Text.Trim().Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void AtualizarStatusCue(string mensagem = null)
         {
             if (lblStatusCue == null || lblStatusCue.IsDisposed)
@@ -2929,11 +2952,12 @@ namespace XP3.Forms
                 return;
             }
 
-            string contador = $"Aprovadas hoje: {_contadorAprovadasDia}";
-            bool estaNaAEscolher = lblPlaylistTitle != null &&
-                                   lblPlaylistTitle.Text.Trim().Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase);
+            bool estaNaAEscolher = ListaAtualEhAEscolher();
+            bool mostrarAprovadas = estaNaAEscolher && _contadorAprovadasDia > 0;
+            string contador = mostrarAprovadas ? $"Aprovadas Hoje: {_contadorAprovadasDia}" : string.Empty;
+            string mensagemNormalizada = string.IsNullOrWhiteSpace(mensagem) ? string.Empty : mensagem.Trim();
 
-            if (estaNaAEscolher && _contadorAprovadasDia == 0)
+            if (string.IsNullOrWhiteSpace(mensagemNormalizada) && !mostrarAprovadas)
             {
                 lblStatusCue.Visible = false;
                 lblStatusCue.Text = string.Empty;
@@ -2942,20 +2966,21 @@ namespace XP3.Forms
 
             lblStatusCue.Visible = true;
 
-            if (string.IsNullOrWhiteSpace(mensagem))
+            if (string.IsNullOrWhiteSpace(mensagemNormalizada))
             {
                 lblStatusCue.Text = contador;
                 return;
             }
 
-            if (mensagem.StartsWith("Auto-Cue", StringComparison.OrdinalIgnoreCase) ||
-                mensagem.Equals("Sem cortes", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(contador) &&
+                (mensagemNormalizada.StartsWith("Auto-Cue", StringComparison.OrdinalIgnoreCase) ||
+                 mensagemNormalizada.Equals("Sem cortes", StringComparison.OrdinalIgnoreCase)))
             {
-                lblStatusCue.Text = $"{mensagem} | {contador}";
+                lblStatusCue.Text = $"{mensagemNormalizada} | {contador}";
                 return;
             }
 
-            lblStatusCue.Text = contador;
+            lblStatusCue.Text = !string.IsNullOrWhiteSpace(contador) ? contador : mensagemNormalizada;
         }
 
         private Button CriarBotaoLateral(string texto, Color corFundo)
@@ -3250,6 +3275,7 @@ namespace XP3.Forms
                 && chkToggleProg.Checked
                 && (DateTime.Now - _ultimaAtualizacaoProximaProgramacao).TotalSeconds >= 30)
             {
+                AtualizarStatusCue();
                 AtualizarIndicadorProximaProgramacao();
             }
 
@@ -3756,6 +3782,8 @@ namespace XP3.Forms
                 {
                     lblTrackCount.Text = $"{_allTracks.Count} mÃƒÂºsicas encontradas";
                 }
+
+                AtualizarStatusCue();
 
                 if (_allTracks.Count > 0 && _player != null)
                 {
