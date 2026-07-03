@@ -270,6 +270,9 @@
     <Compile Include="Visualizers\VisualizerSprunki.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Visualizers\VisualizerCannabis.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Visualizers\VisualizerMinecraft.cs">
       <SubType>Form</SubType>
     </Compile>
