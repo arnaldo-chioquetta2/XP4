@@ -145,6 +145,8 @@ namespace XP3.Forms
         private int _ultimaAprovacaoTrackId = -1;
         private DateTime _ultimaAprovacaoEm = DateTime.MinValue;
         private const string VideoDialogFilter = "Videos suportados|*.mp4;*.m4v;*.webm;*.ogv;*.ogg|MP4|*.mp4;*.m4v|WebM|*.webm|Ogg Video|*.ogv;*.ogg|Todos os arquivos|*.*";
+        private string _statusAutoCueAtual = string.Empty;
+        private string _statusVolumeNormalizacao = string.Empty;
 
         public bool Minimizado = false;
 
@@ -206,6 +208,24 @@ namespace XP3.Forms
             btnEqualizacao.Click += BtnEqualizacao_Click;
             pnlControls.Controls.Add(btnEqualizacao);
 
+            var btnNormalizacao = new Button();
+            btnNormalizacao.BackColor = Color.FromArgb(60, 60, 60);
+            btnNormalizacao.FlatStyle = FlatStyle.Flat;
+            btnNormalizacao.ForeColor = Color.White;
+            btnNormalizacao.Location = new Point(btnEqualizacao.Right + 10, 15);
+            btnNormalizacao.Name = "btnNormalizacao";
+            btnNormalizacao.Size = new Size(60, 30);
+            btnNormalizacao.TabIndex = 9;
+            btnNormalizacao.Text = "NORM";
+            btnNormalizacao.UseVisualStyleBackColor = false;
+            btnNormalizacao.Click += BtnNormalizacao_Click;
+            pnlControls.Controls.Add(btnNormalizacao);
+            btnNormalizacao.BringToFront();
+
+            AjustarLayoutControlesInferiores();
+            System.Diagnostics.Debug.WriteLine(
+                $"[NORM UI] criado parent={btnNormalizacao.Parent?.Name} left={btnNormalizacao.Left} top={btnNormalizacao.Top} visible={btnNormalizacao.Visible} enabled={btnNormalizacao.Enabled}");
+
             // --- CONFIGURAÇÃO DINÂMICA DA INTERFACE ---
 
             // 1. Barra de Progresso (Custom Control)
@@ -257,6 +277,8 @@ namespace XP3.Forms
             SetupServices();
             EqualizacaoGeralStore.Carregar(_iniService);
             AtualizarVisualBotaoEqualizacao();
+            CarregarEstadoNormalizacao();
+            AtualizarVisualBotaoNormalizacao();
 
             this.FormClosing += (s, e) =>
             {
@@ -1014,9 +1036,15 @@ namespace XP3.Forms
                 // Usamos BeginInvoke porque a anÃƒÂ¡lise de fim vem de uma Task em background
                 if (lblStatusCue != null && !lblStatusCue.IsDisposed)
                 {
-                    ExecutarNoControleQuandoPronto(lblStatusCue, () => AtualizarStatusCue(msg));
+                    ExecutarNoControleQuandoPronto(lblStatusCue, () =>
+                    {
+                        _statusAutoCueAtual = string.IsNullOrWhiteSpace(msg) ? string.Empty : msg.Trim();
+                        AtualizarStatusCue();
+                    });
                 }
             };
+
+            _player.StatusVolumeChanged += Player_StatusVolumeChanged;
 
             _player.TrackChanged += (s, track) => TratarMudancaDeFaixa(track);
             _player.TrackFinishedNaturally += (s, track) =>
@@ -1025,6 +1053,10 @@ namespace XP3.Forms
                 {
                     _trackFinalizadaNaturalmenteId = track.Id;
                 }
+            };
+            _player.TrackMaxVolMeasured += (trackId, maxVol) =>
+            {
+                AtualizarMaxVolDaGrid(trackId, maxVol);
             };
 
             if (spectrum != null)
@@ -2947,7 +2979,7 @@ namespace XP3.Forms
                    lblPlaylistTitle.Text.Trim().Equals("AESCOLHER", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void AtualizarStatusCue(string mensagem = null)
+        private void AtualizarStatusCue()
         {
             if (lblStatusCue == null || lblStatusCue.IsDisposed)
             {
@@ -2957,32 +2989,68 @@ namespace XP3.Forms
             bool estaNaAEscolher = ListaAtualEhAEscolher();
             bool mostrarAprovadas = estaNaAEscolher && _contadorAprovadasDia > 0;
             string contador = mostrarAprovadas ? $"Aprovadas Hoje: {_contadorAprovadasDia}" : string.Empty;
-            string mensagemNormalizada = string.IsNullOrWhiteSpace(mensagem) ? string.Empty : mensagem.Trim();
+            var partes = new List<string>();
 
-            if (string.IsNullOrWhiteSpace(mensagemNormalizada) && !mostrarAprovadas)
+            if (!string.IsNullOrWhiteSpace(_statusAutoCueAtual))
             {
-                lblStatusCue.Visible = false;
+                partes.Add(_statusAutoCueAtual);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_statusVolumeNormalizacao))
+            {
+                partes.Add(_statusVolumeNormalizacao);
+            }
+
+            if (!string.IsNullOrWhiteSpace(contador))
+            {
+                partes.Add(contador);
+            }
+
+            if (partes.Count == 0)
+            {
                 lblStatusCue.Text = string.Empty;
+                lblStatusCue.Visible = false;
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL UI] lblStatusCue.Text='' Visible={lblStatusCue.Visible}");
                 return;
             }
 
+            lblStatusCue.Text = string.Join(" | ", partes);
             lblStatusCue.Visible = true;
+            lblStatusCue.BringToFront();
+            System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL UI] lblStatusCue.Text='{lblStatusCue.Text}' Visible={lblStatusCue.Visible}");
+        }
 
-            if (string.IsNullOrWhiteSpace(mensagemNormalizada))
+        private void Player_StatusVolumeChanged(string status)
+        {
+            if (IsDisposed || Disposing || lblStatusCue == null || lblStatusCue.IsDisposed)
             {
-                lblStatusCue.Text = contador;
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(contador) &&
-                (mensagemNormalizada.StartsWith("Auto-Cue", StringComparison.OrdinalIgnoreCase) ||
-                 mensagemNormalizada.Equals("Sem cortes", StringComparison.OrdinalIgnoreCase)))
+            if (InvokeRequired)
             {
-                lblStatusCue.Text = $"{mensagemNormalizada} | {contador}";
+                try
+                {
+                    BeginInvoke(new Action(() => Player_StatusVolumeChanged(status)));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL ERRO] UI BeginInvoke StatusVolumeChanged: {ex}");
+                }
+
                 return;
             }
 
-            lblStatusCue.Text = !string.IsNullOrWhiteSpace(contador) ? contador : mensagemNormalizada;
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL UI] Status recebido='{status ?? "null"}'");
+                _statusVolumeNormalizacao = string.IsNullOrWhiteSpace(status) ? string.Empty : status.Trim();
+                AtualizarStatusCue();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL ERRO] UI StatusVolumeChanged: {ex}");
+            }
         }
 
         private Button CriarBotaoLateral(string texto, Color corFundo)
@@ -3534,14 +3602,15 @@ namespace XP3.Forms
             lvTracks.Columns.Add("L", 22, HorizontalAlignment.Center);
             lvTracks.Columns.Add("Ultima vez", 135, HorizontalAlignment.Left);
             lvTracks.Columns.Add("País", 110, HorizontalAlignment.Left);
+            lvTracks.Columns.Add("MaxVol", 70, HorizontalAlignment.Right);
 
             AjustarColunasGrid();
         }
 
         private void AjustarColunasGrid()
         {
-            // Proteção básica para garantir que a grid e as 7 colunas existem
-            if (lvTracks == null || lvTracks.Columns.Count < 8) return;
+            // Proteção básica para garantir que a grid e as 9 colunas existem
+            if (lvTracks == null || lvTracks.Columns.Count < 9) return;
 
             // --- AJUSTE MANUAL DE LARGURA DAS COLUNAS (EM PIXELS) ---
             // Vá alterando os valores numéricos abaixo até chegar no visual ideal.
@@ -3554,6 +3623,7 @@ namespace XP3.Forms
             lvTracks.Columns[5].Width = 25;  // Coluna 5: L
             lvTracks.Columns[6].Width = 135; // Coluna 6: Última Vez
             lvTracks.Columns[7].Width = 110; // Coluna 7: País
+            lvTracks.Columns[8].Width = 70;  // Coluna 8: MaxVol
         }
 
         #endregion
@@ -4002,6 +4072,7 @@ namespace XP3.Forms
             item.SubItems.Add(AlgarismoGrid(track.Pulado));                    // Coluna 5: L
             item.SubItems.Add(FormatarUltimaReproducao(track.LastPlayedAt));   // Coluna 6: Última Vez
             item.SubItems.Add(track.PaisNome ?? string.Empty);                 // Coluna 7: País
+            item.SubItems.Add(FormatarMaxVol(track.MaxVol));                   // Coluna 8: MaxVol
             item.UseItemStyleForSubItems = false;
 
             if (_tracksComPularAlteradoNaSessao.Contains(track.Id))
@@ -4088,6 +4159,22 @@ namespace XP3.Forms
             e.Item = item;
         }
 
+        private void AtualizarMaxVolDaGrid(int trackId, double maxVol)
+        {
+            if (trackId <= 0) return;
+
+            var trackNaMemoria = _allTracks.FirstOrDefault(t => t != null && t.Id == trackId);
+            if (trackNaMemoria != null)
+            {
+                trackNaMemoria.MaxVol = maxVol;
+            }
+
+            if (lvTracks != null && !lvTracks.IsDisposed)
+            {
+                lvTracks.Invalidate();
+            }
+        }
+
         private string AlgarismoGrid(int valor)
         {
             if (valor < 0) return "0";
@@ -4097,6 +4184,11 @@ namespace XP3.Forms
         private string FormatarUltimaReproducao(DateTime? data)
         {
             return data.HasValue ? data.Value.ToString("dd/MM HH:mm") : "";
+        }
+
+        private string FormatarMaxVol(double? valor)
+        {
+            return valor.HasValue ? valor.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
         }
 
         private bool DeveMostrarCinzaPorPular(Track track)
@@ -4566,6 +4658,88 @@ namespace XP3.Forms
             }
         }
 
+        private void AtualizarVisualBotaoNormalizacao()
+        {
+            var btnNormalizacao = pnlControls.Controls["btnNormalizacao"] as Button;
+            if (btnNormalizacao == null) return;
+
+            if (_player != null && _player.NormalizacaoAtiva)
+            {
+                btnNormalizacao.BackColor = Color.DarkBlue;
+                btnNormalizacao.FlatAppearance.BorderColor = Color.LightSkyBlue;
+                btnNormalizacao.FlatAppearance.BorderSize = 2;
+            }
+            else
+            {
+                btnNormalizacao.BackColor = Color.FromArgb(60, 60, 60);
+                btnNormalizacao.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 90);
+                btnNormalizacao.FlatAppearance.BorderSize = 1;
+            }
+        }
+
+        private void CarregarEstadoNormalizacao()
+        {
+            if (_iniService == null || _player == null)
+                return;
+
+            bool ativa = _iniService.Read("Normalizacao", "Ativa", "false")
+                .Equals("true", StringComparison.OrdinalIgnoreCase);
+
+            _player.NormalizacaoAtiva = ativa;
+            _player.RecalcularNormalizacaoAtual();
+        }
+
+        private void SalvarEstadoNormalizacao(bool ativa)
+        {
+            if (_iniService == null)
+                return;
+
+            _iniService.Write("Normalizacao", "Ativa", ativa.ToString());
+        }
+
+        private void BtnNormalizacao_Click(object sender, EventArgs e)
+        {
+            if (_player == null)
+                return;
+
+            _player.NormalizacaoAtiva = !_player.NormalizacaoAtiva;
+            _player.RecalcularNormalizacaoAtual();
+            SalvarEstadoNormalizacao(_player.NormalizacaoAtiva);
+            AtualizarVisualBotaoNormalizacao();
+        }
+
+        private void AjustarLayoutControlesInferiores()
+        {
+            if (pnlControls == null || pnlControls.IsDisposed)
+                return;
+
+            var btnEqualizacao = pnlControls.Controls["btnEqualizacao"] as Button;
+            var btnNormalizacao = pnlControls.Controls["btnNormalizacao"] as Button;
+
+            if (btnEqualizacao == null || btnNormalizacao == null)
+                return;
+
+            btnEqualizacao.Location = new Point(btnNext.Right + 10, btnNext.Top);
+            btnNormalizacao.Location = new Point(btnEqualizacao.Right + 6, btnEqualizacao.Top);
+            btnNormalizacao.Size = new Size(60, btnEqualizacao.Height);
+            btnNormalizacao.Visible = true;
+            btnNormalizacao.Enabled = true;
+            btnNormalizacao.BringToFront();
+
+            int statusLeft = btnNormalizacao.Right + 8;
+            int rightLimit = btnBandas.Left - 8;
+            int statusWidth = Math.Max(40, rightLimit - statusLeft);
+
+            lblStatusCue.Location = new Point(statusLeft, 3);
+            lblStatusCue.MaximumSize = new Size(statusWidth, 0);
+
+            lblStatus.Location = new Point(statusLeft, 24);
+            lblStatus.Size = new Size(statusWidth, lblStatus.Height);
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[NORM UI] layout parent={btnNormalizacao.Parent?.Name} left={btnNormalizacao.Left} top={btnNormalizacao.Top} visible={btnNormalizacao.Visible} enabled={btnNormalizacao.Enabled}");
+        }
+
         private void BtnEqualizacao_Click(object sender, EventArgs e)
         {
             using (var form = new FrmEqualizacaoGeral(
@@ -4700,6 +4874,8 @@ namespace XP3.Forms
 
         private void pnlControls_Resize(object sender, EventArgs e)
         {
+            AjustarLayoutControlesInferiores();
+
             if (this.WindowState == FormWindowState.Normal)
             {
                 this.FazSpectrum = true;

@@ -26,6 +26,7 @@ namespace XP3.Models
         public DateTime? LastPlayedAt { get; set; }
         public int Pular { get; set; }
         public int Pulado { get; set; }
+        public double? MaxVol { get; set; }
 
         public double RandomTieBreaker { get; set; } = 0.0;
     }

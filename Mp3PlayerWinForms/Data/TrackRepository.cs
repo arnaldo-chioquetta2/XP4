@@ -19,6 +19,9 @@ namespace XP3.Data
         private static bool _filePathCompatibilityColumnChecked = false;
         private static bool _prefetsTableChecked = false;
         private static bool _tocadoEmGColumnChecked = false;
+        private static bool _maxVolColumnsChecked = false;
+        private static bool _maxVolLegacyValuesChecked = false;
+        private const double MaxVolInvalidLegacyThreshold = 10d;
 
         public TrackRepository()
         {
@@ -27,6 +30,8 @@ namespace XP3.Data
             EnsureEqualizacaoAtivaColumn();
             EnsureEqualizacaoBandasColumns();
             EnsureFilePathCompatibilityColumn();
+            EnsureMaxVolColumns();
+            EnsureMaxVolLegacyValuesFixed();
             EnsureYoutubeColumn();
             EnsureVideoColumn();
             EnsurePrefetsTable();
@@ -202,7 +207,7 @@ namespace XP3.Data
                         INSERT INTO Musica 
                         (Nome, Lugar, FilePath, Banda, Tempo, Tamanho, BitRate, VezErro, MaxVol, Equalizacao, EqualizacaoAtiva, EqMus0, EqMus1, EqMus2, EqMus3, EqMus4, EqMus5, EqMus6, EqMus7, EqMus8, EqMus9, Album, Unid, Pular, Pulado, NaoAchou, CutIni, CutFim) 
                         VALUES 
-                        (@nome, @lugar, @lugar, @banda, @tempo, 0, 0, 0, 100, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); 
+                        (@nome, @lugar, @lugar, @banda, @tempo, 0, 0, 0, NULL, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); 
                         SELECT last_insert_rowid();";
 
                     cmd.Parameters.AddWithValue("@nome", track.Title);
@@ -317,7 +322,7 @@ namespace XP3.Data
                     DateTime limiteRepeticao = DateTime.Now.AddHours(-24);
 
                     // 2. ATUALIZAMOS O SELECT: IncluÃ­mos m.CutIni e m.CutFim no final
-                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.TocadoEmG";
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.MaxVol, m.TocadoEmG";
                     string sql;
 
                     if (usarOrdenacaoOriginal)
@@ -382,7 +387,12 @@ namespace XP3.Data
                                 t.Vez = Convert.ToInt32(reader["Vez"]);
                                 t.Pular = Convert.ToInt32(reader["Pular"]);
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
+                                t.MaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MaxVol"));
                                 t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
+                                if (total < 3)
+                                {
+                                    Debug.WriteLine($"[DB/MAXVOL] Playlist trackId={t.Id} MaxVol={(t.MaxVol.HasValue ? t.MaxVol.Value.ToString("0.###") : "null")}");
+                                }
 
                                 total++;
                                 if (t.Vez > 0) comVez++;
@@ -422,7 +432,7 @@ namespace XP3.Data
                     DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
                     DateTime limiteRepeticao = DateTime.Now.AddHours(-24);
 
-                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.TocadoEmG";
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.MaxVol, m.TocadoEmG";
                     string filtroTempo = config.ProgramacaoAtiva ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)" : "";
                     string sql = $@"SELECT {colunas} FROM Musica m 
                         LEFT JOIN Banda b ON m.Banda = b.ID 
@@ -465,7 +475,12 @@ namespace XP3.Data
                                 t.Vez = Convert.ToInt32(reader["Vez"]);
                                 t.Pular = Convert.ToInt32(reader["Pular"]);
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
+                                t.MaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MaxVol"));
                                 t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
+                                if (total < 3)
+                                {
+                                    Debug.WriteLine($"[DB/MAXVOL] Banda trackId={t.Id} MaxVol={(t.MaxVol.HasValue ? t.MaxVol.Value.ToString("0.###") : "null")}");
+                                }
 
                                 total++;
                                 if (t.Vez > 0) comVez++;
@@ -621,6 +636,86 @@ namespace XP3.Data
             }
         }
 
+        public void AtualizarMusicaMaxVolSeNulo(int trackId, double maxVol)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("UPDATE Musica SET MaxVol = @maxVol WHERE ID = @trackId AND (MaxVol IS NULL OR MaxVol >= @limiteInvalido)", conn))
+                {
+                    cmd.Parameters.AddWithValue("@maxVol", maxVol);
+                    cmd.Parameters.AddWithValue("@trackId", trackId);
+                    cmd.Parameters.AddWithValue("@limiteInvalido", MaxVolInvalidLegacyThreshold);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public double? ObterMusicaMaxVol(int trackId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("SELECT MaxVol FROM Musica WHERE ID = @trackId", conn))
+                {
+                    cmd.Parameters.AddWithValue("@trackId", trackId);
+                    var result = cmd.ExecuteScalar();
+                    if (result == null || result == DBNull.Value) return null;
+                    if (double.TryParse(result.ToString(), out double maxVol)) return NormalizarMaxVolNullable(maxVol);
+                    return null;
+                }
+            }
+        }
+
+        public void RecalcularListaMinMaxVol(int listaId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                double? minMaxVol = null;
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT MIN(m.MaxVol)
+                    FROM Musica m
+                    INNER JOIN LisMus lm ON lm.Musica = m.ID
+                    WHERE lm.Lista = @listaId
+                      AND m.MaxVol IS NOT NULL
+                      AND m.MaxVol < @limiteInvalido", conn))
+                {
+                    cmd.Parameters.AddWithValue("@listaId", listaId);
+                    cmd.Parameters.AddWithValue("@limiteInvalido", MaxVolInvalidLegacyThreshold);
+                    var result = cmd.ExecuteScalar();
+                    if (result != null && result != DBNull.Value && double.TryParse(result.ToString(), out double parsed))
+                    {
+                        minMaxVol = NormalizarMaxVolNullable(parsed);
+                    }
+                }
+
+                using (var updateCmd = new SQLiteCommand("UPDATE Lista SET MinMaxVol = @valor WHERE ID = @listaId", conn))
+                {
+                    updateCmd.Parameters.AddWithValue("@valor", (object)minMaxVol ?? DBNull.Value);
+                    updateCmd.Parameters.AddWithValue("@listaId", listaId);
+                    updateCmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public double? ObterListaMinMaxVol(int listaId)
+        {
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand("SELECT MinMaxVol FROM Lista WHERE ID = @listaId", conn))
+                {
+                    cmd.Parameters.AddWithValue("@listaId", listaId);
+                    var result = cmd.ExecuteScalar();
+                    if (result == null || result == DBNull.Value) return null;
+                    if (double.TryParse(result.ToString(), out double minMaxVol)) return NormalizarMaxVolNullable(minMaxVol);
+                    return null;
+                }
+            }
+        }
+
         public int GetOrCreatePlaylist(string nomeLista)
         {
             using (var conn = Database.GetConnection())
@@ -635,8 +730,8 @@ namespace XP3.Data
                 }
                 using (var cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO Lista (Nome, AutoDel, SempreRandom, NaoRepetir, MaxVol, ProxLista, Usu, MenosTocadasPrimeiro, DesabProg) 
-                                        VALUES (@nome, 0, 0, 0, 100, 0, 0, 0, 0); SELECT last_insert_rowid();";
+                    cmd.CommandText = @"INSERT INTO Lista (Nome, AutoDel, SempreRandom, NaoRepetir, MinMaxVol, ProxLista, Usu, MenosTocadasPrimeiro, DesabProg) 
+                                        VALUES (@nome, 0, 0, 0, NULL, 0, 0, 0, 0); SELECT last_insert_rowid();";
                     cmd.Parameters.AddWithValue("@nome", nomeLista);
                     return Convert.ToInt32(cmd.ExecuteScalar());
                 }
@@ -648,7 +743,7 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand("SELECT ID, Nome, Lugar, Banda, VideoPath, COALESCE(Equalizacao, 0), COALESCE(EqualizacaoAtiva, 1), COALESCE(EqMus0, 0), COALESCE(EqMus1, 0), COALESCE(EqMus2, 0), COALESCE(EqMus3, 0), COALESCE(EqMus4, 0), COALESCE(EqMus5, 0), COALESCE(EqMus6, 0), COALESCE(EqMus7, 0), COALESCE(EqMus8, 0), COALESCE(EqMus9, 0), COALESCE(Pular, 0), COALESCE(Pulado, 0) FROM Musica WHERE ID = @id", conn))
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome, Lugar, Banda, VideoPath, COALESCE(Equalizacao, 0), COALESCE(EqualizacaoAtiva, 1), COALESCE(EqMus0, 0), COALESCE(EqMus1, 0), COALESCE(EqMus2, 0), COALESCE(EqMus3, 0), COALESCE(EqMus4, 0), COALESCE(EqMus5, 0), COALESCE(EqMus6, 0), COALESCE(EqMus7, 0), COALESCE(EqMus8, 0), COALESCE(EqMus9, 0), COALESCE(Pular, 0), COALESCE(Pulado, 0), MaxVol FROM Musica WHERE ID = @id", conn))
                 {
                     cmd.Parameters.AddWithValue("@id", id);
                     using (var reader = cmd.ExecuteReader())
@@ -666,7 +761,8 @@ namespace XP3.Data
                                 EqualizacaoAtiva = reader.IsDBNull(6) || reader.GetInt32(6) != 0,
                                 EqualizacaoBandas = LerBandasMusica(reader, 7),
                                 Pular = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
-                                Pulado = reader.IsDBNull(18) ? 0 : reader.GetInt32(18)
+                                Pulado = reader.IsDBNull(18) ? 0 : reader.GetInt32(18),
+                                MaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MaxVol"))
                             };
                         }
                     }
@@ -1018,12 +1114,17 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand("SELECT ID, Nome FROM Lista ORDER BY Nome", conn))
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome, MinMaxVol FROM Lista ORDER BY Nome", conn))
                 using (var reader = cmd.ExecuteReader())
                 {
                     while (reader.Read())
                     {
-                        list.Add(new Playlist { Id = reader.GetInt32(0), Name = reader.GetString(1) });
+                        list.Add(new Playlist
+                        {
+                            Id = reader.GetInt32(0),
+                            Name = reader.GetString(1),
+                            MinMaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MinMaxVol"))
+                        });
                     }
                 }
             }
@@ -1538,6 +1639,58 @@ namespace XP3.Data
             _tocadoEmGColumnChecked = true;
         }
 
+        private void EnsureMaxVolColumns()
+        {
+            if (_maxVolColumnsChecked) return;
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                if (!ColumnExists(conn, "Musica", "MaxVol"))
+                {
+                    using (var alterCmd = new SQLiteCommand("ALTER TABLE Musica ADD COLUMN MaxVol REAL NULL", conn))
+                    {
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
+                if (!ColumnExists(conn, "Lista", "MinMaxVol"))
+                {
+                    using (var alterCmd = new SQLiteCommand("ALTER TABLE Lista ADD COLUMN MinMaxVol REAL NULL", conn))
+                    {
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+            }
+
+            _maxVolColumnsChecked = true;
+        }
+
+        private void EnsureMaxVolLegacyValuesFixed()
+        {
+            if (_maxVolLegacyValuesChecked) return;
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+
+                using (var cmd = new SQLiteCommand("UPDATE Musica SET MaxVol = NULL WHERE MaxVol IS NOT NULL AND MaxVol >= @limiteInvalido", conn))
+                {
+                    cmd.Parameters.AddWithValue("@limiteInvalido", MaxVolInvalidLegacyThreshold);
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (var cmd = new SQLiteCommand("UPDATE Lista SET MinMaxVol = NULL WHERE MinMaxVol IS NOT NULL AND MinMaxVol >= @limiteInvalido", conn))
+                {
+                    cmd.Parameters.AddWithValue("@limiteInvalido", MaxVolInvalidLegacyThreshold);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            _maxVolLegacyValuesChecked = true;
+        }
+
         private static int[] LerBandasMusica(SQLiteDataReader reader, int startIndex)
         {
             var bandas = EqualizerPreset.CreateFlatBands();
@@ -1570,6 +1723,31 @@ namespace XP3.Data
             if (valor == null || valor == DBNull.Value) return null;
             if (DateTime.TryParse(valor.ToString(), out DateTime data)) return data;
             return null;
+        }
+
+        private static double? LerDoubleNullable(SQLiteDataReader reader, string columnName)
+        {
+            if (reader == null || string.IsNullOrWhiteSpace(columnName)) return null;
+            object valor = null;
+            try
+            {
+                valor = reader[columnName];
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (valor == null || valor == DBNull.Value) return null;
+            if (double.TryParse(valor.ToString(), out double resultado)) return resultado;
+            return null;
+        }
+
+        private static double? NormalizarMaxVolNullable(double? valor)
+        {
+            if (!valor.HasValue) return null;
+            if (valor.Value >= MaxVolInvalidLegacyThreshold) return null;
+            return valor;
         }
 
         private void EnsurePrefetsTable()

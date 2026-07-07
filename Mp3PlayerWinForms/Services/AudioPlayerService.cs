@@ -16,7 +16,9 @@ namespace XP3.Services
 {
     public class AudioPlayerService : IDisposable
     {
-        private float _volume = AppSettings.InitialVolume;
+        private float _volumeManual = AppSettings.InitialVolume;
+        private float _fatorNormalizacaoAtual = 1.0f;
+        private bool _normalizacaoAtiva;
 
         // Voltamos para WaveOutEvent, que é a API mais compatível
         private WaveOutEvent _waveOut;
@@ -34,6 +36,8 @@ namespace XP3.Services
         public event EventHandler<Track> TrackChanged;
         public event EventHandler<Track> TrackFinishedNaturally;
         public event EventHandler<float[]> FftDataReceived;
+        public event Action<int, double> TrackMaxVolMeasured;
+        public event Action<string> StatusVolumeChanged;
         public event EventHandler<Tuple<Track, string>> PlaybackError;
         private SampleAggregator _aggregator;
 
@@ -57,24 +61,24 @@ namespace XP3.Services
         // NOVO: Propriedade de controle de volume
         public float Volume
         {
-            get => _volume;
+            get => _volumeManual;
             set
             {
-                // Clamp the value between 0.1f (10%) and 1.0f (100%)
-                _volume = Math.Max(0.1f, Math.Min(1.0f, value));
+                _volumeManual = Math.Max(0.1f, Math.Min(1.0f, value));
+                AplicarVolumeEfetivo();
+            }
+        }
 
-                // Apply to the NAudio volume provider if it's active
-                if (_volumeProvider != null)
-                {
-                    if (System.Diagnostics.Debugger.IsAttached)
-                    {
-                        _volumeProvider.Volume = _volume * 0.02f; // Baixinho enquanto programa
-                    }
-                    else
-                    {
-                        _volumeProvider.Volume = _volume;
-                    }
-                }
+        public bool NormalizacaoAtiva
+        {
+            get => _normalizacaoAtiva;
+            set
+            {
+                if (_normalizacaoAtiva == value)
+                    return;
+
+                _normalizacaoAtiva = value;
+                AplicarVolumeEfetivo();
             }
         }
 
@@ -96,6 +100,12 @@ namespace XP3.Services
         private int? _lastKnownScheduledPlaylistId = null;
         private bool _userOverriddenProgrammedPlaylist = false;
         // ----------------------------------------------------
+        private bool _medindoMaxVolAtual;
+        private double _maxVolMedidoAtual;
+        private int? _trackIdMedindoMaxVol;
+        private DateTime _ultimaNotificacaoMaxVol = DateTime.MinValue;
+        private DateTime _ultimaLogPeakRecebido = DateTime.MinValue;
+        private const double MaxVolInvalidLegacyThreshold = 10d;
 
         private bool ListaAtualEhAEscolher()
         {
@@ -111,6 +121,14 @@ namespace XP3.Services
             {
                 return false;
             }
+        }
+
+        private bool MusicaJaTemCueDefinido(Track track)
+        {
+            if (track == null)
+                return false;
+
+            return track.CutIni >= 0 && track.CutFim >= 0;
         }
 
         //public event Action<string> OnStatusCueChanged;
@@ -271,10 +289,13 @@ namespace XP3.Services
         public void Play(int index, bool ignorarBloqueio24Horas = false, bool isUserInitiated = false) // Modificar esta linha
         {
             GravarLog($"[PLAY] Solicitado index={index}; ignorar24h={ignorarBloqueio24Horas}; usuario={isUserInitiated}; playlistCount={_playlist?.Count ?? 0}; currentIndex={_currentIndex}");
+            NotificarStatusVolume(null);
+            System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Play entrou index={index} playlist={CurrentPlaylistId}");
 
             if (_playlist == null || _playlist.Count == 0)
             {
                 GravarLog("[PLAY] Ignorado: playlist vazia ou nula.");
+                System.Diagnostics.Debug.WriteLine("[NORM/MAXVOL] Play abortado: playlist vazia ou nula");
                 return;
             }
 
@@ -287,12 +308,17 @@ namespace XP3.Services
             if (!TryEncontrarFaixaTocavel(index, ignorarBloqueio24Horas, out int indiceTocavel, out Track track, out string motivo))
             {
                 GravarLog(motivo);
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Play abortado: {motivo}");
                 Stop();
                 NotificarPlaybackError(CurrentTrack, motivo);
                 return;
             }
 
+            if (MaxVolEhInvalidoOuLegado(track.MaxVol))
+                track.MaxVol = null;
+
             GravarLog($"[PLAY] Faixa selecionada indexReal={indiceTocavel}; ID={track.Id}; Titulo={track.Title}; Arquivo={track.FilePath}");
+            System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] CurrentTrack id={track.Id} titulo={track.Title} MaxVol={(track.MaxVol.HasValue ? track.MaxVol.Value.ToString("0.###") : "null")}");
 
             if (!isUserInitiated && AplicarRegraPularPulado && track.Pular > 0 && track.Pulado < track.Pular)
             {
@@ -325,7 +351,8 @@ namespace XP3.Services
                 _audioFile = reader;
 
                 // --- 2. LÓGICA DO AUTO-CUE ---
-                if (track.CutIni == -1)
+                bool deveExecutarAutoCue = !MusicaJaTemCueDefinido(track);
+                if (deveExecutarAutoCue)
                 {
                     NotificarStatusCue("Analisando Silêncio...");
                     GravarLog($"[AUTO-CUE] Analisando silêncio para: {track.Title}");
@@ -352,10 +379,7 @@ namespace XP3.Services
                 }
                 else
                 {
-                    string msg = (track.CutIni == 0 && track.CutFim == 0)
-                        ? "Sem cortes"
-                        : $"Auto-Cue Ativo: {track.CutIni}s / {track.CutFim}s";
-                    NotificarStatusCue(msg);
+                    NotificarStatusCue(null);
                 }
 
                 // Aplicação do Corte Inicial
@@ -371,20 +395,17 @@ namespace XP3.Services
 
                 // 3. Aggregator
                 _aggregator = new SampleAggregator(_equalizerProvider, 256);
+                System.Diagnostics.Debug.WriteLine("[NORM/MAXVOL] SampleAggregator criado");
                 _aggregator.FftCalculated += (s, args) => NotificarFft(args.Result);
+                _aggregator.PeakMeasured += Aggregator_PeakMeasured;
+                System.Diagnostics.Debug.WriteLine("[NORM/MAXVOL] PeakMeasured assinado");
+
+                IniciarMedicaoMaxVolAtual(track);
 
                 // 4. Volume e Proteção do Visual Studio
                 _volumeProvider = new VolumeSampleProvider(_aggregator);
 
-                if (System.Diagnostics.Debugger.IsAttached)
-                {
-                    _volumeProvider.Volume = Volume * 0.02f; // Baixinho enquanto programa
-                    GravarLog($"[DEBUG] Volume IDE limitado.");
-                }
-                else
-                {
-                    _volumeProvider.Volume = Volume;
-                }
+                AtualizarFatorNormalizacaoAtual(track);
 
                 // 5. O pulo do gato para drivers genéricos (Retorno para 16-bit)
                 var finalWaveProvider = new SampleToWaveProvider16(_volumeProvider);
@@ -435,6 +456,7 @@ namespace XP3.Services
         {
             try
             {
+                FinalizarMedicaoMaxVolAtual();
                 GravarLog($"[STOP] Solicitado; waveOutState={_waveOut?.PlaybackState.ToString() ?? "null"}; audioFile={_audioFile?.GetType().Name ?? "null"}");
                 if (_waveOut != null)
                 {
@@ -509,6 +531,7 @@ namespace XP3.Services
         {
             try
             {
+                FinalizarMedicaoMaxVolAtual();
                 GravarLog($"[STOPPED] Entrou; handling={_handlingPlaybackStopped}; next={_isNextCallInitiated}; currentIndex={_currentIndex}; exception={e.Exception?.Message ?? "null"}");
 
                 if (_handlingPlaybackStopped)
@@ -850,6 +873,217 @@ namespace XP3.Services
             }
         }
 
+        private void IniciarMedicaoMaxVolAtual(Track track)
+        {
+            if (!MusicaPrecisaMedirMaxVol(track))
+            {
+                _medindoMaxVolAtual = false;
+                _maxVolMedidoAtual = 0d;
+                _trackIdMedindoMaxVol = null;
+                _ultimaNotificacaoMaxVol = DateTime.MinValue;
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] MedicaoLigada=False motivo={(track == null ? "TrackNull" : $"MaxVolJaExiste valor={track.MaxVol.Value:0.###}")}");
+                return;
+            }
+
+            if (MaxVolEhInvalidoOuLegado(track.MaxVol))
+                track.MaxVol = null;
+
+            _medindoMaxVolAtual = true;
+            _maxVolMedidoAtual = 0d;
+            _trackIdMedindoMaxVol = track.Id;
+            _ultimaNotificacaoMaxVol = DateTime.MinValue;
+            System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] MedicaoLigada=True trackId={track.Id} motivo=MaxVolNullOuInvalido");
+        }
+
+        private bool MusicaPrecisaMedirMaxVol(Track track)
+        {
+            return track != null && (!track.MaxVol.HasValue || MaxVolEhInvalidoOuLegado(track.MaxVol));
+        }
+
+        private bool MaxVolEhInvalidoOuLegado(double? maxVol)
+        {
+            return maxVol.HasValue && maxVol.Value >= MaxVolInvalidLegacyThreshold;
+        }
+
+        private void FinalizarMedicaoMaxVolAtual()
+        {
+            if (!_medindoMaxVolAtual || !_trackIdMedindoMaxVol.HasValue)
+                return;
+
+            int trackId = _trackIdMedindoMaxVol.Value;
+            double picoMedido = _maxVolMedidoAtual;
+
+            _medindoMaxVolAtual = false;
+            _maxVolMedidoAtual = 0d;
+            _trackIdMedindoMaxVol = null;
+
+            if (picoMedido <= 0d)
+                return;
+
+            System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] FinalizarMedicao trackId={trackId} max={picoMedido:0.###}");
+            NotificarStatusVolume($"Máximo detectado: {picoMedido.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}");
+
+            var trackEmMemoria = CurrentTrack != null && CurrentTrack.Id == trackId
+                ? CurrentTrack
+                : (_playlist != null ? _playlist.FirstOrDefault(t => t != null && t.Id == trackId) : null);
+
+            if (trackEmMemoria != null && !trackEmMemoria.MaxVol.HasValue)
+            {
+                _trackRepo.AtualizarMusicaMaxVolSeNulo(trackId, picoMedido);
+                trackEmMemoria.MaxVol = picoMedido;
+                TrackMaxVolMeasured?.Invoke(trackId, picoMedido);
+
+                if (CurrentPlaylistId > 0)
+                {
+                    _trackRepo.RecalcularListaMinMaxVol(CurrentPlaylistId);
+                }
+            }
+        }
+
+        private void Aggregator_PeakMeasured(float peak)
+        {
+            try
+            {
+                if ((DateTime.Now - _ultimaLogPeakRecebido).TotalSeconds >= 1)
+                {
+                    _ultimaLogPeakRecebido = DateTime.Now;
+                    System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Peak recebido peak={peak:0.###} medindo={_medindoMaxVolAtual} atual={_maxVolMedidoAtual:0.###}");
+                }
+
+                if (!_medindoMaxVolAtual || !_trackIdMedindoMaxVol.HasValue)
+                    return;
+
+                if (peak <= 0.000001f)
+                    return;
+
+                if (peak <= _maxVolMedidoAtual)
+                    return;
+
+                _maxVolMedidoAtual = peak;
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Maximo atualizado trackId={_trackIdMedindoMaxVol.Value} max={_maxVolMedidoAtual:0.###}");
+
+                DateTime agora = DateTime.Now;
+                if ((agora - _ultimaNotificacaoMaxVol).TotalMilliseconds < 250)
+                    return;
+
+                _ultimaNotificacaoMaxVol = agora;
+                string mensagem = $"Máximo detectado: {_maxVolMedidoAtual.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}";
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Emitindo status='{mensagem}'");
+                NotificarStatusVolume(mensagem);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL ERRO] Aggregator_PeakMeasured: {ex}");
+            }
+        }
+
+        private void AtualizarFatorNormalizacaoAtual(Track track)
+        {
+            _fatorNormalizacaoAtual = 1.0f;
+
+            double? trackMaxVol = track?.MaxVol;
+            if (MaxVolEhInvalidoOuLegado(trackMaxVol))
+                trackMaxVol = null;
+
+            double? listaMinMaxVol = null;
+            string statusNormalizacao = null;
+
+            if (NormalizacaoAtiva && track != null && trackMaxVol.HasValue && trackMaxVol.Value > 0d && CurrentPlaylistId > 0)
+            {
+                try
+                {
+                    listaMinMaxVol = _trackRepo?.ObterListaMinMaxVol(CurrentPlaylistId);
+                    if (MaxVolEhInvalidoOuLegado(listaMinMaxVol))
+                        listaMinMaxVol = null;
+
+                    if (listaMinMaxVol.HasValue && listaMinMaxVol.Value > 0d && trackMaxVol.Value > listaMinMaxVol.Value)
+                    {
+                        _fatorNormalizacaoAtual = (float)(listaMinMaxVol.Value / trackMaxVol.Value);
+                        int reducao = (int)Math.Round((1.0f - _fatorNormalizacaoAtual) * 100.0f);
+                        if (reducao > 0 && _fatorNormalizacaoAtual < 0.999f)
+                        {
+                            statusNormalizacao = $"Ajuste no volume: -{reducao}%";
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    GravarLog($"[NORM] Falha ao obter Lista.MinMaxVol: {ex.Message}");
+                    _fatorNormalizacaoAtual = 1.0f;
+                }
+            }
+
+            float volumeEfetivoCalculado = _volumeManual * (NormalizacaoAtiva ? _fatorNormalizacaoAtual : 1.0f);
+            if (System.Diagnostics.Debugger.IsAttached)
+            {
+                volumeEfetivoCalculado *= 0.02f;
+            }
+
+            if (volumeEfetivoCalculado < 0f)
+                volumeEfetivoCalculado = 0f;
+
+            if (volumeEfetivoCalculado > 1f)
+                volumeEfetivoCalculado = 1f;
+
+            GravarLog(
+                "[NORM] ativa=" + NormalizacaoAtiva +
+                "; trackId=" + (track != null ? track.Id.ToString() : "null") +
+                "; trackMaxVol=" + (trackMaxVol.HasValue ? trackMaxVol.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) : "null") +
+                "; listaMinMaxVol=" + (listaMinMaxVol.HasValue ? listaMinMaxVol.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) : "null") +
+                "; fator=" + _fatorNormalizacaoAtual.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                "; volumeManual=" + _volumeManual.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                "; volumeEfetivo=" + volumeEfetivoCalculado.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+
+            System.Diagnostics.Debug.WriteLine(
+                "[NORM/MAXVOL] Fator calculado ativa=" + NormalizacaoAtiva +
+                " trackId=" + (track != null ? track.Id.ToString() : "null") +
+                " trackMaxVol=" + (trackMaxVol.HasValue ? trackMaxVol.Value.ToString("0.###") : "null") +
+                " listaMinMaxVol=" + (listaMinMaxVol.HasValue ? listaMinMaxVol.Value.ToString("0.###") : "null") +
+                " fator=" + _fatorNormalizacaoAtual.ToString("0.###") +
+                " status=" + (statusNormalizacao ?? "null"));
+
+            if (!string.IsNullOrWhiteSpace(statusNormalizacao) || !_medindoMaxVolAtual)
+            {
+                NotificarStatusVolume(statusNormalizacao);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("[NORM/MAXVOL] Status nulo de normalização ignorado porque medição MaxVol está ativa.");
+            }
+
+            AplicarVolumeEfetivo();
+        }
+
+        public void RecalcularNormalizacaoAtual()
+        {
+            AtualizarFatorNormalizacaoAtual(CurrentTrack);
+        }
+
+        private void AplicarVolumeEfetivo()
+        {
+            if (_volumeProvider == null)
+                return;
+
+            float fator = NormalizacaoAtiva ? _fatorNormalizacaoAtual : 1.0f;
+            float volumeEfetivo = _volumeManual * fator;
+            float volumeEfetivoFinal = volumeEfetivo;
+
+            if (System.Diagnostics.Debugger.IsAttached)
+            {
+                volumeEfetivoFinal *= 0.02f; // Baixinho enquanto programa
+                GravarLog("[DEBUG] Volume IDE limitado.");
+            }
+
+            if (volumeEfetivoFinal < 0f)
+                volumeEfetivoFinal = 0f;
+
+            if (volumeEfetivoFinal > 1f)
+                volumeEfetivoFinal = 1f;
+
+            _volumeProvider.Volume = volumeEfetivoFinal;
+            GravarLog($"[NORM] AplicarVolumeEfetivo fator={fator:0.###}; volumeManual={_volumeManual:0.###}; volumeEfetivo={volumeEfetivoFinal:0.###}");
+        }
+
         private bool ArquivoNaoEncontrado(Exception ex)
         {
             if (ex == null) return false;
@@ -867,6 +1101,20 @@ namespace XP3.Services
         {
             try { OnStatusCueChanged?.Invoke(mensagem); }
             catch (Exception ex) { GravarLog($"Erro em OnStatusCueChanged: {ex.Message}"); }
+        }
+
+        private void NotificarStatusVolume(string mensagem)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] NotificarStatusVolume='{mensagem ?? "null"}'");
+                StatusVolumeChanged?.Invoke(mensagem);
+            }
+            catch (Exception ex)
+            {
+                GravarLog($"Erro em StatusVolumeChanged: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL ERRO] StatusVolumeChanged: {ex}");
+            }
         }
 
         private void NotificarFft(float[] data)

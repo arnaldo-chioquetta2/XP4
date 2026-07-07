@@ -142,7 +142,7 @@ namespace XP3.Data
             {
                 connection.Open();
                 // No VB6 você usava a tabela "Lista". Aqui seguimos o mesmo padrão.
-                string sql = "SELECT ID, Nome FROM Lista ORDER BY Nome";
+                string sql = "SELECT ID, Nome, MinMaxVol FROM Lista ORDER BY Nome";
 
                 using (var command = new SQLiteCommand(sql, connection))
                 using (var reader = command.ExecuteReader())
@@ -152,7 +152,8 @@ namespace XP3.Data
                         listaRetorno.Add(new Playlist
                         {
                             Id = Convert.ToInt32(reader["ID"]),
-                            Name = reader["Nome"].ToString()
+                            Name = reader["Nome"].ToString(),
+                            MinMaxVol = reader["MinMaxVol"] == DBNull.Value ? (double?)null : Convert.ToDouble(reader["MinMaxVol"])
                         });
                     }
                 }

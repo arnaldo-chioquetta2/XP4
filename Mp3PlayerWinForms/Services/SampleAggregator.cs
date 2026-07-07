@@ -13,9 +13,12 @@ namespace Mp3PlayerWinForms.Services
         private int _fftPos;
         private readonly int _fftLength;
         private readonly int _m; // log2(fftLength)
+        private DateTime _lastReadLog = DateTime.MinValue;
+        private DateTime _lastPeakEventLog = DateTime.MinValue;
 
         // Evento que avisa quando o cálculo está pronto
         public event EventHandler<FftEventArgs> FftCalculated;
+        public event Action<float> PeakMeasured;
 
         public SampleAggregator(ISampleProvider source, int fftLength = 1024)
         {
@@ -31,6 +34,7 @@ namespace Mp3PlayerWinForms.Services
         public int Read(float[] buffer, int offset, int count)
         {
             int samplesRead = _source.Read(buffer, offset, count);
+            float peak = 0f;
 
             for (int n = 0; n < samplesRead; n += _source.WaveFormat.Channels)
             {
@@ -38,8 +42,26 @@ namespace Mp3PlayerWinForms.Services
                 float sample = buffer[offset + n];
                 if (_source.WaveFormat.Channels == 2) sample += buffer[offset + n + 1];
                 sample /= _source.WaveFormat.Channels;
+                peak = Math.Max(peak, Math.Abs(sample));
 
                 Add(sample);
+            }
+
+            if ((DateTime.Now - _lastReadLog).TotalSeconds >= 1)
+            {
+                _lastReadLog = DateTime.Now;
+                System.Diagnostics.Debug.WriteLine($"[SAMPLE] Read chamado count={count} samplesRead={samplesRead} peak={peak:0.###}");
+            }
+
+            if (peak > 0f)
+            {
+                if ((DateTime.Now - _lastPeakEventLog).TotalSeconds >= 1)
+                {
+                    _lastPeakEventLog = DateTime.Now;
+                    System.Diagnostics.Debug.WriteLine($"[SAMPLE] PeakMeasured disparando peak={peak:0.###}");
+                }
+
+                PeakMeasured?.Invoke(peak);
             }
 
             return samplesRead;
