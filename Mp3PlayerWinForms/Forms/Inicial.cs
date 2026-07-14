@@ -93,6 +93,7 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerHypnotic),
             typeof(XP3.Visualizers.VisualizerMinecraft),
             typeof(XP3.Visualizers.VisualizerXevious),
+            typeof(XP3.Visualizers.VisualizerDoom),
             typeof(XP3.Visualizers.VisualizerMontanhas),
             typeof(XP3.Visualizers.VisualizerLandscape),
             typeof(XP3.Visualizers.VisualizerCityscape),
