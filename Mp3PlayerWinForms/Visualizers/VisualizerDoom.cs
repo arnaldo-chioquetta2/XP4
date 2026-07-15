@@ -11,8 +11,9 @@ namespace XP3.Visualizers
         private const bool DebugEnemies = false;
         private const bool DebugWeapon = true;
         private const bool DebugPerformance = false;
-        private const bool DebugFireballs = true;
+        private const bool DebugFireballs = false;
         private const bool DebugNavigation = true;
+        private const bool DebugDirector = true;
         private const float AttackSpeed = 0.35f;
         private const float ReleaseSpeed = 0.08f;
         private const int SliceCount = 24;
@@ -69,6 +70,7 @@ namespace XP3.Visualizers
             public float AttackCooldown;
             public float AttackPhase;
             public bool HasPerformedInitialAttack;
+            public bool PopulationSuppressed;
         }
 
         private sealed class EnemyRenderState
@@ -189,6 +191,24 @@ namespace XP3.Visualizers
         private float _pathTurnAngle;
         private int _lastEnteredSectorType = -1;
         private readonly int[] _recentPathDirections = new int[4];
+        private float _musicIntensity;
+        private float _musicIntensityTarget;
+        private float _musicActivity;
+        private float _musicActivityTarget;
+        private float _previousDirectorBass;
+        private float _previousDirectorMid;
+        private float _previousDirectorEnergy;
+        private float _intensityHoldTimer;
+        private int _intensityLevel;
+        private int _desiredActiveEnemies = 1;
+        private int _desiredMaxFireballs;
+        private float _worldSpeedMultiplier = 0.30f;
+        private float _enemySpeedMultiplier = 0.30f;
+        private float _enemyAttackMultiplier;
+        private float _navigationFrequencyMultiplier = 0.45f;
+        private float _directorLightMultiplier = 0.62f;
+        private float _enemyPopulationTimer;
+        private float _navigationDecisionCooldown;
         private float _lastRecycledLaneA = float.NaN;
         private float _lastRecycledLaneB = float.NaN;
         private int _targetEnemyIndex = -1;
@@ -343,6 +363,7 @@ namespace XP3.Visualizers
             float cameraPhase;
             float cameraShake;
             float lightLevel;
+            float directorLightMultiplier;
             float weaponBobPhase;
             float weaponRecoil;
             float weaponFlash;
@@ -364,6 +385,16 @@ namespace XP3.Visualizers
             int fireballSpawnCount;
             int fireballImpactCount;
             int fireballExpiredCount;
+            float musicIntensity;
+            float musicIntensityTarget;
+            float musicActivity;
+            int intensityLevel;
+            int desiredActiveEnemies;
+            int desiredMaxFireballs;
+            float worldSpeedMultiplier;
+            float enemySpeedMultiplier;
+            float enemyAttackMultiplier;
+            float navigationFrequencyMultiplier;
 
             lock (SyncLock)
             {
@@ -375,6 +406,7 @@ namespace XP3.Visualizers
                 cameraPhase = _cameraPhase;
                 cameraShake = _cameraShake;
                 lightLevel = _lightLevel;
+                directorLightMultiplier = _directorLightMultiplier;
                 weaponBobPhase = _weaponBobPhase;
                 weaponRecoil = _weaponRecoil;
                 weaponFlash = _weaponFlash;
@@ -394,6 +426,16 @@ namespace XP3.Visualizers
                 fireballSpawnCount = _fireballSpawnCount;
                 fireballImpactCount = _fireballImpactCount;
                 fireballExpiredCount = _fireballExpiredCount;
+                musicIntensity = _musicIntensity;
+                musicIntensityTarget = _musicIntensityTarget;
+                musicActivity = _musicActivity;
+                intensityLevel = _intensityLevel;
+                desiredActiveEnemies = _desiredActiveEnemies;
+                desiredMaxFireballs = _desiredMaxFireballs;
+                worldSpeedMultiplier = _worldSpeedMultiplier;
+                enemySpeedMultiplier = _enemySpeedMultiplier;
+                enemyAttackMultiplier = _enemyAttackMultiplier;
+                navigationFrequencyMultiplier = _navigationFrequencyMultiplier;
 
                 for (int i = 0; i < EnemyCount; i++)
                 {
@@ -464,7 +506,7 @@ namespace XP3.Visualizers
 
             float impactShakePixels = Clamp(playerHitShake * Math.Min(width / 1920f, height / 1080f) * 12f, 0f, 16f);
             float sceneCameraShake = cameraShake + impactShakePixels;
-            DrawCorridor(g, width, height, travelOffset, cameraPhase, sceneCameraShake, lightLevel, bass, mid, treble, energy);
+            DrawCorridor(g, width, height, travelOffset, cameraPhase, sceneCameraShake, Clamp(lightLevel * directorLightMultiplier, 0.08f, 1.15f), bass, mid, treble, energy);
             DrawEnemies(g, width, height, cameraPhase, sceneCameraShake, lightLevel, bass, mid, treble, energy, copiedActiveEnemies, targetEnemyIndex, targetLockStrength);
             DrawEnemyFireballs(g, width, height, cameraPhase, sceneCameraShake, fireballSpawnCount, fireballImpactCount, fireballExpiredCount);
             DrawDeathParticles(g, width, height);
@@ -475,6 +517,7 @@ namespace XP3.Visualizers
             DrawHud(g, width, height, killCount, hasTarget, targetLockStrength, targetEnemyIndex, energy, weaponTriggered, weaponFlash, weaponRecoil, killPulse, playerDangerPulse);
 
             DrawNavigationDebug(g, width, height);
+            DrawDirectorDebug(g, width, height, musicIntensity, musicIntensityTarget, musicActivity, intensityLevel, copiedActiveEnemies, desiredActiveEnemies, desiredMaxFireballs, worldSpeedMultiplier, enemySpeedMultiplier, enemyAttackMultiplier, navigationFrequencyMultiplier);
 
             if (IsDebugAudioEnabled())
             {
@@ -527,6 +570,8 @@ namespace XP3.Visualizers
 
             _lastSceneTick = currentTick;
 
+            UpdateMusicDirector(deltaTime);
+
             if (_killPulse > 0f)
             {
                 _killPulse -= deltaTime * 3.5f;
@@ -537,6 +582,7 @@ namespace XP3.Visualizers
             }
 
             float speed = 0.20f + (_smoothedEnergy * 0.75f) + (_smoothedBass * 0.25f);
+            speed *= Clamp(_worldSpeedMultiplier, 0.20f, 1.15f);
             _sceneSpeed = speed;
             _travelOffset += speed * deltaTime;
             while (_travelOffset >= 1f)
@@ -572,8 +618,181 @@ namespace XP3.Visualizers
             ApplyHitToTarget();
         }
 
+        private void UpdateMusicDirector(float deltaTime)
+        {
+            float safeDelta = Clamp(deltaTime, 0.001f, 0.10f);
+            _musicIntensityTarget = Clamp01(
+                (_smoothedEnergy * 0.45f) +
+                (_smoothedBass * 0.30f) +
+                (_smoothedMid * 0.17f) +
+                (_smoothedTreble * 0.08f));
+
+            float bassDelta = Math.Abs(_smoothedBass - _previousDirectorBass);
+            float midDelta = Math.Abs(_smoothedMid - _previousDirectorMid);
+            float energyDelta = Math.Abs(_smoothedEnergy - _previousDirectorEnergy);
+            _musicActivityTarget = Clamp01((bassDelta * 2.8f) + (midDelta * 1.8f) + (energyDelta * 2.4f));
+            _previousDirectorBass = _smoothedBass;
+            _previousDirectorMid = _smoothedMid;
+            _previousDirectorEnergy = _smoothedEnergy;
+
+            float intensityRate = _musicIntensityTarget > _musicIntensity ? safeDelta * 1.6f : safeDelta * 0.55f;
+            float activityRate = _musicActivityTarget > _musicActivity ? safeDelta * 2.2f : safeDelta * 0.80f;
+            _musicIntensity += (_musicIntensityTarget - _musicIntensity) * Clamp01(intensityRate);
+            _musicActivity += (_musicActivityTarget - _musicActivity) * Clamp01(activityRate);
+            _musicIntensity = Clamp01(_musicIntensity);
+            _musicActivity = Clamp01(_musicActivity);
+
+            int desiredLevel = _musicIntensity < 0.12f ? 0 :
+                (_musicIntensity < 0.27f ? 1 :
+                (_musicIntensity < 0.48f ? 2 :
+                (_musicIntensity < 0.70f ? 3 : 4)));
+
+            if (desiredLevel != _intensityLevel)
+            {
+                _intensityHoldTimer += safeDelta;
+                float holdTime = desiredLevel > _intensityLevel ? 1.0f : 2.2f;
+                if (_intensityHoldTimer >= holdTime)
+                {
+                    _intensityLevel = desiredLevel;
+                    _intensityHoldTimer = 0f;
+                }
+            }
+            else
+            {
+                _intensityHoldTimer = 0f;
+            }
+
+            float targetWorld;
+            float targetEnemy;
+            float targetAttack;
+            float targetNavigation;
+            float targetLight;
+            if (_intensityLevel == 0)
+            {
+                _desiredActiveEnemies = 1;
+                _desiredMaxFireballs = 0;
+                targetWorld = 0.30f;
+                targetEnemy = 0.30f;
+                targetAttack = 0f;
+                targetNavigation = 0.45f;
+                targetLight = 0.62f;
+            }
+            else if (_intensityLevel == 1)
+            {
+                _desiredActiveEnemies = 2;
+                _desiredMaxFireballs = 1;
+                targetWorld = 0.48f;
+                targetEnemy = 0.45f;
+                targetAttack = 0.35f;
+                targetNavigation = 0.65f;
+                targetLight = 0.74f;
+            }
+            else if (_intensityLevel == 2)
+            {
+                _desiredActiveEnemies = 3;
+                _desiredMaxFireballs = 2;
+                targetWorld = 0.72f;
+                targetEnemy = 0.68f;
+                targetAttack = 0.70f;
+                targetNavigation = 0.85f;
+                targetLight = 0.88f;
+            }
+            else if (_intensityLevel == 3)
+            {
+                _desiredActiveEnemies = 5;
+                _desiredMaxFireballs = 4;
+                targetWorld = 0.92f;
+                targetEnemy = 0.88f;
+                targetAttack = 1f;
+                targetNavigation = 1f;
+                targetLight = 1f;
+            }
+            else
+            {
+                _desiredActiveEnemies = 6;
+                _desiredMaxFireballs = 5;
+                targetWorld = 1.10f;
+                targetEnemy = 1.05f;
+                targetAttack = 1.30f;
+                targetNavigation = 1.15f;
+                targetLight = 1.12f;
+            }
+
+            float transition = Clamp01(safeDelta * 1.2f);
+            _worldSpeedMultiplier += (targetWorld - _worldSpeedMultiplier) * transition;
+            _enemySpeedMultiplier += (targetEnemy - _enemySpeedMultiplier) * transition;
+            _enemyAttackMultiplier += (targetAttack - _enemyAttackMultiplier) * transition;
+            _navigationFrequencyMultiplier += (targetNavigation - _navigationFrequencyMultiplier) * transition;
+            _directorLightMultiplier += (targetLight - _directorLightMultiplier) * transition;
+            _worldSpeedMultiplier = Clamp(_worldSpeedMultiplier, 0.20f, 1.15f);
+            _enemySpeedMultiplier = Clamp(_enemySpeedMultiplier, 0.20f, 1.10f);
+            _enemyAttackMultiplier = Clamp(_enemyAttackMultiplier, 0f, 1.30f);
+            _navigationFrequencyMultiplier = Clamp(_navigationFrequencyMultiplier, 0.35f, 1.15f);
+            _directorLightMultiplier = Clamp(_directorLightMultiplier, 0.55f, 1.15f);
+        }
+
+        private void UpdateEnemyPopulation(float deltaTime)
+        {
+            int activeCount = 0;
+            for (int i = 0; i < EnemyCount; i++)
+            {
+                DoomEnemy enemy = _enemies[i];
+                if (enemy != null && enemy.Active && !enemy.Dying)
+                {
+                    activeCount++;
+                }
+            }
+
+            if (activeCount > _desiredActiveEnemies)
+            {
+                int farthestIndex = -1;
+                float farthestDistance = -1f;
+                for (int i = 0; i < EnemyCount; i++)
+                {
+                    DoomEnemy enemy = _enemies[i];
+                    if (enemy == null || !enemy.Active || enemy.Dying || enemy.PopulationSuppressed)
+                    {
+                        continue;
+                    }
+                    if (enemy.Distance > farthestDistance)
+                    {
+                        farthestDistance = enemy.Distance;
+                        farthestIndex = i;
+                    }
+                }
+                if (farthestIndex >= 0)
+                {
+                    _enemies[farthestIndex].PopulationSuppressed = true;
+                }
+            }
+            else if (activeCount < _desiredActiveEnemies)
+            {
+                _enemyPopulationTimer -= deltaTime;
+                float interval = _intensityLevel == 1 ? 3.5f : (_intensityLevel == 2 ? 2.5f : (_intensityLevel == 3 ? 1.4f : 0.8f));
+                if (_enemyPopulationTimer <= 0f)
+                {
+                    for (int i = 0; i < EnemyCount; i++)
+                    {
+                        DoomEnemy enemy = _enemies[i];
+                        if (enemy == null || enemy.Active)
+                        {
+                            continue;
+                        }
+                        enemy.Distance = GetEnemySpawnDistance(i, _sliceGeneration + (i * 13));
+                        enemy.Lane = PickRecycledEnemyLane(i, _sliceGeneration + (i * 13), enemy.Distance);
+                        ConfigureEnemy(enemy, _sliceGeneration + (i * 13));
+                        enemy.Active = true;
+                        activeCount++;
+                        break;
+                    }
+                    _enemyPopulationTimer = interval;
+                }
+            }
+        }
+
         private void UpdateEnemies(float deltaTime)
         {
+            UpdateEnemyPopulation(deltaTime);
             for (int i = 0; i < EnemyCount; i++)
             {
                 DoomEnemy enemy = _enemies[i];
@@ -640,7 +859,11 @@ namespace XP3.Visualizers
 
                 float variantFactor = enemy.Variant == 1 ? 0.62f : (enemy.Variant == 2 ? 0.48f : 0.52f);
                 float speedFactor = Clamp(variantFactor + (_smoothedEnergy * 0.05f), EnemyBaseSpeedFactor, EnemyMaxSpeedFactor);
-                float enemySpeed = _sceneSpeed * speedFactor;
+                float enemySpeed = _sceneSpeed * speedFactor * _enemySpeedMultiplier;
+                if (enemy.PopulationSuppressed)
+                {
+                    enemySpeed = Math.Max(enemySpeed, 0.06f);
+                }
                 enemy.Distance += enemySpeed * deltaTime;
                 enemy.Phase += deltaTime * (1.6f + (i * 0.15f) + (_smoothedEnergy * 1.1f));
                 if (enemy.Phase > 1000f)
@@ -650,10 +873,11 @@ namespace XP3.Visualizers
 
                 if (enemy.Distance >= EnemyRecycleDistance)
                 {
+                    bool suppress = enemy.PopulationSuppressed;
                     enemy.Distance = GetEnemySpawnDistance(i, _sliceGeneration + (i * 13));
                     enemy.Lane = PickRecycledEnemyLane(i, _sliceGeneration + (i * 13), enemy.Distance);
                     ConfigureEnemy(enemy, _sliceGeneration + (i * 13));
-                    enemy.Active = true;
+                    enemy.Active = !suppress;
                 }
             }
         }
@@ -678,14 +902,19 @@ namespace XP3.Visualizers
                 }
 
                 enemy.AttackCooldown -= deltaTime;
+                if (_enemyAttackMultiplier <= 0.05f)
+                {
+                    continue;
+                }
                 if (enemy.AttackCooldown > 0f || enemy.Distance < 0.18f || enemy.Distance > 0.72f)
                 {
                     continue;
                 }
 
-                if (activeCount >= (DebugFireballs ? 3 : MaxActiveEnemyFireballs))
+                int fireballLimit = Math.Max(0, Math.Min(MaxActiveEnemyFireballs, _desiredMaxFireballs));
+                if (fireballLimit <= 0 || activeCount >= fireballLimit)
                 {
-                    enemy.AttackCooldown = 0.35f;
+                    enemy.AttackCooldown = 0.45f;
                     continue;
                 }
 
@@ -718,17 +947,13 @@ namespace XP3.Visualizers
             }
 
             float wave = (float)Math.Sin((enemy.Phase * 1.7f) + (enemyIndex * 0.83f));
-            float variantSpeed = DebugFireballs
-                ? (enemy.Variant == 1 ? 0.28f : (enemy.Variant == 2 ? 0.25f : 0.22f))
-                : (enemy.Variant == 1 ? 0.50f : (enemy.Variant == 2 ? 0.41f : 0.34f));
+            float variantSpeed = enemy.Variant == 1 ? 0.50f : (enemy.Variant == 2 ? 0.41f : 0.34f);
             fireball.Active = true;
             fireball.OwnerIndex = enemyIndex;
             fireball.Distance = Clamp(enemy.Distance, 0.18f, 0.72f);
             fireball.Lane = enemy.Lane + (wave * 0.025f);
             fireball.VerticalOffset = Clamp(0.50f + (wave * 0.08f), 0.42f, 0.62f);
-            fireball.Speed = DebugFireballs
-                ? Clamp(variantSpeed + (_smoothedEnergy * 0.02f) + (Math.Abs(wave) * 0.01f), 0.22f, 0.35f)
-                : Clamp(variantSpeed + (_smoothedEnergy * 0.04f) + (Math.Abs(wave) * 0.025f), 0.32f, 0.58f);
+            fireball.Speed = Clamp(variantSpeed + (_smoothedEnergy * 0.04f) + (Math.Abs(wave) * 0.025f), 0.32f, 0.58f);
             fireball.Phase = enemy.AttackPhase + (enemyIndex * 0.37f);
             fireball.Life = 4f + (Math.Abs(wave) * 2f);
             fireball.Brightness = Clamp(enemy.Brightness, 0.55f, 1.15f);
@@ -738,14 +963,8 @@ namespace XP3.Visualizers
             float cooldownWave = (float)Math.Abs(Math.Cos((enemy.AttackPhase + enemyIndex) * 0.77f));
             float cooldownMin = enemy.Variant == 1 ? 2.2f : (enemy.Variant == 2 ? 2.8f : 3.4f);
             float cooldownMax = enemy.Variant == 1 ? 3.5f : (enemy.Variant == 2 ? 4.2f : 4.8f);
-            if (!enemy.HasPerformedInitialAttack)
-            {
-                enemy.AttackCooldown = 0.4f + (cooldownWave * 0.8f);
-            }
-            else
-            {
-                enemy.AttackCooldown = cooldownMin + (cooldownWave * (cooldownMax - cooldownMin));
-            }
+            float baseCooldown = cooldownMin + (cooldownWave * (cooldownMax - cooldownMin));
+            enemy.AttackCooldown = Math.Max(0.9f, baseCooldown / Math.Max(0.25f, _enemyAttackMultiplier));
             _fireballSpawnCount++;
             enemy.AttackPhase += 0.71f;
             while (enemy.AttackPhase > 1000f)
@@ -865,7 +1084,7 @@ namespace XP3.Visualizers
             screenX = corridorCenterX + (lane * corridorWidth * 0.38f) + lateralWave;
             screenY = groundY - (projectedEnemyHeight * Clamp(fireball.VerticalOffset, 0.38f, 0.66f));
             projectedSize = height * (0.010f + (depth * 0.075f)) * Clamp(fireball.SizeFactor, 0.80f, 1.18f);
-            projectedSize = Clamp(projectedSize, DebugFireballs ? 10f : 4f, height * 0.12f);
+            projectedSize = Clamp(projectedSize, 4f, height * 0.10f);
             return true;
         }
 
@@ -920,7 +1139,7 @@ namespace XP3.Visualizers
                     outlinePen.Color = Color.FromArgb(ClampByte((int)(130f + (depth * 90f))), 214, 94, 36);
                     outlinePen.Width = Clamp(1f + (depth * 2f), 1f, 3f);
 
-                    for (int trail = 3; trail >= 1; trail--)
+                    for (int trail = 2; trail >= 1; trail--)
                     {
                         float trailSize = size * (0.30f + (trail * 0.12f));
                         float trailY = screenY - (size * trail * 0.62f);
@@ -3054,13 +3273,13 @@ namespace XP3.Visualizers
             enemy.HitDirection = 0f;
             enemy.HitMarker = 0f;
             enemy.DeathEffectSpawned = false;
+            enemy.PopulationSuppressed = false;
             enemy.AttackPhase = ((normalizedSeed * 13) % 100) / 10f;
             float cooldownWave = (float)Math.Abs(Math.Sin(normalizedSeed * 0.67f));
             float cooldownMin = enemy.Variant == 1 ? 2.2f : (enemy.Variant == 2 ? 2.8f : 3.4f);
             float cooldownMax = enemy.Variant == 1 ? 3.5f : (enemy.Variant == 2 ? 4.2f : 4.8f);
             enemy.AttackCooldown = cooldownMin + (cooldownWave * (cooldownMax - cooldownMin));
             enemy.HasPerformedInitialAttack = false;
-            enemy.AttackCooldown = 0.4f + (cooldownWave * 0.8f);
         }
 
         private float GetCorridorCenterOffsetAtDistance(float distance)
@@ -3305,6 +3524,10 @@ namespace XP3.Visualizers
         private void UpdatePathNavigation(float deltaTime)
         {
             float safeDelta = Clamp(deltaTime, 0.001f, 0.10f);
+            if (_navigationDecisionCooldown > 0f)
+            {
+                _navigationDecisionCooldown -= safeDelta;
+            }
             if (_pathTurnProgress > 0f)
             {
                 _pathTurnProgress += safeDelta / 1.10f;
@@ -3316,6 +3539,11 @@ namespace XP3.Visualizers
                     _pendingPathDirection = 0;
                     _pathTurnAngle = 0f;
                 }
+                return;
+            }
+
+            if (_navigationDecisionCooldown > 0f)
+            {
                 return;
             }
 
@@ -3374,6 +3602,7 @@ namespace XP3.Visualizers
             _pendingPathDirection = direction;
             _pathTurnProgress = direction == 0 ? 0f : 0.001f;
             _pathTurnAngle = direction * 0.12f;
+            _navigationDecisionCooldown = 6f / Math.Max(0.35f, _navigationFrequencyMultiplier);
             _lastEnteredSectorType = candidate.SectorType;
             for (int i = _recentPathDirections.Length - 1; i > 0; i--)
             {
@@ -3731,6 +3960,44 @@ namespace XP3.Visualizers
                 {
                     g.DrawString("DANGER", smallFont, dangerBrush, rightPanel.X, rightPanel.Y - smallSize - (3f * scale));
                 }
+            }
+        }
+
+        private void DrawDirectorDebug(
+            Graphics g,
+            int width,
+            int height,
+            float intensity,
+            float intensityTarget,
+            float activity,
+            int level,
+            int activeEnemies,
+            int desiredEnemies,
+            int fireballLimit,
+            float worldMultiplier,
+            float enemyMultiplier,
+            float attackMultiplier,
+            float navigationMultiplier)
+        {
+            if (!DebugDirector || g == null || width <= 1 || height <= 1)
+            {
+                return;
+            }
+
+            using (Font font = new Font("Consolas", 9f, FontStyle.Bold, GraphicsUnit.Pixel))
+            using (SolidBrush brush = new SolidBrush(Color.FromArgb(225, 222, 164, 78)))
+            {
+                string text = "DIRECTOR LEVEL: " + level +
+                    "\r\nINTENSITY: " + intensity.ToString("0.00") +
+                    " TARGET: " + intensityTarget.ToString("0.00") +
+                    "\r\nACTIVITY: " + activity.ToString("0.00") +
+                    "\r\nENEMIES: " + activeEnemies + "/" + desiredEnemies +
+                    "  FIREBALL LIMIT: " + fireballLimit +
+                    "\r\nWORLD MULT: " + worldMultiplier.ToString("0.00") +
+                    "  ENEMY MULT: " + enemyMultiplier.ToString("0.00") +
+                    "\r\nATTACK MULT: " + attackMultiplier.ToString("0.00") +
+                    "  NAV MULT: " + navigationMultiplier.ToString("0.00");
+                g.DrawString(text, font, brush, Math.Max(8f, width * 0.34f), 12f);
             }
         }
 
