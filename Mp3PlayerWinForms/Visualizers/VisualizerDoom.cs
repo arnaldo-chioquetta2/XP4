@@ -200,6 +200,12 @@ namespace XP3.Visualizers
         private float _previousDirectorEnergy;
         private float _intensityHoldTimer;
         private int _intensityLevel;
+        private int _requestedIntensityLevel;
+        private float _directorObservedMinIntensity;
+        private float _directorObservedMaxIntensity;
+        private float _directorObservedMinTarget;
+        private float _directorObservedMaxTarget;
+        private bool _directorObservationsInitialized;
         private int _desiredActiveEnemies = 1;
         private int _desiredMaxFireballs;
         private float _worldSpeedMultiplier = 0.30f;
@@ -371,7 +377,10 @@ namespace XP3.Visualizers
             float beatCooldown;
             float lastBassRise;
             int copiedActiveEnemies = 0;
+            int copiedLivingEnemies = 0;
+            int copiedDyingEnemies = 0;
             int copiedActiveParticles = 0;
+            int copiedActiveFireballs = 0;
             int killCount;
             float killPulse;
             float playerHitFlash;
@@ -389,6 +398,12 @@ namespace XP3.Visualizers
             float musicIntensityTarget;
             float musicActivity;
             int intensityLevel;
+            int requestedIntensityLevel;
+            float directorObservedMinIntensity;
+            float directorObservedMaxIntensity;
+            float directorObservedMinTarget;
+            float directorObservedMaxTarget;
+            float intensityHoldTimer;
             int desiredActiveEnemies;
             int desiredMaxFireballs;
             float worldSpeedMultiplier;
@@ -430,6 +445,12 @@ namespace XP3.Visualizers
                 musicIntensityTarget = _musicIntensityTarget;
                 musicActivity = _musicActivity;
                 intensityLevel = _intensityLevel;
+                requestedIntensityLevel = _requestedIntensityLevel;
+                directorObservedMinIntensity = _directorObservedMinIntensity;
+                directorObservedMaxIntensity = _directorObservedMaxIntensity;
+                directorObservedMinTarget = _directorObservedMinTarget;
+                directorObservedMaxTarget = _directorObservedMaxTarget;
+                intensityHoldTimer = _intensityHoldTimer;
                 desiredActiveEnemies = _desiredActiveEnemies;
                 desiredMaxFireballs = _desiredMaxFireballs;
                 worldSpeedMultiplier = _worldSpeedMultiplier;
@@ -461,6 +482,14 @@ namespace XP3.Visualizers
                     if (renderState.Active)
                     {
                         copiedActiveEnemies++;
+                        if (renderState.Dying)
+                        {
+                            copiedDyingEnemies++;
+                        }
+                        else if (renderState.Health > 0f)
+                        {
+                            copiedLivingEnemies++;
+                        }
                     }
                 }
 
@@ -497,6 +526,10 @@ namespace XP3.Visualizers
                     renderState.Brightness = fireball != null ? fireball.Brightness : 0.75f;
                     renderState.SizeFactor = fireball != null ? fireball.SizeFactor : 1f;
                     renderState.Variant = fireball != null ? fireball.Variant : 0;
+                    if (renderState.Active)
+                    {
+                        copiedActiveFireballs++;
+                    }
                 }
             }
 
@@ -517,7 +550,7 @@ namespace XP3.Visualizers
             DrawHud(g, width, height, killCount, hasTarget, targetLockStrength, targetEnemyIndex, energy, weaponTriggered, weaponFlash, weaponRecoil, killPulse, playerDangerPulse);
 
             DrawNavigationDebug(g, width, height);
-            DrawDirectorDebug(g, width, height, musicIntensity, musicIntensityTarget, musicActivity, intensityLevel, copiedActiveEnemies, desiredActiveEnemies, desiredMaxFireballs, worldSpeedMultiplier, enemySpeedMultiplier, enemyAttackMultiplier, navigationFrequencyMultiplier);
+            DrawDirectorDebug(g, width, height, musicIntensity, musicIntensityTarget, musicActivity, requestedIntensityLevel, intensityLevel, intensityHoldTimer, copiedLivingEnemies, copiedDyingEnemies, copiedActiveFireballs, desiredActiveEnemies, desiredMaxFireballs, worldSpeedMultiplier, enemySpeedMultiplier, enemyAttackMultiplier, navigationFrequencyMultiplier, directorLightMultiplier, directorObservedMinIntensity, directorObservedMaxIntensity, directorObservedMinTarget, directorObservedMaxTarget);
 
             if (IsDebugAudioEnabled())
             {
@@ -642,10 +675,27 @@ namespace XP3.Visualizers
             _musicIntensity = Clamp01(_musicIntensity);
             _musicActivity = Clamp01(_musicActivity);
 
+            if (!_directorObservationsInitialized)
+            {
+                _directorObservedMinIntensity = _musicIntensity;
+                _directorObservedMaxIntensity = _musicIntensity;
+                _directorObservedMinTarget = _musicIntensityTarget;
+                _directorObservedMaxTarget = _musicIntensityTarget;
+                _directorObservationsInitialized = true;
+            }
+            else
+            {
+                _directorObservedMinIntensity = Math.Min(_directorObservedMinIntensity, _musicIntensity);
+                _directorObservedMaxIntensity = Math.Max(_directorObservedMaxIntensity, _musicIntensity);
+                _directorObservedMinTarget = Math.Min(_directorObservedMinTarget, _musicIntensityTarget);
+                _directorObservedMaxTarget = Math.Max(_directorObservedMaxTarget, _musicIntensityTarget);
+            }
+
             int desiredLevel = _musicIntensity < 0.12f ? 0 :
                 (_musicIntensity < 0.27f ? 1 :
                 (_musicIntensity < 0.48f ? 2 :
                 (_musicIntensity < 0.70f ? 3 : 4)));
+            _requestedIntensityLevel = desiredLevel;
 
             if (desiredLevel != _intensityLevel)
             {
@@ -3970,35 +4020,88 @@ namespace XP3.Visualizers
             float intensity,
             float intensityTarget,
             float activity,
+            int requestedLevel,
             int level,
+            float holdTimer,
             int activeEnemies,
+            int dyingEnemies,
+            int activeFireballs,
             int desiredEnemies,
             int fireballLimit,
             float worldMultiplier,
             float enemyMultiplier,
             float attackMultiplier,
-            float navigationMultiplier)
+            float navigationMultiplier,
+            float lightMultiplier,
+            float observedMinIntensity,
+            float observedMaxIntensity,
+            float observedMinTarget,
+            float observedMaxTarget)
         {
             if (!DebugDirector || g == null || width <= 1 || height <= 1)
             {
                 return;
             }
 
+            float panelWidth = Math.Min(360f, Math.Max(285f, width * 0.22f));
+            float panelHeight = Math.Min(310f, Math.Max(220f, height * 0.27f));
+            float panelX = Math.Max(8f, width - panelWidth - 14f);
+            float panelY = Math.Max(height * 0.30f, Math.Min(height - panelHeight - 20f, height * 0.34f));
+            using (SolidBrush panelBrush = new SolidBrush(Color.FromArgb(165, 18, 8, 8)))
+            using (Pen panelPen = new Pen(Color.FromArgb(190, 174, 92, 48), 1.2f))
             using (Font font = new Font("Consolas", 9f, FontStyle.Bold, GraphicsUnit.Pixel))
             using (SolidBrush brush = new SolidBrush(Color.FromArgb(225, 222, 164, 78)))
             {
+                RectangleF panel = new RectangleF(panelX, panelY, panelWidth, panelHeight);
+                g.FillRectangle(panelBrush, panel);
+                g.DrawRectangle(panelPen, panel.X, panel.Y, panel.Width, panel.Height);
+
                 string text = "DIRECTOR LEVEL: " + level +
+                    "\r\nLEVEL NAME: " + GetDirectorLevelName(level) +
+                    "\r\nREQUESTED: " + requestedLevel + "  CURRENT: " + level +
+                    "  HOLD TIMER: " + holdTimer.ToString("0.00") +
                     "\r\nINTENSITY: " + intensity.ToString("0.00") +
-                    " TARGET: " + intensityTarget.ToString("0.00") +
+                    "\r\nINTENSITY TARGET: " + intensityTarget.ToString("0.00") +
                     "\r\nACTIVITY: " + activity.ToString("0.00") +
-                    "\r\nENEMIES: " + activeEnemies + "/" + desiredEnemies +
-                    "  FIREBALL LIMIT: " + fireballLimit +
+                    "\r\nACTIVE ENEMIES: " + activeEnemies + "/" + desiredEnemies +
+                    "  DYING: " + dyingEnemies +
+                    "\r\nACTIVE FIREBALLS: " + activeFireballs + "/" + fireballLimit +
                     "\r\nWORLD MULT: " + worldMultiplier.ToString("0.00") +
-                    "  ENEMY MULT: " + enemyMultiplier.ToString("0.00") +
+                    "\r\nENEMY MULT: " + enemyMultiplier.ToString("0.00") +
                     "\r\nATTACK MULT: " + attackMultiplier.ToString("0.00") +
-                    "  NAV MULT: " + navigationMultiplier.ToString("0.00");
-                g.DrawString(text, font, brush, Math.Max(8f, width * 0.34f), 12f);
+                    "\r\nNAV MULT: " + navigationMultiplier.ToString("0.00") +
+                    "\r\nLIGHT MULT: " + lightMultiplier.ToString("0.00") +
+                    "\r\nOBS INT MIN: " + observedMinIntensity.ToString("0.00") +
+                    "  MAX: " + observedMaxIntensity.ToString("0.00") +
+                    "\r\nOBS TARGET MIN: " + observedMinTarget.ToString("0.00") +
+                    "  MAX: " + observedMaxTarget.ToString("0.00");
+                g.DrawString(text, font, brush, panel.X + 8f, panel.Y + 8f);
             }
+        }
+
+        private static string GetDirectorLevelName(int level)
+        {
+            if (level == 0)
+            {
+                return "CALM";
+            }
+            if (level == 1)
+            {
+                return "LOW";
+            }
+            if (level == 2)
+            {
+                return "MED";
+            }
+            if (level == 3)
+            {
+                return "HIGH";
+            }
+            if (level == 4)
+            {
+                return "MAX";
+            }
+            return "UNKNOWN";
         }
 
         private void DrawNavigationDebug(Graphics g, int width, int height)

@@ -56,6 +56,7 @@ namespace XP3.Services
         public TimeSpan CurrentTime => _audioFile?.CurrentTime ?? TimeSpan.Zero;
         public TimeSpan TotalTime => _audioFile?.TotalTime ?? TimeSpan.Zero;
         public bool IsPlaying => _waveOut?.PlaybackState == PlaybackState.Playing;
+        public bool IsPaused => _waveOut?.PlaybackState == PlaybackState.Paused;
         public Track CurrentTrack => (_playlist != null && _currentIndex >= 0 && _currentIndex < _playlist.Count) ? _playlist[_currentIndex] : null;
 
         // NOVO: Propriedade de controle de volume

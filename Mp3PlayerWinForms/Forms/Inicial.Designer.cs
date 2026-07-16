@@ -114,7 +114,6 @@ namespace XP3.Forms
             this.pnlControls.Controls.Add(this.btnScan);
             this.pnlControls.Controls.Add(this.lblStatus);
             this.pnlControls.Controls.Add(this.btnNext);
-            this.pnlControls.Controls.Add(this.btnPause);
             this.pnlControls.Controls.Add(this.btnPlay);
             this.pnlControls.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.pnlControls.Location = new System.Drawing.Point(0, 390);
@@ -174,7 +173,7 @@ namespace XP3.Forms
             this.btnNext.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
             this.btnNext.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnNext.ForeColor = System.Drawing.Color.White;
-            this.btnNext.Location = new System.Drawing.Point(174, 15);
+            this.btnNext.Location = new System.Drawing.Point(93, 15);
             this.btnNext.Name = "btnNext";
             this.btnNext.Size = new System.Drawing.Size(75, 30);
             this.btnNext.TabIndex = 2;
@@ -193,6 +192,7 @@ namespace XP3.Forms
             this.btnPause.TabIndex = 1;
             this.btnPause.Text = "Pause";
             this.btnPause.UseVisualStyleBackColor = false;
+            this.btnPause.Visible = false;
             // 
             // btnPlay
             // 

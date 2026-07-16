@@ -30,6 +30,7 @@ namespace XP3.Forms
         private KeyMonitorService _keyMonitorService; // NOVO: Serviço para monitorar teclas de volume
         private VolumeControlService _volumeControlService; // NOVO: Serviço para controle de volume
 
+        private ToolTip _toolTipConfiguracao;
         private ContextMenuStrip _menuPlaylistLateral;
         private ContextMenuStrip _menuBandasLateral;
 
@@ -196,11 +197,26 @@ namespace XP3.Forms
             };
 
             // --- CRIAÇÃO DO BOTÃO DE EQUALIZAÇÃO ---
+            var btnConfiguracao = new Button();
+            btnConfiguracao.BackColor = Color.FromArgb(60, 60, 60);
+            btnConfiguracao.FlatStyle = FlatStyle.Flat;
+            btnConfiguracao.ForeColor = Color.White;
+            btnConfiguracao.Location = new Point(btnNext.Right + 10, 15);
+            btnConfiguracao.Name = "btnConfiguracao";
+            btnConfiguracao.Size = new Size(50, 30);
+            btnConfiguracao.TabIndex = 8;
+            btnConfiguracao.Text = "⚙";
+            btnConfiguracao.UseVisualStyleBackColor = false;
+            btnConfiguracao.Click += BtnConfiguracao_Click;
+            pnlControls.Controls.Add(btnConfiguracao);
+            _toolTipConfiguracao = new ToolTip();
+            _toolTipConfiguracao.SetToolTip(btnConfiguracao, "Configurações");
+
             var btnEqualizacao = new Button();
             btnEqualizacao.BackColor = Color.FromArgb(60, 60, 60);
             btnEqualizacao.FlatStyle = FlatStyle.Flat;
             btnEqualizacao.ForeColor = Color.White;
-            btnEqualizacao.Location = new Point(btnNext.Right + 10, 15);
+            btnEqualizacao.Location = new Point(btnConfiguracao.Right + 10, 15);
             btnEqualizacao.Name = "btnEqualizacao";
             btnEqualizacao.Size = new Size(50, 30);
             btnEqualizacao.TabIndex = 8;
@@ -877,8 +893,8 @@ namespace XP3.Forms
             this.Resize += (s, e) => AtualizarTamanhoDasFontes();
 
             // BotÃƒÂµes de controle
-            btnPlay.Click += (s, e) => _player.TogglePlayPause();
-            btnPause.Click += (s, e) => _player.TogglePlayPause();
+            btnPlay.Click += BtnPlay_Click;
+            btnPause.Visible = false;
             // btnNext.Click += (s, e) => _player.Next();
 
             // Duplo clique na lista para tocar
@@ -909,6 +925,8 @@ namespace XP3.Forms
                     }
                 }
             };
+
+            AtualizarTextoBotaoPlay();
 
             // Drag and Drop
             lvTracks.DragEnter += (s, e) =>
@@ -1022,9 +1040,43 @@ namespace XP3.Forms
             this.FazSpectrum = true;
         }
 
+        private void BtnPlay_Click(object sender, EventArgs e)
+        {
+            if (_player == null)
+            {
+                return;
+            }
+
+            if (_player.IsPlaying)
+            {
+                _player.TogglePlayPause();
+            }
+            else if (_player.IsPaused)
+            {
+                _player.TogglePlayPause();
+            }
+            else
+            {
+                _player.TogglePlayPause();
+            }
+
+            AtualizarTextoBotaoPlay();
+        }
+
+        private void AtualizarTextoBotaoPlay()
+        {
+            if (btnPlay == null)
+            {
+                return;
+            }
+
+            btnPlay.Text = _player != null && _player.IsPlaying ? "Pausa" : "Play";
+        }
+
         private void SetupServices()
         {
             _player = new AudioPlayerService();
+            AtualizarTextoBotaoPlay();
             _trackRepo = new TrackRepository();
             _iniService = new IniFileService();
 
@@ -1050,6 +1102,7 @@ namespace XP3.Forms
             _player.TrackChanged += (s, track) => TratarMudancaDeFaixa(track);
             _player.TrackFinishedNaturally += (s, track) =>
             {
+                ExecutarNoUiThread(AtualizarTextoBotaoPlay);
                 if (track != null)
                 {
                     _trackFinalizadaNaturalmenteId = track.Id;
@@ -1679,6 +1732,7 @@ namespace XP3.Forms
 
             ExecutarNoUiThread(() =>
             {
+                AtualizarTextoBotaoPlay();
                 _mostrarTempoRestante = false;
                 _ultimaTrocaRelogio = DateTime.MinValue; // Reseta a trava para a nova música
 
@@ -1787,6 +1841,7 @@ namespace XP3.Forms
         {
             ExecutarNoUiThread(() =>
             {
+                AtualizarTextoBotaoPlay();
                 lblStatus.ForeColor = Color.Salmon;
                 lblStatus.Text = mensagem;
                 _trackComErroAtual = track;
@@ -3342,6 +3397,7 @@ namespace XP3.Forms
 
         private void TimerProgresso_Tick(object sender, EventArgs e)
         {
+            AtualizarTextoBotaoPlay();
             if (chkToggleProg != null
                 && chkToggleProg.Checked
                 && (DateTime.Now - _ultimaAtualizacaoProximaProgramacao).TotalSeconds >= 30)
@@ -4716,11 +4772,18 @@ namespace XP3.Forms
 
             var btnEqualizacao = pnlControls.Controls["btnEqualizacao"] as Button;
             var btnNormalizacao = pnlControls.Controls["btnNormalizacao"] as Button;
+            var btnConfiguracao = pnlControls.Controls["btnConfiguracao"] as Button;
 
-            if (btnEqualizacao == null || btnNormalizacao == null)
+            if (btnConfiguracao == null || btnEqualizacao == null || btnNormalizacao == null)
                 return;
 
-            btnEqualizacao.Location = new Point(btnNext.Right + 10, btnNext.Top);
+            btnConfiguracao.Location = new Point(btnNext.Right + 10, btnNext.Top);
+            btnConfiguracao.Size = new Size(50, btnNext.Height);
+            btnConfiguracao.Visible = true;
+            btnConfiguracao.Enabled = true;
+            btnConfiguracao.BringToFront();
+
+            btnEqualizacao.Location = new Point(btnConfiguracao.Right + 6, btnNext.Top);
             btnNormalizacao.Location = new Point(btnEqualizacao.Right + 6, btnEqualizacao.Top);
             btnNormalizacao.Size = new Size(60, btnEqualizacao.Height);
             btnNormalizacao.Visible = true;
@@ -4739,6 +4802,11 @@ namespace XP3.Forms
 
             System.Diagnostics.Debug.WriteLine(
                 $"[NORM UI] layout parent={btnNormalizacao.Parent?.Name} left={btnNormalizacao.Left} top={btnNormalizacao.Top} visible={btnNormalizacao.Visible} enabled={btnNormalizacao.Enabled}");
+        }
+
+        private void BtnConfiguracao_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("Configurações ainda não implementadas.", "Configurações");
         }
 
         private void BtnEqualizacao_Click(object sender, EventArgs e)
