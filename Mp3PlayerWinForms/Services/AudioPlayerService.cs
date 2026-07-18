@@ -329,7 +329,13 @@ namespace XP3.Services
             GravarLog($"[PLAY] Faixa selecionada indexReal={indiceTocavel}; ID={track.Id}; Titulo={track.Title}; Arquivo={track.FilePath}");
             System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] CurrentTrack id={track.Id} titulo={track.Title} MaxVol={(track.MaxVol.HasValue ? track.MaxVol.Value.ToString("0.###") : "null")}");
 
-            if (!isUserInitiated && AplicarRegraPularPulado && track.Pular > 0 && track.Pulado < track.Pular)
+            bool bloqueiaPorPular = !isUserInitiated
+                && AplicarRegraPularPulado
+                && track.Pular > 0
+                && track.Pulado < track.Pular;
+            GravarLog($"[PULAR] Play origem={(isUserInitiated ? "manual" : "automatico")}; id={track.Id}; pular={track.Pular}; pulado={track.Pulado}; bloqueia={bloqueiaPorPular}");
+
+            if (bloqueiaPorPular)
             {
                 int puladoAntes = track.Pulado;
                 int novoPulado = _trackRepo.IncrementarPulado(track.Id);

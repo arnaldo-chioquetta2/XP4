@@ -906,7 +906,7 @@ namespace XP3.Forms
                     int index = lvTracks.SelectedIndices[0];
                     try
                     {
-                        _player.Play(index, true);
+                        _player.Play(index, true, true);
                     }
                     catch (Exception)
                     {
@@ -1058,7 +1058,14 @@ namespace XP3.Forms
             }
             else
             {
-                _player.TogglePlayPause();
+                if (lvTracks.SelectedIndices.Count > 0)
+                {
+                    _player.Play(lvTracks.SelectedIndices[0], false, true);
+                }
+                else
+                {
+                    _player.TogglePlayPause();
+                }
             }
 
             AtualizarTextoBotaoPlay();
