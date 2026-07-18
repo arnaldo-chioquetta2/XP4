@@ -35,6 +35,7 @@ namespace XP3.Services
 
         public event EventHandler<Track> TrackChanged;
         public event EventHandler<Track> TrackFinishedNaturally;
+        public event Action<int, int> TrackVezAtualizada;
         public event EventHandler<float[]> FftDataReceived;
         public event Action<int, double> TrackMaxVolMeasured;
         public event Action<string> StatusVolumeChanged;
@@ -86,7 +87,7 @@ namespace XP3.Services
         private void _mediaPlayer_MediaEnded(object sender, EventArgs e)
         {
             _fimNaturalDetectado = true;
-            GravarLog("[NORM/MAXVOL] MediaEnded detectado; marcando fim natural.");
+            //GravarLog("[NORM/MAXVOL] MediaEnded detectado; marcando fim natural.");
             Next();
         }
         public void SetPlaylist(List<Track> tracks) => _playlist = tracks ?? new List<Track>();
@@ -585,7 +586,8 @@ namespace XP3.Services
                     if (finishedNaturally || _isNextCallInitiated)
                     {
                         DateTime playedAt = DateTime.Now;
-                        _trackRepo.AtualizarUltimaReproducao(faixaFinalizada.Id, playedAt);
+                        int novaVez = _trackRepo.TocouRetornandoVez(faixaFinalizada.Id);
+                        NotificarTrackVezAtualizada(faixaFinalizada.Id, novaVez);
                         faixaFinalizada.LastPlayedAt = playedAt;
                         NotificarTrackFinishedNaturally(faixaFinalizada);
                     }
@@ -890,6 +892,7 @@ namespace XP3.Services
             foreach (var item in _playlist.Where(t => t != null && t.Id == trackId))
             {
                 item.Pulado = novoPulado;
+                System.Diagnostics.Debug.WriteLine($"[PERSIST] AtualizouMemoriaPulado trackId={trackId} valor={novoPulado}");
             }
         }
 
@@ -1202,6 +1205,18 @@ namespace XP3.Services
         {
             try { TrackChanged?.Invoke(this, track); }
             catch (Exception ex) { GravarLog($"Erro em TrackChanged: {ex.Message}"); }
+        }
+
+        private void NotificarTrackVezAtualizada(int trackId, int novaVez)
+        {
+            try
+            {
+                TrackVezAtualizada?.Invoke(trackId, novaVez);
+            }
+            catch (Exception ex)
+            {
+                GravarLog($"Erro em TrackVezAtualizada: {ex.Message}");
+            }
         }
 
         private void NotificarTrackFinishedNaturally(Track track)

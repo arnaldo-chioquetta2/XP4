@@ -50,7 +50,7 @@ namespace Mp3PlayerWinForms.Services
             if ((DateTime.Now - _lastReadLog).TotalSeconds >= 1)
             {
                 _lastReadLog = DateTime.Now;
-                System.Diagnostics.Debug.WriteLine($"[SAMPLE] Read chamado count={count} samplesRead={samplesRead} peak={peak:0.###}");
+                //System.Diagnostics.Debug.WriteLine($"[SAMPLE] Read chamado count={count} samplesRead={samplesRead} peak={peak:0.###}");
             }
 
             if (peak > 0f)
@@ -58,7 +58,7 @@ namespace Mp3PlayerWinForms.Services
                 if ((DateTime.Now - _lastPeakEventLog).TotalSeconds >= 1)
                 {
                     _lastPeakEventLog = DateTime.Now;
-                    System.Diagnostics.Debug.WriteLine($"[SAMPLE] PeakMeasured disparando peak={peak:0.###}");
+                    //System.Diagnostics.Debug.WriteLine($"[SAMPLE] PeakMeasured disparando peak={peak:0.###}");
                 }
 
                 PeakMeasured?.Invoke(peak);

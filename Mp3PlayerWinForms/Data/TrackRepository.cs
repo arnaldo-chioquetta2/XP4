@@ -743,7 +743,7 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand("SELECT ID, Nome, Lugar, Banda, VideoPath, COALESCE(Equalizacao, 0), COALESCE(EqualizacaoAtiva, 1), COALESCE(EqMus0, 0), COALESCE(EqMus1, 0), COALESCE(EqMus2, 0), COALESCE(EqMus3, 0), COALESCE(EqMus4, 0), COALESCE(EqMus5, 0), COALESCE(EqMus6, 0), COALESCE(EqMus7, 0), COALESCE(EqMus8, 0), COALESCE(EqMus9, 0), COALESCE(Pular, 0), COALESCE(Pulado, 0), MaxVol FROM Musica WHERE ID = @id", conn))
+                using (var cmd = new SQLiteCommand("SELECT ID, Nome, Lugar, Banda, VideoPath, COALESCE(Equalizacao, 0), COALESCE(EqualizacaoAtiva, 1), COALESCE(EqMus0, 0), COALESCE(EqMus1, 0), COALESCE(EqMus2, 0), COALESCE(EqMus3, 0), COALESCE(EqMus4, 0), COALESCE(EqMus5, 0), COALESCE(EqMus6, 0), COALESCE(EqMus7, 0), COALESCE(EqMus8, 0), COALESCE(EqMus9, 0), COALESCE(Vez, 0) as Vez, COALESCE(Pular, 0), COALESCE(Pulado, 0), MaxVol FROM Musica WHERE ID = @id", conn))
                 {
                     cmd.Parameters.AddWithValue("@id", id);
                     using (var reader = cmd.ExecuteReader())
@@ -760,8 +760,9 @@ namespace XP3.Data
                                 EqualizacaoPresetId = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
                                 EqualizacaoAtiva = reader.IsDBNull(6) || reader.GetInt32(6) != 0,
                                 EqualizacaoBandas = LerBandasMusica(reader, 7),
-                                Pular = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
-                                Pulado = reader.IsDBNull(18) ? 0 : reader.GetInt32(18),
+                                Vez = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
+                                Pular = reader.IsDBNull(18) ? 0 : reader.GetInt32(18),
+                                Pulado = reader.IsDBNull(19) ? 0 : reader.GetInt32(19),
                                 MaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MaxVol"))
                             };
                         }
@@ -969,19 +970,46 @@ namespace XP3.Data
             AtualizarUltimaReproducao(id, DateTime.Now);
         }
 
+        public int TocouRetornandoVez(int trackId)
+        {
+            return AtualizarUltimaReproducaoRetornandoVez(trackId, DateTime.Now);
+        }
+
         public void AtualizarUltimaReproducao(int trackId, DateTime playedAt)
+        {
+            AtualizarUltimaReproducaoRetornandoVez(trackId, playedAt);
+        }
+
+        private int AtualizarUltimaReproducaoRetornandoVez(int trackId, DateTime playedAt)
         {
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
+                int vezAntes = 0;
+                using (var antes = new SQLiteCommand("SELECT COALESCE(Vez, 0) FROM Musica WHERE ID = @ID", connection))
+                {
+                    antes.Parameters.AddWithValue("@ID", trackId);
+                    object valor = antes.ExecuteScalar();
+                    if (valor != null && valor != DBNull.Value) vezAntes = Convert.ToInt32(valor);
+                }
+
                 string sql = "Update Musica Set vez = COALESCE(vez, 0) + 1, TocadoEmG = @TocadoEmG where ID = @ID";
                 using (var command = new SQLiteCommand(sql, connection))
                 {
                     command.Parameters.AddWithValue("@ID", trackId);
                     command.Parameters.AddWithValue("@TocadoEmG", playedAt.ToString("yyyy-MM-dd HH:mm:ss"));
-                    command.ExecuteNonQuery();
+                    int linhas = command.ExecuteNonQuery();
+                    using (var depois = new SQLiteCommand("SELECT COALESCE(Vez, 0) FROM Musica WHERE ID = @ID", connection))
+                    {
+                        depois.Parameters.AddWithValue("@ID", trackId);
+                        object valor = depois.ExecuteScalar();
+                        int vezDepois = valor == null || valor == DBNull.Value ? 0 : Convert.ToInt32(valor);
+                        Debug.WriteLine($"[PERSIST] IncrementarVez trackId={trackId} antes={vezAntes} depoisBanco={vezDepois} linhas={linhas}");
+                        return vezDepois;
+                    }
                 }
             }
+
         }
 
         public void ResetarBancoDeDados()
@@ -1871,14 +1899,17 @@ namespace XP3.Data
                 using (var command = new SQLiteCommand("UPDATE Musica SET Pular = COALESCE(Pular, 0) + 1 WHERE ID = @Id", connection))
                 {
                     command.Parameters.AddWithValue("@Id", trackId);
-                    command.ExecuteNonQuery();
+                    int linhas = command.ExecuteNonQuery();
+                    Debug.WriteLine($"[PERSIST] IncrementarPular trackId={trackId} linhas={linhas}");
                 }
 
                 using (var query = new SQLiteCommand("SELECT COALESCE(Pular, 0) FROM Musica WHERE ID = @Id", connection))
                 {
                     query.Parameters.AddWithValue("@Id", trackId);
                     object result = query.ExecuteScalar();
-                    return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    int valorBanco = result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    Debug.WriteLine($"[PERSIST] IncrementarPular trackId={trackId} valorBancoNovo={valorBanco}");
+                    return valorBanco;
                 }
             }
         }
@@ -1892,14 +1923,17 @@ namespace XP3.Data
                 using (var command = new SQLiteCommand("UPDATE Musica SET Pulado = COALESCE(Pulado, 0) + 1 WHERE ID = @Id", connection))
                 {
                     command.Parameters.AddWithValue("@Id", trackId);
-                    command.ExecuteNonQuery();
+                    int linhas = command.ExecuteNonQuery();
+                    Debug.WriteLine($"[PERSIST] IncrementarPulado trackId={trackId} linhas={linhas}");
                 }
 
                 using (var query = new SQLiteCommand("SELECT COALESCE(Pulado, 0) FROM Musica WHERE ID = @Id", connection))
                 {
                     query.Parameters.AddWithValue("@Id", trackId);
                     object result = query.ExecuteScalar();
-                    return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    int valorBanco = result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    Debug.WriteLine($"[PERSIST] IncrementarPulado trackId={trackId} novoBanco={valorBanco}");
+                    return valorBanco;
                 }
             }
         }
@@ -1913,10 +1947,18 @@ namespace XP3.Data
                 using (var command = new SQLiteCommand("UPDATE Musica SET Pulado = 0 WHERE ID = @Id", connection))
                 {
                     command.Parameters.AddWithValue("@Id", trackId);
-                    command.ExecuteNonQuery();
+                    int linhas = command.ExecuteNonQuery();
+                    Debug.WriteLine($"[PERSIST] ResetarPulado trackId={trackId} linhas={linhas}");
                 }
 
-                return 0;
+                using (var query = new SQLiteCommand("SELECT COALESCE(Pulado, 0) FROM Musica WHERE ID = @Id", connection))
+                {
+                    query.Parameters.AddWithValue("@Id", trackId);
+                    object result = query.ExecuteScalar();
+                    int valorBanco = result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    Debug.WriteLine($"[PERSIST] ResetarPulado trackId={trackId} valorBancoNovo={valorBanco}");
+                    return valorBanco;
+                }
             }
         }
 

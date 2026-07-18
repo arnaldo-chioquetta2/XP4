@@ -103,6 +103,7 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerCogumelos),
             typeof(XP3.Visualizers.VisualizerEspaco)
         };
+        private List<Type> _visualizerTypesAtivos = new List<Type>();
 
         private int _currentVisualizerIndex = 0;
         private List<Track> _tracks = new List<Track>();
@@ -1079,6 +1080,7 @@ namespace XP3.Forms
             AtualizarTextoBotaoPlay();
             _trackRepo = new TrackRepository();
             _iniService = new IniFileService();
+            AplicarConfiguracaoVisualizadores();
 
             _progRepo = new ProgrammingRepository();
             CarregarContadorAprovadasDoDia();
@@ -1098,6 +1100,7 @@ namespace XP3.Forms
             };
 
             _player.StatusVolumeChanged += Player_StatusVolumeChanged;
+            _player.TrackVezAtualizada += Player_TrackVezAtualizada;
 
             _player.TrackChanged += (s, track) => TratarMudancaDeFaixa(track);
             _player.TrackFinishedNaturally += (s, track) =>
@@ -1710,11 +1713,13 @@ namespace XP3.Forms
                 foreach (var item in _allTracks.Where(t => t.Id == track.Id))
                 {
                     item.Pular = pularAtualizado;
+                    Debug.WriteLine($"[PERSIST] AtualizouMemoriaPular trackId={track.Id} valor={pularAtualizado}");
                 }
 
                 if (_player?.CurrentTrack != null && _player.CurrentTrack.Id == track.Id)
                 {
                     _player.CurrentTrack.Pular = pularAtualizado;
+                    Debug.WriteLine($"[PERSIST] AtualizouCurrentTrackPular trackId={track.Id} valor={pularAtualizado}");
                 }
 
                 track.Pular = pularAtualizado;
@@ -1723,6 +1728,48 @@ namespace XP3.Forms
             catch (Exception ex)
             {
                 LogService.GravarErro("IncrementarPularTrack", ex);
+            }
+        }
+
+        private void Player_TrackVezAtualizada(int trackId, int novaVez)
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action(() => Player_TrackVezAtualizada(trackId, novaVez)));
+                }
+                catch (InvalidOperationException)
+                {
+                    // A janela pode estar fechando enquanto o evento chega.
+                }
+                return;
+            }
+
+            foreach (var item in _allTracks.Where(t => t != null && t.Id == trackId))
+            {
+                item.Vez = novaVez;
+            }
+
+            if (_player != null && _player.CurrentTrack != null && _player.CurrentTrack.Id == trackId)
+            {
+                _player.CurrentTrack.Vez = novaVez;
+            }
+
+            if (_musicaAnterior != null && _musicaAnterior.Id == trackId)
+            {
+                _musicaAnterior.Vez = novaVez;
+            }
+
+            Debug.WriteLine($"[PERSIST UI] VezAtualizada trackId={trackId} novaVez={novaVez}");
+            if (lvTracks != null && !lvTracks.IsDisposed)
+            {
+                lvTracks.Invalidate();
             }
         }
 
@@ -1749,9 +1796,7 @@ namespace XP3.Forms
 
                     if (deveMarcarComoTocada)
                     {
-                        _trackRepo.Tocou(_musicaAnterior.Id);
-                        _musicaAnterior.Vez++;
-                        _musicaAnterior.LastPlayedAt = DateTime.Now;
+                        // O AudioPlayerService já gravou e notificará o valor real de Vez.
                     }
 
                     bool removeuDaListaDepoisDeTocar = false;
@@ -4494,8 +4539,8 @@ namespace XP3.Forms
             // 2. VERIFICAÃƒâ€¡ÃƒÆ’O DE ESTADO DO PLAYER
             bool estavaTocando = _player != null && _player.IsPlaying;
 
-            if (index >= _visualizerTypes.Count) index = 0;
-            if (index < 0) index = _visualizerTypes.Count - 1;
+            if (index >= _visualizerTypesAtivos.Count) index = 0;
+            if (index < 0) index = _visualizerTypesAtivos.Count - 1;
             _currentVisualizerIndex = index;
 
             // 3. FECHAMENTO DA JANELA ANTERIOR
@@ -4513,9 +4558,9 @@ namespace XP3.Forms
             // 4. CRIAÃƒâ€¡ÃƒÆ’O DA NOVA JANELA
             try
             {
-                Type tipoParaCriar = _visualizerTypes[_currentVisualizerIndex];
+                Type tipoParaCriar = _visualizerTypesAtivos[_currentVisualizerIndex];
                 System.Diagnostics.Debug.WriteLine(
-                    $"AbrirVisualizador: index={_currentVisualizerIndex}, total={_visualizerTypes.Count}, tipo={tipoParaCriar?.FullName}, base={AppDomain.CurrentDomain.BaseDirectory}, exe={Application.ExecutablePath}");
+                    $"AbrirVisualizador: index={_currentVisualizerIndex}, total={_visualizerTypesAtivos.Count}, tipo={tipoParaCriar?.FullName}, base={AppDomain.CurrentDomain.BaseDirectory}, exe={Application.ExecutablePath}");
                 var novoVisualizador = (XP3.Visualizers.VisualizerBase)Activator.CreateInstance(tipoParaCriar);
 
                 novoVisualizador.ShowInTaskbar = false;
@@ -4616,14 +4661,14 @@ namespace XP3.Forms
                 }
 
                 Type tipoFalhou = null;
-                if (_currentVisualizerIndex >= 0 && _currentVisualizerIndex < _visualizerTypes.Count)
+                if (_currentVisualizerIndex >= 0 && _currentVisualizerIndex < _visualizerTypesAtivos.Count)
                 {
-                    tipoFalhou = _visualizerTypes[_currentVisualizerIndex];
+                    tipoFalhou = _visualizerTypesAtivos[_currentVisualizerIndex];
                 }
 
                 string tipoNome = tipoFalhou?.FullName ?? "(tipo desconhecido)";
                 string mensagemDebug =
-                    $"Erro ao criar visualizador: index={_currentVisualizerIndex}, total={_visualizerTypes.Count}, tipo={tipoNome}, base={AppDomain.CurrentDomain.BaseDirectory}, exe={Application.ExecutablePath}\n{ex}";
+                    $"Erro ao criar visualizador: index={_currentVisualizerIndex}, total={_visualizerTypesAtivos.Count}, tipo={tipoNome}, base={AppDomain.CurrentDomain.BaseDirectory}, exe={Application.ExecutablePath}\n{ex}";
                 System.Diagnostics.Debug.WriteLine(mensagemDebug);
                 LogService.GravarErro("AbrirVisualizador", ex);
 
@@ -4804,9 +4849,123 @@ namespace XP3.Forms
                 $"[NORM UI] layout parent={btnNormalizacao.Parent?.Name} left={btnNormalizacao.Left} top={btnNormalizacao.Top} visible={btnNormalizacao.Visible} enabled={btnNormalizacao.Enabled}");
         }
 
-        private void BtnConfiguracao_Click(object sender, EventArgs e)
+        private void BtnConfiguracaoLegado_Click(object sender, EventArgs e)
         {
             MessageBox.Show("Configurações ainda não implementadas.", "Configurações");
+        }
+
+        private void BtnConfiguracao_Click(object sender, EventArgs e)
+        {
+            using (var form = new ConfiguracoesForm(ObterConfiguracaoVisualizadores(), ObterConfiguracaoPadraoVisualizadores(), _iniService))
+            {
+                if (form.ShowDialog(this) == DialogResult.OK)
+                {
+                    RecarregarConfiguracaoVisualizadores();
+                }
+            }
+        }
+
+        private string ObterNomeAmigavelVisualizador(Type tipo)
+        {
+            if (tipo == null)
+            {
+                return "Visualização";
+            }
+
+            string nome = tipo.Name;
+            return nome.StartsWith("Visualizer", StringComparison.Ordinal) ? nome.Substring("Visualizer".Length) : nome;
+        }
+
+        private List<VisualizerConfigItem> ObterConfiguracaoVisualizadores()
+        {
+            string ordemSalva = _iniService == null ? string.Empty : _iniService.Read("Visualizadores", "Ordem", string.Empty);
+            string desabilitadosSalvos = _iniService == null ? string.Empty : _iniService.Read("Visualizadores", "Desabilitados", string.Empty);
+            HashSet<string> desabilitados = new HashSet<string>(desabilitadosSalvos.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, Type> tipos = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+            foreach (Type tipo in _visualizerTypes)
+            {
+                tipos[tipo.FullName] = tipo;
+            }
+
+            List<VisualizerConfigItem> resultado = new List<VisualizerConfigItem>();
+            HashSet<string> adicionados = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string[] ordem = ordemSalva.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string id in ordem)
+            {
+                Type tipo;
+                if (tipos.TryGetValue(id, out tipo) && adicionados.Add(tipo.FullName))
+                {
+                    resultado.Add(new VisualizerConfigItem { Id = tipo.FullName, Nome = ObterNomeAmigavelVisualizador(tipo), Tipo = tipo, Enabled = !desabilitados.Contains(tipo.FullName) });
+                }
+            }
+
+            foreach (Type tipo in _visualizerTypes)
+            {
+                if (adicionados.Add(tipo.FullName))
+                {
+                    resultado.Add(new VisualizerConfigItem { Id = tipo.FullName, Nome = ObterNomeAmigavelVisualizador(tipo), Tipo = tipo, Enabled = !desabilitados.Contains(tipo.FullName) });
+                }
+            }
+            return resultado;
+        }
+
+        private List<VisualizerConfigItem> ObterConfiguracaoPadraoVisualizadores()
+        {
+            return _visualizerTypes.Select(tipo => new VisualizerConfigItem
+            {
+                Id = tipo.FullName,
+                Nome = ObterNomeAmigavelVisualizador(tipo),
+                Tipo = tipo,
+                Enabled = true
+            }).ToList();
+        }
+
+        private void AplicarConfiguracaoVisualizadores()
+        {
+            List<VisualizerConfigItem> itens = ObterConfiguracaoVisualizadores();
+            _visualizerTypesAtivos = itens.Where(item => item.Enabled && item.Tipo != null).Select(item => item.Tipo).ToList();
+            if (_visualizerTypesAtivos.Count == 0 && _visualizerTypes.Count > 0)
+            {
+                _visualizerTypesAtivos = new List<Type>(_visualizerTypes);
+            }
+            if (_currentVisualizerIndex >= _visualizerTypesAtivos.Count)
+            {
+                _currentVisualizerIndex = 0;
+            }
+        }
+
+        private void RecarregarConfiguracaoVisualizadores()
+        {
+            Type tipoAtual = null;
+            XP3.Visualizers.VisualizerBase visualizadorAberto = _visualizerWindow as XP3.Visualizers.VisualizerBase;
+            if (visualizadorAberto != null && !visualizadorAberto.IsDisposed)
+            {
+                tipoAtual = visualizadorAberto.GetType();
+            }
+            else if (_visualizerTypesAtivos.Count > 0 && _currentVisualizerIndex >= 0 && _currentVisualizerIndex < _visualizerTypesAtivos.Count)
+            {
+                tipoAtual = _visualizerTypesAtivos[_currentVisualizerIndex];
+            }
+
+            AplicarConfiguracaoVisualizadores();
+            int novoIndice = tipoAtual == null ? 0 : _visualizerTypesAtivos.IndexOf(tipoAtual);
+            bool visualizadorAtualFoiDesabilitado = tipoAtual != null && novoIndice < 0;
+            if (novoIndice < 0)
+            {
+                novoIndice = 0;
+            }
+            _currentVisualizerIndex = novoIndice;
+
+            string ordem = string.Join(",", _visualizerTypesAtivos.Select(ObterNomeAmigavelVisualizador).ToArray());
+            System.Diagnostics.Debug.WriteLine(
+                $"[VISCFG] Configuração reaplicada. Ativos={_visualizerTypesAtivos.Count}");
+            System.Diagnostics.Debug.WriteLine($"[VISCFG] Ordem={ordem}");
+
+            if (visualizadorAtualFoiDesabilitado && _visualizerTypesAtivos.Count > 0)
+            {
+                // Só recria a janela quando o visualizador atual deixou de ser elegível.
+                AbrirVisualizador(_currentVisualizerIndex);
+            }
         }
 
         private void BtnEqualizacao_Click(object sender, EventArgs e)
