@@ -479,7 +479,7 @@ namespace XP3.Data
                                 t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
                                 if (total < 3)
                                 {
-                                    Debug.WriteLine($"[DB/MAXVOL] Banda trackId={t.Id} MaxVol={(t.MaxVol.HasValue ? t.MaxVol.Value.ToString("0.###") : "null")}");
+                                    Debug.WriteLine($"[DB/MAXVOL/BANDA] trackId={t.Id} banda={t.BandName} MaxVol={(t.MaxVol.HasValue ? t.MaxVol.Value.ToString("0.###") : "null")}");
                                 }
 
                                 total++;
@@ -636,21 +636,28 @@ namespace XP3.Data
             }
         }
 
-        public void AtualizarMusicaMaxVolSeNulo(int trackId, double maxVol)
+        public double? AtualizarMusicaMaxVolSeNulo(int trackId, double maxVol)
         {
+            if (trackId <= 0 || double.IsNaN(maxVol) || double.IsInfinity(maxVol) || maxVol <= 0d || maxVol >= MaxVolInvalidLegacyThreshold)
+                return null;
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand("UPDATE Musica SET MaxVol = @maxVol WHERE ID = @trackId AND (MaxVol IS NULL OR MaxVol >= @limiteInvalido)", conn))
+                using (var cmd = new SQLiteCommand("UPDATE Musica SET MaxVol = @maxVol WHERE ID = @trackId AND (MaxVol IS NULL OR MaxVol <= 0 OR MaxVol >= @limiteInvalido)", conn))
                 {
-                    cmd.Parameters.AddWithValue("@maxVol", maxVol);
-                    cmd.Parameters.AddWithValue("@trackId", trackId);
-                    cmd.Parameters.AddWithValue("@limiteInvalido", MaxVolInvalidLegacyThreshold);
-                    cmd.ExecuteNonQuery();
+                    cmd.Parameters.AddWithValue("@maxVol", maxVol); cmd.Parameters.AddWithValue("@trackId", trackId); cmd.Parameters.AddWithValue("@limiteInvalido", MaxVolInvalidLegacyThreshold);
+                    Debug.WriteLine($"[DB/MAXVOL FLOW] UPDATE_START trackId={trackId} max={maxVol:0.###}");
+                    int rows = cmd.ExecuteNonQuery(); Debug.WriteLine($"[DB/MAXVOL FLOW] UPDATE_ROWS trackId={trackId} rowsAffected={rows}");
+                }
+                using (var select = new SQLiteCommand("SELECT MaxVol FROM Musica WHERE ID = @trackId", conn))
+                {
+                    select.Parameters.AddWithValue("@trackId", trackId); object result = select.ExecuteScalar();
+                    double? valorDepois = result == null || result == DBNull.Value ? (double?)null : NormalizarMaxVolNullable(Convert.ToDouble(result));
+                    Debug.WriteLine($"[DB/MAXVOL FLOW] SELECT_AFTER trackId={trackId} maxVolRaw={(result == null || result == DBNull.Value ? "null" : result.ToString())} maxVolValido={valorDepois.HasValue}");
+                    Debug.WriteLine($"[PERSIST/MAXVOL] valorDepois={(valorDepois.HasValue ? valorDepois.Value.ToString("0.###") : "null")}"); return valorDepois;
                 }
             }
         }
-
         public double? ObterMusicaMaxVol(int trackId)
         {
             using (var conn = Database.GetConnection())

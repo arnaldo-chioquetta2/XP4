@@ -87,8 +87,32 @@ namespace XP3.Services
         private void _mediaPlayer_MediaEnded(object sender, EventArgs e)
         {
             _fimNaturalDetectado = true;
+            GravarLog($"[AUDIO/MAXVOL FLOW] MEDIA_ENDED currentTrackId={CurrentTrack?.Id.ToString() ?? "null"} trackIdMedindo={_trackIdMedindoMaxVol?.ToString() ?? "null"} maxMedido={_maxVolMedidoAtual:0.###}");
             //GravarLog("[NORM/MAXVOL] MediaEnded detectado; marcando fim natural.");
             Next();
+        }
+        public bool TemMedicaoMaxVolPendente => _medindoMaxVolAtual && _trackIdMedindoMaxVol.HasValue;
+        public int? TrackIdMedicaoMaxVolPendente => _trackIdMedindoMaxVol;
+
+        public bool PersistirMedicaoMaxVolPendenteSeFimNatural(string origem)
+        {
+            if (!TemMedicaoMaxVolPendente)
+                return false;
+
+            bool fimNaturalPorFlag = _fimNaturalDetectado;
+            bool fimNaturalPorPosicao = DetectarFimNaturalPorPosicao(null);
+            bool fimNaturalFinal = fimNaturalPorFlag || fimNaturalPorPosicao;
+            GravarLog($"[AUDIO/MAXVOL FLOW] STOPPED_ENTER currentTrackId={CurrentTrack?.Id.ToString() ?? "null"} trackIdMedindo={_trackIdMedindoMaxVol?.ToString() ?? "null"} medindo={_medindoMaxVolAtual} maxMedido={_maxVolMedidoAtual:0.###} fimNaturalFlag={fimNaturalPorFlag} fimNaturalPosicao={fimNaturalPorPosicao} fimNaturalFinal={fimNaturalFinal} vaiTrocarLista={origem}");
+
+            if (!fimNaturalFinal)
+            {
+                GravarLog($"[AUDIO/MAXVOL FLOW] DECISION trackIdMedindo={_trackIdMedindoMaxVol?.ToString() ?? "null"} acao=DESCARTAR motivo={origem}-nao-natural");
+                return false;
+            }
+
+            GravarLog($"[AUDIO/MAXVOL FLOW] DECISION trackIdMedindo={_trackIdMedindoMaxVol?.ToString() ?? "null"} acao=GRAVAR motivo={origem}");
+            GravarMedicaoMaxVolAtualSeFimNatural();
+            return true;
         }
         public void SetPlaylist(List<Track> tracks) => _playlist = tracks ?? new List<Track>();
 
@@ -274,6 +298,29 @@ namespace XP3.Services
         }
 
         public void Play(int index) => Play(index, false, true); // Atualizar esta linha
+        public void PlayFromPosition(int index, TimeSpan position, bool isUserInitiated, bool resumePlaying)
+        {
+            Play(index, false, isUserInitiated);
+            if (_audioFile == null)
+                return;
+
+            TimeSpan safePosition = position < TimeSpan.Zero ? TimeSpan.Zero : position;
+            if (_audioFile.TotalTime > TimeSpan.Zero && safePosition >= _audioFile.TotalTime)
+                safePosition = TimeSpan.Zero;
+
+            try
+            {
+                _audioFile.CurrentTime = safePosition;
+                GravarLog($"[RESUME] Aplicando posicao requestedMs={position.TotalMilliseconds:0} duracaoMs={_audioFile.TotalTime.TotalMilliseconds:0} finalMs={safePosition.TotalMilliseconds:0}");
+                GravarLog($"[RESUME] CurrentTime depois={_audioFile.CurrentTime}");
+                if (!resumePlaying && _waveOut != null)
+                    _waveOut.Pause();
+            }
+            catch (Exception ex)
+            {
+                GravarLog($"[RESUME] Falha ao aplicar posicao: {ex.Message}");
+            }
+        }
 
         public void PlayAutomatico(int index, bool ignorarBloqueio24Horas = false)
         {
@@ -297,7 +344,11 @@ namespace XP3.Services
         public void Play(int index, bool ignorarBloqueio24Horas = false, bool isUserInitiated = false) // Modificar esta linha
         {
             GravarLog($"[PLAY] Solicitado index={index}; ignorar24h={ignorarBloqueio24Horas}; usuario={isUserInitiated}; playlistCount={_playlist?.Count ?? 0}; currentIndex={_currentIndex}");
-            DescartarMedicaoMaxVolAtual("NovaFaixa");
+            GravarLog($"[AUDIO/MAXVOL FLOW] PLAY_START novoTrackId={(_playlist != null && index >= 0 && index < _playlist.Count ? _playlist[index].Id.ToString() : "null")} medicaoPendente={TemMedicaoMaxVolPendente} trackIdMedindo={TrackIdMedicaoMaxVolPendente?.ToString() ?? "null"} fimNaturalFlag={_fimNaturalDetectado}");
+            if (TemMedicaoMaxVolPendente && (_fimNaturalDetectado || DetectarFimNaturalPorPosicao(null)))
+                PersistirMedicaoMaxVolPendenteSeFimNatural("PlayAutomatico");
+            else
+                DescartarMedicaoMaxVolAtual("NovaFaixa");
             NotificarStatusVolume(null);
             System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Play entrou index={index} playlist={CurrentPlaylistId}");
 
@@ -528,7 +579,7 @@ namespace XP3.Services
                 GravarLog("[NEXT] Ignorado: playlist vazia ou nula.");
                 return;
             }
-            DescartarMedicaoMaxVolAtual("Next");
+            if (!_fimNaturalDetectado) DescartarMedicaoMaxVolAtual("Next");
             _isNextCallInitiated = true;
 
             if (_waveOut != null)
@@ -543,21 +594,25 @@ namespace XP3.Services
         // METODO: OnPlaybackStopped
         // VERSÃO: 2.0
         // MOTIVO: Intercepta o fim da faixa para verificar se há uma troca de playlist agendada antes de tocar a próxima música.
+        private bool DetectarFimNaturalPorPosicao(StoppedEventArgs stoppedArgs)
+        {
+            if (stoppedArgs != null && stoppedArgs.Exception != null) return false;
+            if (_isNextCallInitiated || _audioFile == null || CurrentTrack == null) return false;
+            TimeSpan fimPrevisto = CurrentTrack.CutFim > 0 ? TimeSpan.FromSeconds(CurrentTrack.CutFim) : _audioFile.TotalTime;
+            return fimPrevisto > TimeSpan.Zero && _audioFile.CurrentTime >= fimPrevisto - TimeSpan.FromSeconds(2d);
+        }
+
         private void OnPlaybackStopped(object sender, StoppedEventArgs e)
         {
             try
             {
-                bool fimNaturalDetectado = _fimNaturalDetectado && e.Exception == null;
-                if (fimNaturalDetectado)
-                {
-                    GravarLog($"[NORM/MAXVOL] Fim natural detectado trackId={_trackIdMedindoMaxVol?.ToString() ?? "null"}");
-                    GravarMedicaoMaxVolAtualSeFimNatural();
-                }
-                else
-                {
-                    DescartarMedicaoMaxVolAtual($"PlaybackStopped nao natural exception={(e.Exception != null ? e.Exception.Message : "null")}; next={_isNextCallInitiated}");
-                }
-
+                bool fimNaturalFlag = _fimNaturalDetectado && e.Exception == null;
+                bool fimNaturalPosicao = DetectarFimNaturalPorPosicao(e);
+                bool fimNaturalFinal = fimNaturalFlag || fimNaturalPosicao;
+                GravarLog($"[AUDIO/MAXVOL FLOW] STOPPED_ENTER currentTrackId={CurrentTrack?.Id.ToString() ?? "null"} trackIdMedindo={_trackIdMedindoMaxVol?.ToString() ?? "null"} medindo={_medindoMaxVolAtual} maxMedido={_maxVolMedidoAtual:0.###} fimNaturalFlag={fimNaturalFlag} fimNaturalPosicao={fimNaturalPosicao} fimNaturalFinal={fimNaturalFinal} vaiTrocarLista={_isNextCallInitiated}");
+                GravarLog($"[NORM/MAXVOL] OnPlaybackStopped fimNaturalFlag={fimNaturalFlag} fimNaturalPosicao={fimNaturalPosicao} fimNaturalFinal={fimNaturalFinal} isStopping={_isNextCallInitiated} exception={(e.Exception == null ? "null" : e.Exception.Message)}");
+                if (fimNaturalFinal) GravarMedicaoMaxVolAtualSeFimNatural();
+                else DescartarMedicaoMaxVolAtual("PlaybackStopped nao natural");
                 _fimNaturalDetectado = false;
                 GravarLog($"[STOPPED] Entrou; handling={_handlingPlaybackStopped}; next={_isNextCallInitiated}; currentIndex={_currentIndex}; exception={e.Exception?.Message ?? "null"}");
 
@@ -983,47 +1038,27 @@ namespace XP3.Services
             _ultimaNotificacaoMaxVol = DateTime.MinValue;
 
             System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Medicao descartada motivo={motivo} trackId={trackId} max={picoMedido:0.###}");
+            GravarLog($"[AUDIO/MAXVOL FLOW] DISCARD trackId={trackId} maxMedido={picoMedido:0.###} motivo={motivo}");
         }
 
         private void GravarMedicaoMaxVolAtualSeFimNatural()
         {
-            if (!_medindoMaxVolAtual || !_trackIdMedindoMaxVol.HasValue)
-                return;
-
-            int trackId = _trackIdMedindoMaxVol.Value;
-            double picoMedido = _maxVolMedidoAtual;
-
-            _medindoMaxVolAtual = false;
-            _maxVolMedidoAtual = 0d;
-            _trackIdMedindoMaxVol = null;
-            _ultimaNotificacaoMaxVol = DateTime.MinValue;
-
-            if (picoMedido <= 0d)
-            {
-                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Fim natural sem pico gravavel trackId={trackId}");
-                return;
-            }
-
-            System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Gravando MaxVol fim natural trackId={trackId} max={picoMedido:0.###}");
-            NotificarStatusVolume($"Máximo detectado: {picoMedido.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}");
-
-            var trackEmMemoria = CurrentTrack != null && CurrentTrack.Id == trackId
-                ? CurrentTrack
-                : (_playlist != null ? _playlist.FirstOrDefault(t => t != null && t.Id == trackId) : null);
-
-            if (trackEmMemoria != null && !trackEmMemoria.MaxVol.HasValue)
-            {
-                _trackRepo.AtualizarMusicaMaxVolSeNulo(trackId, picoMedido);
-                trackEmMemoria.MaxVol = picoMedido;
-                TrackMaxVolMeasured?.Invoke(trackId, picoMedido);
-
-                if (CurrentPlaylistId > 0)
-                {
-                    _trackRepo.RecalcularListaMinMaxVol(CurrentPlaylistId);
-                }
-            }
+            if (!_medindoMaxVolAtual || !_trackIdMedindoMaxVol.HasValue) return;
+            int trackId = _trackIdMedindoMaxVol.Value; double picoMedido = _maxVolMedidoAtual;
+            GravarLog($"[NORM/MAXVOL] Fim playback trackIdAtual={CurrentTrack?.Id.ToString() ?? "null"} trackIdMedindo={trackId} medindo={_medindoMaxVolAtual} maxMedido={picoMedido:0.###}");
+            _medindoMaxVolAtual = false; _maxVolMedidoAtual = 0d; _trackIdMedindoMaxVol = null; _ultimaNotificacaoMaxVol = DateTime.MinValue;
+            if (picoMedido <= 0d || double.IsNaN(picoMedido) || double.IsInfinity(picoMedido) || picoMedido >= MaxVolInvalidLegacyThreshold) return;
+            GravarLog($"[AUDIO/MAXVOL FLOW] PERSIST_START trackId={trackId} maxMedido={picoMedido:0.###}");
+            double? valorDepois = _trackRepo.AtualizarMusicaMaxVolSeNulo(trackId, picoMedido);
+            GravarLog($"[AUDIO/MAXVOL FLOW] PERSIST_RESULT trackId={trackId} valorBanco={(valorDepois.HasValue ? valorDepois.Value.ToString("0.###") : "null")} valido={valorDepois.HasValue}");
+            GravarLog($"[NORM/MAXVOL] UPDATE/SELECT_AFTER trackId={trackId} valorDepois={(valorDepois.HasValue ? valorDepois.Value.ToString("0.###") : "null")}");
+            if (!valorDepois.HasValue) return;
+            if (_playlist != null) foreach (var track in _playlist) if (track != null && track.Id == trackId) track.MaxVol = valorDepois.Value;
+            if (CurrentTrack != null && CurrentTrack.Id == trackId) CurrentTrack.MaxVol = valorDepois.Value;
+            GravarLog($"[NORM/MAXVOL] EVENT_FIRE TrackMaxVolMeasured trackId={trackId} maxVol={valorDepois.Value:0.###}");
+            TrackMaxVolMeasured?.Invoke(trackId, valorDepois.Value);
+            if (CurrentPlaylistId > 0) _trackRepo.RecalcularListaMinMaxVol(CurrentPlaylistId);
         }
-
         private void Aggregator_PeakMeasured(float peak)
         {
             try

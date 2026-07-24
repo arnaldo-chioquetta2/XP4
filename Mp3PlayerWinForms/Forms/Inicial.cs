@@ -35,6 +35,10 @@ namespace XP3.Forms
         private ContextMenuStrip _menuBandasLateral;
 
         private int _currentPlaylistId = 1;
+        private bool _restauracaoInicialJaTentada;
+        private bool _restauracaoInicialEmAndamento;
+        private bool _restauracaoInicialAplicada;
+        private bool _restauracaoInicialProtecaoAtiva;
         private bool _emTelaCheia = false;
         //private bool _janelaAberta = false;
         private Track _musicaAnterior = null; // Guarda a mÃƒÂºsica que acabou de tocar
@@ -941,7 +945,7 @@ namespace XP3.Forms
             lvTracks.MouseMove += (s, e) =>
             {
                 var info = lvTracks.HitTest(e.Location);
-                if (info.Item != null && info.SubItem != null && info.Item.SubItems.IndexOf(info.SubItem) == 3 && info.SubItem.Text == "[ APAGAR ]")
+                if (info.Item != null && info.SubItem != null && info.Item.SubItems.IndexOf(info.SubItem) == 4 && info.SubItem.Text == "[ APAGAR ]")
                 {
                     lvTracks.Cursor = Cursors.Hand;
                 }
@@ -1120,7 +1124,7 @@ namespace XP3.Forms
             };
             _player.TrackMaxVolMeasured += (trackId, maxVol) =>
             {
-                AtualizarMaxVolDaGrid(trackId, maxVol);
+                ExecutarNoUiThread(() => AtualizarMaxVolDaGrid(trackId, maxVol));
             };
 
             if (spectrum != null)
@@ -3496,6 +3500,11 @@ namespace XP3.Forms
                 {
                     _trackFinalizadaNaturalmenteId = trackAtual.Id;
                     _marcarMusicaAnteriorNaTroca = true;
+                    if (_player != null)
+                    {
+                        bool persistiu = _player.PersistirMedicaoMaxVolPendenteSeFimNatural("AtualizarTempoFimNatural");
+                        Debug.WriteLine($"[PROG/MAXVOL FLOW] Antes da troca pelo tempo persistiu={persistiu} medicaoPendente={_player.TemMedicaoMaxVolPendente} trackIdMedindo={_player.TrackIdMedicaoMaxVolPendente?.ToString() ?? "null"}");
+                    }
                     if (_proximaListaPendenteId > 0) TrocarListaAgendada();
                     else _player.Next();
                     return;
@@ -3515,6 +3524,8 @@ namespace XP3.Forms
             try
             {
                 int idNovaLista = _proximaListaPendenteId;
+                Debug.WriteLine($"[PROG/MAXVOL FLOW] Antes LoadPlaylist lista={idNovaLista} currentPlaylist={_currentPlaylistId} currentTrackId={_player?.CurrentTrack?.Id.ToString() ?? "null"} medicaoPendente={_player?.TemMedicaoMaxVolPendente} trackIdMedindo={_player?.TrackIdMedicaoMaxVolPendente?.ToString() ?? "null"}");
+                if (_player != null) _player.PersistirMedicaoMaxVolPendenteSeFimNatural("TrocarListaAgendada");
                 LogService.GravarInfo("TrocaAgendada", $"Iniciando processo. Destino: {idNovaLista}");
 
                 _proximaListaPendenteId = 0; // Zera a pendÃƒÂªncia
@@ -3546,6 +3557,8 @@ namespace XP3.Forms
         {
             try
             {
+                bool eraCarregamentoInicial = !_restauracaoInicialJaTentada;
+
                 // 1. DecisÃƒÂ£o de qual ID carregar
                 // Se 'id' tiver valor, usamos ele. Se for nulo, buscamos a ÃƒÂºltima do INI.
                 if (id.HasValue)
@@ -3604,8 +3617,13 @@ namespace XP3.Forms
                         // Chamada recursiva passando o ID atual para nÃƒÂ£o perder a referÃƒÂªncia
                         LoadPlaylist(_currentPlaylistId);
 
-                        if (_allTracks.Count > 0 && _player != null)
+                        if (eraCarregamentoInicial && IgnorarAutoPlayInicial("LimpezaDuplicatas"))
                         {
+                            return;
+                        }
+                        else if (_allTracks.Count > 0 && _player != null)
+                        {
+                            Debug.WriteLine($"[RESUME DEBUG] Chamando Play origem=LimpezaDuplicatas index=0 trackId={_allTracks[0].Id}");
                             _player.PlayAutomatico(0);
                         }
                         return;
@@ -3641,8 +3659,9 @@ namespace XP3.Forms
                 }
 
                 this.CarregandoListas = true;
-                RestaurarUltimaMusica();
+                RestaurarUltimaMusicaComPosicao();
                 this.CarregandoListas = false;
+                Debug.WriteLine($"[RESUME DEBUG] LoadPlaylist finalizado lista={_currentPlaylistId} RestauracaoAplicada={_restauracaoInicialAplicada}");
 
                 if (lblTrackCount != null)
                     lblTrackCount.Text = $"{_allTracks.Count} mÃƒÂºsicas encontradas";
@@ -3698,13 +3717,127 @@ namespace XP3.Forms
             }
         }
 
+        private void RestaurarUltimaMusicaComPosicao()
+        {
+            if (_restauracaoInicialJaTentada)
+            {
+                return;
+            }
+
+            _restauracaoInicialJaTentada = true;
+            try
+            {
+                int listaSalva = _iniService.ReadInt("UltimaReproducao", "ListaId", 0);
+                int musicaSalva = _iniService.ReadInt("UltimaReproducao", "MusicaId", 0);
+                long posicaoMs;
+                long.TryParse(_iniService.Read("UltimaReproducao", "PosicaoMs", "0"), out posicaoMs);
+                bool estavaTocando = string.Equals(_iniService.Read("UltimaReproducao", "EstavaTocando", "false"), "true", StringComparison.OrdinalIgnoreCase);
+
+                Debug.WriteLine($"[RESUME] Lido lista={listaSalva} musica={musicaSalva} posMs={posicaoMs} estavaTocando={estavaTocando}");
+                Debug.WriteLine($"[RESUME] Lista atual={_currentPlaylistId}");
+
+                if (_listaAtualEhBanda || listaSalva <= 0 || listaSalva != _currentPlaylistId)
+                {
+                    Debug.WriteLine($"[RESUME] Ignorado motivo={(_listaAtualEhBanda ? "ListaBanda" : "ListaDiferente")}");
+                    return;
+                }
+
+                int indexEncontrado = _allTracks.FindIndex(t => t != null && t.Id == musicaSalva);
+                if (indexEncontrado < 0)
+                {
+                    Debug.WriteLine("[RESUME] Ignorado motivo=MusicaNaoEncontrada");
+                    return;
+                }
+
+                if (posicaoMs < 0)
+                {
+                    Debug.WriteLine("[RESUME] Ignorado motivo=PosicaoInvalida");
+                    posicaoMs = 0;
+                }
+
+                Track track = _allTracks[indexEncontrado];
+                TimeSpan posicao = TimeSpan.FromMilliseconds(posicaoMs);
+                if (track.Duration.TotalSeconds > 0d && posicao.TotalSeconds >= track.Duration.TotalSeconds)
+                {
+                    Debug.WriteLine("[RESUME] Ignorado motivo=PosicaoInvalida");
+                    posicao = TimeSpan.Zero;
+                }
+
+                lvTracks.SelectedIndices.Clear();
+                lvTracks.SelectedIndices.Add(indexEncontrado);
+                GarantirMusicaVisivelNaGrid(indexEncontrado);
+                Debug.WriteLine($"[RESUME DEBUG] Chamando PlayFromPosition origem=RestauracaoInicial index={indexEncontrado} trackId={musicaSalva} posMs={posicao.TotalMilliseconds:0}");
+                _restauracaoInicialEmAndamento = true;
+                _player.PlayFromPosition(indexEncontrado, posicao, true, estavaTocando);
+                _restauracaoInicialAplicada = true;
+                _restauracaoInicialProtecaoAtiva = true;
+                _restauracaoInicialEmAndamento = false;
+                Debug.WriteLine("[RESUME DEBUG] RestauracaoAplicada=True");
+                AtualizarPainelLateral(track);
+            }
+            catch (Exception ex)
+            {
+                _restauracaoInicialEmAndamento = false;
+                Debug.WriteLine("[RESUME] Falha ao restaurar: " + ex.Message);
+            }
+        }
+
+        private bool IgnorarAutoPlayInicial(string origem)
+        {
+            if (!_restauracaoInicialProtecaoAtiva && !_restauracaoInicialEmAndamento)
+            {
+                return false;
+            }
+
+            Debug.WriteLine($"[RESUME DEBUG] AutoPlay inicial ignorado origem={origem} RestauracaoAplicada={_restauracaoInicialAplicada}");
+
+            // A protecao vale apenas para o autoplay pendente do carregamento inicial.
+            // Trocas posteriores de lista continuam normais.
+            if (!_restauracaoInicialEmAndamento)
+            {
+                _restauracaoInicialProtecaoAtiva = false;
+            }
+
+            return true;
+        }
+
+        private void SalvarUltimaReproducao()
+        {
+            try
+            {
+                if (_listaAtualEhBanda || _player == null || _player.CurrentTrack == null || _currentPlaylistId <= 0)
+                {
+                    return;
+                }
+
+                TimeSpan posicao = _player.CurrentTime;
+                if (posicao < TimeSpan.Zero || double.IsNaN(posicao.TotalMilliseconds) || double.IsInfinity(posicao.TotalMilliseconds))
+                {
+                    return;
+                }
+
+                Track track = _player.CurrentTrack;
+                bool estavaTocando = _player.IsPlaying;
+                _iniService.Write("UltimaReproducao", "ListaId", _currentPlaylistId.ToString());
+                _iniService.Write("UltimaReproducao", "MusicaId", track.Id.ToString());
+                _iniService.Write("UltimaReproducao", "PosicaoMs", ((long)posicao.TotalMilliseconds).ToString());
+                _iniService.Write("UltimaReproducao", "EstavaTocando", estavaTocando.ToString());
+                Debug.WriteLine($"[RESUME] Salvou lista={_currentPlaylistId} musica={track.Id} posMs={posicao.TotalMilliseconds:0} estavaTocando={estavaTocando}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[RESUME] Falha ao salvar: " + ex.Message);
+            }
+        }
+
         private void ConfigurarColunasGrid()
         {
             lvTracks.Columns.Clear();
             lvTracks.Scrollable = true;
 
+            lvTracks.Columns.Add(" ", 24, HorizontalAlignment.Center);
             lvTracks.Columns.Add("MÃƒÂºsica", 350);
-            lvTracks.Columns.Add("Banda", 190);
+            lvTracks.Columns.Add("Banda", 196);
             lvTracks.Columns.Add("Tempo", 70, HorizontalAlignment.Right);
             lvTracks.Columns.Add("T", 45, HorizontalAlignment.Center);
             lvTracks.Columns.Add("P", 22, HorizontalAlignment.Center);
@@ -3719,20 +3852,22 @@ namespace XP3.Forms
         private void AjustarColunasGrid()
         {
             // Proteção básica para garantir que a grid e as 9 colunas existem
-            if (lvTracks == null || lvTracks.Columns.Count < 9) return;
+            if (lvTracks == null || lvTracks.Columns.Count < 10) return;
 
             // --- AJUSTE MANUAL DE LARGURA DAS COLUNAS (EM PIXELS) ---
             // Vá alterando os valores numéricos abaixo até chegar no visual ideal.
 
-            lvTracks.Columns[0].Width = 340; // 310; // Coluna 0: Música
-            lvTracks.Columns[1].Width = 220; //  200; // Coluna 1: Banda
-            lvTracks.Columns[2].Width = 55;  // Coluna 2: Tempo
-            lvTracks.Columns[3].Width = 30;  // Coluna 3: T
-            lvTracks.Columns[4].Width = 25;  // Coluna 4: P
-            lvTracks.Columns[5].Width = 25;  // Coluna 5: L
-            lvTracks.Columns[6].Width = 135; // Coluna 6: Última Vez
-            lvTracks.Columns[7].Width = 110; // Coluna 7: País
-            lvTracks.Columns[8].Width = 70;  // Coluna 8: MaxVol
+            lvTracks.Columns[0].Width = 24;  // Coluna 0: ícone futuro
+            lvTracks.Columns[1].Width = 340; // Coluna 1: Música
+            lvTracks.Columns[2].Width = 196; // Coluna 2: Banda (220 - 24)
+            lvTracks.Columns[3].Width = 55;  // Coluna 3: Tempo
+            lvTracks.Columns[4].Width = 30;  // Coluna 4: T
+            lvTracks.Columns[5].Width = 25;  // Coluna 5: P
+            lvTracks.Columns[6].Width = 25;  // Coluna 6: L
+            lvTracks.Columns[7].Width = 135; // Coluna 7: Última Vez
+            lvTracks.Columns[8].Width = 110; // Coluna 8: País
+            lvTracks.Columns[9].Width = 70;  // Coluna 9: MaxVol
+
         }
 
         #endregion
@@ -3996,17 +4131,28 @@ namespace XP3.Forms
                 return;
             }
 
+            Debug.WriteLine($"[PROG/MAXVOL FLOW] SolicitarTrocaDePlaylist recebeu lista={novaListaId} currentPlaylist={_currentPlaylistId} currentTrackId={_player?.CurrentTrack?.Id.ToString() ?? "null"}");
+            if (_player != null) _player.PersistirMedicaoMaxVolPendenteSeFimNatural("Player_SolicitarTrocaDePlaylist");
+
             // 1. Atualiza o ID da playlist atual e grava no INI
             _currentPlaylistId = novaListaId;
             _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
 
             // 2. Recarrega a lista visualmente
+            bool eraSolicitacaoInicial = !_restauracaoInicialJaTentada;
+            Debug.WriteLine($"[PROG/MAXVOL FLOW] Depois LoadPlaylist lista={_currentPlaylistId} medicaoPendente={_player?.TemMedicaoMaxVolPendente}");
             LoadPlaylist();
             AtualizarIndicadorProximaProgramacao();
+
+            if (eraSolicitacaoInicial && IgnorarAutoPlayInicial("ProgramacaoInicial"))
+            {
+                return;
+            }
 
             // 3. Inicia a reproduÃƒÂ§ÃƒÂ£o da primeira mÃƒÂºsica da nova lista
             if (_allTracks.Count > 0 && _player != null)
             {
+                Debug.WriteLine($"[PROG/MAXVOL FLOW] Antes PlayAutomatico novaLista={_currentPlaylistId} medicaoPendente={_player.TemMedicaoMaxVolPendente}");
                 _player.PlayAutomatico(0);
             }
         }
@@ -4040,6 +4186,7 @@ namespace XP3.Forms
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             FecharMidiaFullscreen();
+            SalvarUltimaReproducao();
             _iniService.Write("Player", "LastPlaylistId", _currentPlaylistId.ToString());
             _player.Dispose();
             base.OnFormClosing(e);
@@ -4134,7 +4281,7 @@ namespace XP3.Forms
         {
             // Verifica qual coluna foi clicada
             // 0 = MÃƒÂºsica, 1 = Banda, 2 = Tempo
-            if (e.Column == 2) // Coluna TEMPO
+            if (e.Column == 3) // Coluna TEMPO
             {
                 // Ordena a lista principal usando a DuraÃƒÂ§ÃƒÂ£o (Do menor para o maior)
                 _allTracks.Sort((a, b) => a.Duration.CompareTo(b.Duration));
@@ -4147,14 +4294,14 @@ namespace XP3.Forms
             }
 
             // Opcional: Ordenar por Nome da MÃƒÂºsica (Coluna 0)
-            else if (e.Column == 0)
+            else if (e.Column == 1)
             {
                 _allTracks.Sort((a, b) => string.Compare(a.Title, b.Title));
                 lvTracks.Refresh();
             }
 
             // Opcional: Ordenar por Banda (Coluna 1)
-            else if (e.Column == 1)
+            else if (e.Column == 2)
             {
                 _allTracks.Sort((a, b) => string.Compare(a.BandName, b.BandName));
                 lvTracks.Refresh();
@@ -4172,21 +4319,36 @@ namespace XP3.Forms
                 Debug.WriteLine($"[GRID ITEM] index={e.ItemIndex}; ID={track.Id}; Nome={track.Title}; Pular={track.Pular}; Pulado={track.Pulado}");
             }
 
+            if (track.MaxVol.HasValue && e.ItemIndex < 20)
+            {
+                Debug.WriteLine($"[GRID/NORM] row={e.ItemIndex} trackId={track.Id} maxVol={track.MaxVol.Value:0.###} temN={TrackTemMaxVolValido(track)} colIcone=0");
+            }
+
             // --- PREENCHIMENTO DAS COLUNAS ---
             ListViewItem item = new ListViewItem(track.Title);                 // Coluna 0: Música
-            item.SubItems.Add(track.BandName);                                 // Coluna 1: Banda
-            item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));             // Coluna 2: Tempo
-            item.SubItems.Add(AlgarismoGrid(track.Vez));                       // Coluna 3: T
-            item.SubItems.Add(AlgarismoGrid(track.Pular));                     // Coluna 4: P
-            item.SubItems.Add(AlgarismoGrid(track.Pulado));                    // Coluna 5: L
+            item.SubItems.Add(TrackTemMaxVolValido(track) ? "N" : string.Empty);
+            item.SubItems.Add(track.BandName);                                 // Coluna 2: Banda
+            item.SubItems.Add(track.Duration.ToString(@"mm\:ss"));             // Coluna 3: Tempo
+            item.SubItems.Add(AlgarismoGrid(track.Vez));                       // Coluna 4: T
+            item.SubItems.Add(AlgarismoGrid(track.Pular));                     // Coluna 5: P
+            item.SubItems.Add(AlgarismoGrid(track.Pulado));                    // Coluna 6: L
             item.SubItems.Add(FormatarUltimaReproducao(track.LastPlayedAt));   // Coluna 6: Última Vez
             item.SubItems.Add(track.PaisNome ?? string.Empty);                 // Coluna 7: País
             item.SubItems.Add(FormatarMaxVol(track.MaxVol));                   // Coluna 8: MaxVol
             item.UseItemStyleForSubItems = false;
 
+            // A coluna 0 e o indicador; a coluna 1 continua sendo o nome da musica.
+            // O bloco anterior inseria o titulo e removia o SubItem do indicador.
+            string tituloMusica = item.Text;
+            string indicadorMaxVol = item.SubItems[1].Text;
+            item.Text = indicadorMaxVol;
+            item.SubItems[1].Text = tituloMusica;
+            if (TrackTemMaxVolValido(track) && e.ItemIndex < 20)
+                Debug.WriteLine($"[GRID/NORM] RENDER row={e.ItemIndex} trackId={track.Id} itemText='N' colIcone=0 maxVol={track.MaxVol.Value:0.###}");
+
             if (_tracksComPularAlteradoNaSessao.Contains(track.Id))
             {
-                item.SubItems[4].Font = new Font(lvTracks.Font, FontStyle.Bold);
+                item.SubItems[5].Font = new Font(lvTracks.Font, FontStyle.Bold);
             }
 
             // --- LÓGICA DE DESTAQUE (CORES E FONTES) ---
@@ -4268,18 +4430,59 @@ namespace XP3.Forms
             e.Item = item;
         }
 
+        private bool TrackTemMaxVolValido(Track track)
+        {
+            return track != null
+                && track.MaxVol.HasValue
+                && !double.IsNaN(track.MaxVol.Value)
+                && !double.IsInfinity(track.MaxVol.Value)
+                && track.MaxVol.Value > 0d
+                && track.MaxVol.Value < 10d;
+        }
+
         private void AtualizarMaxVolDaGrid(int trackId, double maxVol)
         {
-            if (trackId <= 0) return;
+            if (trackId <= 0 || double.IsNaN(maxVol) || double.IsInfinity(maxVol) || maxVol <= 0d || maxVol >= 10d)
+                return;
 
-            var trackNaMemoria = _allTracks.FirstOrDefault(t => t != null && t.Id == trackId);
-            if (trackNaMemoria != null)
+            int linhasAtualizadas = 0;
+            int index = -1;
+            foreach (var track in _allTracks)
             {
-                trackNaMemoria.MaxVol = maxVol;
+                if (track == null || track.Id != trackId)
+                    continue;
+
+                track.MaxVol = maxVol;
+                linhasAtualizadas++;
+                if (index < 0)
+                    index = _allTracks.IndexOf(track);
             }
+
+            if (_player != null && _player.CurrentTrack != null && _player.CurrentTrack.Id == trackId)
+                _player.CurrentTrack.MaxVol = maxVol;
+
+            if (_musicaAnterior != null && _musicaAnterior.Id == trackId)
+                _musicaAnterior.MaxVol = maxVol;
+
+            bool temN = index >= 0 && TrackTemMaxVolValido(_allTracks[index]);
+            Debug.WriteLine($"[NORM/MAXVOL UI] TrackMaxVolMeasured trackId={trackId} maxVol={maxVol:0.###} linhasAtualizadas={linhasAtualizadas} index={index} temN={temN}");
+            if (linhasAtualizadas == 0)
+                Debug.WriteLine($"[NORM/MAXVOL UI] AVISO: trackId medido não encontrado em _allTracks trackId={trackId}");
 
             if (lvTracks != null && !lvTracks.IsDisposed)
             {
+                if (index >= 0 && index < lvTracks.VirtualListSize)
+                {
+                    try
+                    {
+                        lvTracks.RedrawItems(index, index, true);
+                    }
+                    catch (ArgumentException)
+                    {
+                        // A invalidação abaixo continua sendo suficiente para a ListView virtual.
+                    }
+                }
+
                 lvTracks.Invalidate();
             }
         }
