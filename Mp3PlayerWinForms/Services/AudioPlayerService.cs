@@ -491,6 +491,8 @@ namespace XP3.Services
                 _waveOut.PlaybackStopped += OnPlaybackStopped;
                 _waveOut.Play();
                 GravarLog("Playback Iniciado.");
+                int? listaHistorico = CurrentPlaylistId > 0 ? (int?)CurrentPlaylistId : null;
+                _trackRepo.RegistrarHistoricoMusicaTocada(track.Id, DateTime.Now, listaHistorico);
 
                 NotificarTrackChanged(track);
                 GravarLog($"[PLAY] TrackChanged notificado: ID={track.Id}; Posicao={_audioFile?.CurrentTime}; Total={_audioFile?.TotalTime}");

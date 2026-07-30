@@ -3,12 +3,20 @@ using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using XP3.Models;
 using XP3.Services;
 
 namespace XP3.Data
 {
+    public class HistoricoMusicaTocadaItem
+    {
+        public DateTime DataHora { get; set; }
+        public string DataHoraTexto { get; set; }
+        public int? ListaId { get; set; }
+        public string ListaNome { get; set; }
+    }
     public class TrackRepository
     {
         private static bool _youtubeColumnChecked = false;
@@ -21,6 +29,7 @@ namespace XP3.Data
         private static bool _tocadoEmGColumnChecked = false;
         private static bool _maxVolColumnsChecked = false;
         private static bool _maxVolLegacyValuesChecked = false;
+        private static bool _historicoMusicaTocadaChecked = false;
         private const double MaxVolInvalidLegacyThreshold = 10d;
 
         public TrackRepository()
@@ -35,6 +44,7 @@ namespace XP3.Data
             EnsureYoutubeColumn();
             EnsureVideoColumn();
             EnsurePrefetsTable();
+            EnsureHistoricoMusicaTocadaTable();
         }
 
         public string GetPlaylistName(int playlistId)
@@ -972,6 +982,118 @@ namespace XP3.Data
             }
         }
 
+        public void EnsureHistoricoMusicaTocadaTable()
+        {
+            if (_historicoMusicaTocadaChecked) return;
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var createTable = new SQLiteCommand(@"CREATE TABLE IF NOT EXISTS HistoricoMusicaTocada (
+    ID INTEGER PRIMARY KEY AUTOINCREMENT,
+    Musica INTEGER NOT NULL,
+    DataHora TEXT NOT NULL
+);", conn))
+                {
+                    createTable.ExecuteNonQuery();
+                }
+
+                if (!ColumnExists(conn, "HistoricoMusicaTocada", "Lista"))
+                {
+                    using (var alterCmd = new SQLiteCommand("ALTER TABLE HistoricoMusicaTocada ADD COLUMN Lista INTEGER NULL", conn))
+                    {
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
+                using (var createIndex = new SQLiteCommand(@"CREATE INDEX IF NOT EXISTS IX_HistoricoMusicaTocada_Musica_DataHora
+ON HistoricoMusicaTocada (Musica, DataHora);", conn))
+                {
+                    createIndex.ExecuteNonQuery();
+                }
+
+                using (var createIndex = new SQLiteCommand(@"CREATE INDEX IF NOT EXISTS IX_HistoricoMusicaTocada_Musica_DataHora_Lista
+ON HistoricoMusicaTocada (Musica, DataHora, Lista);", conn))
+                {
+                    createIndex.ExecuteNonQuery();
+                }
+            }
+
+            _historicoMusicaTocadaChecked = true;
+        }
+
+        public void RegistrarHistoricoMusicaTocada(int trackId, DateTime dataHora)
+        {
+            RegistrarHistoricoMusicaTocada(trackId, dataHora, null);
+        }
+
+        public void RegistrarHistoricoMusicaTocada(int trackId, DateTime dataHora, int? listaId)
+        {
+            if (trackId <= 0) return;
+
+            try
+            {
+                using (var conn = Database.GetConnection())
+                {
+                    conn.Open();
+                    using (var cmd = new SQLiteCommand(@"INSERT INTO HistoricoMusicaTocada (Musica, DataHora, Lista)
+VALUES (@musica, @dataHora, @lista);", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@musica", trackId);
+                        cmd.Parameters.AddWithValue("@dataHora", dataHora.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+                        cmd.Parameters.AddWithValue("@lista", listaId.HasValue ? (object)listaId.Value : DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                Debug.WriteLine($"[HISTORICO] Inserido Musica={trackId} Lista={(listaId.HasValue ? listaId.Value.ToString() : "NULL")} DataHora={dataHora:yyyy-MM-dd HH:mm:ss}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[HISTORICO] ERRO ao inserir Musica={trackId} Lista={(listaId.HasValue ? listaId.Value.ToString() : "NULL")} erro={ex.Message}");
+            }
+        }
+
+        public List<HistoricoMusicaTocadaItem> ObterHistoricoMusicaTocada(int trackId, int limite = 10)
+        {
+            var historico = new List<HistoricoMusicaTocadaItem>();
+            if (trackId <= 0) return historico;
+            limite = Math.Max(1, Math.Min(10, limite));
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SQLiteCommand(@"SELECT h.DataHora, h.Lista, l.Nome AS ListaNome
+FROM HistoricoMusicaTocada h
+LEFT JOIN Lista l ON l.ID = h.Lista
+WHERE h.Musica = @musica
+ORDER BY h.DataHora DESC, h.ID DESC
+LIMIT @limite;", conn))
+                {
+                    cmd.Parameters.AddWithValue("@musica", trackId);
+                    cmd.Parameters.AddWithValue("@limite", limite);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            string dataHoraTexto = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+                            DateTime dataHora;
+                            bool dataValida = DateTime.TryParseExact(dataHoraTexto, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out dataHora);
+                            historico.Add(new HistoricoMusicaTocadaItem
+                            {
+                                DataHora = dataValida ? dataHora : DateTime.MinValue,
+                                DataHoraTexto = dataHoraTexto,
+                                ListaId = reader.IsDBNull(1) ? (int?)null : reader.GetInt32(1),
+                                ListaNome = reader.IsDBNull(2) ? null : reader.GetString(2)
+                            });
+                        }
+                    }
+                }
+            }
+
+            Debug.WriteLine($"[HISTORICO] Consulta Musica={trackId} Limite={limite} Retornou={historico.Count}");
+            return historico;
+        }
         public void Tocou(int id)
         {
             AtualizarUltimaReproducao(id, DateTime.Now);

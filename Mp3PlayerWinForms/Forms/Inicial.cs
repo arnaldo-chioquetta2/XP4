@@ -7,6 +7,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using XP3.Controls;
@@ -88,6 +89,17 @@ namespace XP3.Forms
 
         private FormWindowState _estadoAnterior = FormWindowState.Normal;
 
+        private const int HotkeyScrollLockId = 9001;
+        private const int WmHotkey = 0x0312;
+        private const uint VkScroll = 0x91;
+        private bool _scrollLockRegistered;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
         private List<Type> _visualizerTypes = new List<Type>
         {
             typeof(XP3.Visualizers.VisualizerRadial),
@@ -99,6 +111,7 @@ namespace XP3.Forms
             typeof(XP3.Visualizers.VisualizerMinecraft),
             typeof(XP3.Visualizers.VisualizerXevious),
             typeof(XP3.Visualizers.VisualizerDoom),
+            typeof(XP3.Visualizers.VisualizerFatalArena),
             typeof(XP3.Visualizers.VisualizerMontanhas),
             typeof(XP3.Visualizers.VisualizerLandscape),
             typeof(XP3.Visualizers.VisualizerCityscape),
@@ -165,7 +178,16 @@ namespace XP3.Forms
             // Atalhos globais do formulário
             this.KeyDown += (s, e) =>
             {
-                if (e.KeyCode == Keys.Escape && _modoTrocaBandaAtivo)
+                if (e.KeyCode == Keys.PageDown)
+                {
+                    if (WindowState == FormWindowState.Minimized)
+                        Debug.WriteLine("[ATALHO] PageDown ignorado motivo=Minimizado");
+                    else
+                        PularMusicaAtualPorPageDown();
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+                else if (e.KeyCode == Keys.Escape && _modoTrocaBandaAtivo)
                 {
                     CancelarTrocaBanda();
                     e.Handled = true;
@@ -466,6 +488,7 @@ namespace XP3.Forms
             var itemVideo = new ToolStripMenuItem("Video");
             var itemYouTube = new ToolStripMenuItem("YouTube");
             var itemEqualizacao = new ToolStripMenuItem("Equalização");
+            var itemHistorico = new ToolStripMenuItem("Histórico");
             _itemDefinirPaisMusica = new ToolStripMenuItem("Definir país");
             var itemRetirarDepoisDeTocar = new ToolStripMenuItem("Retirar da lista depois de tocar");
             var itemApagarDepoisDeTocar = new ToolStripMenuItem("Apagar a lista depois de tocar");
@@ -477,6 +500,7 @@ namespace XP3.Forms
             _menuMusica.Items.Add(itemVideo);
             _menuMusica.Items.Add(itemYouTube);
             _menuMusica.Items.Add(itemEqualizacao);
+            _menuMusica.Items.Add(itemHistorico);
             _menuMusica.Items.Add(_itemDefinirPaisMusica);
             _menuMusica.Items.Add(itemRetirarDepoisDeTocar);
             _menuMusica.Items.Add(itemApagarDepoisDeTocar);
@@ -489,6 +513,7 @@ namespace XP3.Forms
             itemVideo.Click += (s, e) => VincularVideoMusica();
             itemYouTube.Click += (s, e) => EditarUrlYouTubeMusica();
             itemEqualizacao.Click += (s, e) => AbrirEqualizacaoMusica();
+            itemHistorico.Click += (s, e) => MostrarHistoricoMusica(ObterTrackSelecionada());
             _itemDefinirPaisMusica.Click += (s, e) => DefinirPaisDaMusicaSelecionada();
             itemRetirarDepoisDeTocar.Click += (s, e) => AlternarRetiradaDepoisDeTocar();
             itemApagarDepoisDeTocar.Click += (s, e) => AlternarApagarDepoisDeTocar();
@@ -498,6 +523,8 @@ namespace XP3.Forms
             _menuMusica.Opening += (s, e) =>
             {
                 var trackSelecionada = ObterTrackSelecionada();
+                if (trackSelecionada != null)
+                    Debug.WriteLine($"[HISTORICO] Menu exibido Musica={trackSelecionada.Id}");
                 if (trackSelecionada == null)
                 {
                     e.Cancel = true;
@@ -513,6 +540,47 @@ namespace XP3.Forms
             lvTracks.MouseDown += LvTracks_MouseDownMenuMusica;
         }
 
+        private void MostrarHistoricoMusica(Track track)
+        {
+            if (track == null || _trackRepo == null) return;
+
+            Debug.WriteLine($"[HISTORICO] Menu exibido Musica={track.Id}");
+            var historico = _trackRepo.ObterHistoricoMusicaTocada(track.Id, 10);
+            if (historico == null || historico.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "Nenhum histórico encontrado para esta música.",
+                    "Histórico - " + track.Title,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            var linhas = new List<string>();
+            foreach (var item in historico)
+            {
+                string data;
+                if (item.DataHora != DateTime.MinValue)
+                {
+                    data = item.DataHora.ToString("dd/MM/yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+                }
+                else
+                {
+                    data = item.DataHoraTexto ?? string.Empty;
+                }
+
+                string lista = string.IsNullOrWhiteSpace(item.ListaNome)
+                    ? "(lista não registrada)"
+                    : item.ListaNome;
+                linhas.Add(data + " - " + lista);
+            }
+
+            MessageBox.Show(this,
+                "Histórico de execução:\r\n\r\n" + string.Join(Environment.NewLine, linhas),
+                "Histórico - " + track.Title,
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
         private void MudarBanda()
         {
             var track = ObterTrackSelecionada();
@@ -1691,6 +1759,22 @@ namespace XP3.Forms
             }
         }
 
+        private void PularMusicaAtualPorPageDown()
+        {
+            var track = _player?.CurrentTrack;
+            if (track == null)
+            {
+                Debug.WriteLine("[ATALHO] PageDown sem CurrentTrack");
+                return;
+            }
+
+            Debug.WriteLine($"[ATALHO] PageDown pular trackId={track.Id} titulo={track.Title}");
+            IncrementarPularTrack(track);
+            _tracksComPularAlteradoNaSessao.Add(track.Id);
+            _marcarMusicaAnteriorNaTroca = true;
+            lvTracks.Invalidate();
+            _player.Next();
+        }
         private void TocaMenos()
         {
             if (lvTracks.SelectedIndices.Count == 0) return;
@@ -4082,6 +4166,7 @@ namespace XP3.Forms
 
                 if (_player != null)
                 {
+                    _player.CurrentPlaylistId = -1;
                     _player.AplicarRegraPularPulado = false;
                     Debug.WriteLine($"[PULAR] Banda AplicarRegraPularPulado={_player.AplicarRegraPularPulado}");
                     _player.SetPlaylist(_allTracks);
@@ -4181,6 +4266,55 @@ namespace XP3.Forms
             {
                 // Ignora erros silenciosamente
             }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            _scrollLockRegistered = RegisterHotKey(Handle, HotkeyScrollLockId, 0, VkScroll);
+            Debug.WriteLine(_scrollLockRegistered
+                ? "[ATALHO] ScrollLock registrado"
+                : "[ATALHO] ScrollLock falha ao registrar");
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            if (_scrollLockRegistered)
+            {
+                UnregisterHotKey(Handle, HotkeyScrollLockId);
+                _scrollLockRegistered = false;
+                Debug.WriteLine("[ATALHO] ScrollLock unregister");
+            }
+
+            base.OnHandleDestroyed(e);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WmHotkey && m.WParam.ToInt32() == HotkeyScrollLockId)
+            {
+                RestaurarJanelaPorScrollLock();
+                return;
+            }
+
+            base.WndProc(ref m);
+        }
+
+        private void RestaurarJanelaPorScrollLock()
+        {
+            if (WindowState != FormWindowState.Minimized)
+            {
+                Debug.WriteLine("[ATALHO] ScrollLock ignorado; janela nao minimizada");
+                return;
+            }
+
+            Show();
+            ShowInTaskbar = true;
+            WindowState = FormWindowState.Normal;
+            BringToFront();
+            Activate();
+            Focus();
+            Debug.WriteLine("[ATALHO] ScrollLock restaurou janela minimizada");
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

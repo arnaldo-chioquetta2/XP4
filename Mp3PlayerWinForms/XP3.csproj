@@ -250,6 +250,9 @@
     <Compile Include="Visualizers\VisualizerDoom.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Visualizers\VisualizerFatalArena.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Visualizers\VisualizerEspaco.cs">
       <SubType>Form</SubType>
     </Compile>
