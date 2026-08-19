@@ -17,11 +17,32 @@ namespace XP3.Controls
         private float maxValorEncontrado = 0.0f;
         private float Fator=1.0f;
 
+        // Etapa 6: titulo da musica desenhado pelo proprio Spectrum.
+        private string _tituloMusica = "";
+        private string _tituloMusicaExibicao = "";
+        private int _larguraTituloCache = -1;
+
         public SpectrumControl()
         {
             this.DoubleBuffered = true; // Evita piscar
             this.BackColor = Color.Black;
             _visualData = new float[_barCount];
+        }
+
+        // Titulo desenhado sobre o Spectrum (canto superior esquerdo, 8px / 5px).
+        public string TituloMusica
+        {
+            get { return _tituloMusica; }
+            set
+            {
+                string novo = value ?? "";
+                if (_tituloMusica != novo)
+                {
+                    _tituloMusica = novo;
+                    _larguraTituloCache = -1;
+                    this.Invalidate();
+                }
+            }
         }
 
         protected override void OnMouseDoubleClick(MouseEventArgs e)
@@ -31,7 +52,7 @@ namespace XP3.Controls
             DoubleClicked?.Invoke(this, EventArgs.Empty);
         }
 
-        // Método novo que recebe os dados do AudioPlayerService
+        // Mï¿½todo novo que recebe os dados do AudioPlayerService
         public void UpdateData(float[] fftData)
         {
             if (fftData == null || fftData.Length == 0) return;
@@ -47,14 +68,14 @@ namespace XP3.Controls
                     if (index < fftData.Length) sum += fftData[index];
                 }
 
-                // Média simples
+                // Mï¿½dia simples
                 _visualData[i] = sum / step;
 
                 // Captura o maior valor para o log
                 if (_visualData[i] > this.maxValorEncontrado)
                 {
                     this.maxValorEncontrado = _visualData[i];
-                    // System.Diagnostics.Debug.WriteLine($"Valor Máximo: {this.maxValorEncontrado:F6} Fator: {this.Fator:F6} ");
+                    // System.Diagnostics.Debug.WriteLine($"Valor Mï¿½ximo: {this.maxValorEncontrado:F6} Fator: {this.Fator:F6} ");
                     if (this.maxValorEncontrado>1) {
                         this.Fator = this.maxValorEncontrado;
                     }
@@ -67,10 +88,10 @@ namespace XP3.Controls
             }
 
             // --- LOG PARA DEBUG ---
-            // Imprime na janela de Saída (Output)
-            //System.Diagnostics.Debug.WriteLine($"[FFT DEBUG] Valor Máximo: {maxValorEncontrado:F6} | Ajuste sugerido: * {((this.Height / (maxValorEncontrado > 0 ? maxValorEncontrado : 1))):F0}");
+            // Imprime na janela de Saï¿½da (Output)
+            //System.Diagnostics.Debug.WriteLine($"[FFT DEBUG] Valor Mï¿½ximo: {maxValorEncontrado:F6} | Ajuste sugerido: * {((this.Height / (maxValorEncontrado > 0 ? maxValorEncontrado : 1))):F0}");
 
-            // Força o redesenho
+            // Forï¿½a o redesenho
             this.Invalidate();
         }
 
@@ -89,15 +110,15 @@ namespace XP3.Controls
             if (barWidth < 1) barWidth = 1;
 
             // AJUSTE 1: Aumentamos a escala base para 350. 
-            // Como seus picos são ~1.0, isso dará barras de 350 pixels (quase tela cheia).
+            // Como seus picos sï¿½o ~1.0, isso darï¿½ barras de 350 pixels (quase tela cheia).
             float baseScale = 350.0f;
 
             for (int i = 0; i < _barCount; i++)
             {
-                // AJUSTE 2: Equalização Visual (Treble Boost)
-                // As frequências altas (i maior) têm menos energia naturalmente.
-                // Aqui nós multiplicamos artificialmente as barras da direita para o gráfico ficar equilibrado.
-                // O fator (1 + i / 4.0f) faz a última barra ser multiplicada por ~9x mais que a primeira.
+                // AJUSTE 2: Equalizaï¿½ï¿½o Visual (Treble Boost)
+                // As frequï¿½ncias altas (i maior) tï¿½m menos energia naturalmente.
+                // Aqui nï¿½s multiplicamos artificialmente as barras da direita para o grï¿½fico ficar equilibrado.
+                // O fator (1 + i / 4.0f) faz a ï¿½ltima barra ser multiplicada por ~9x mais que a primeira.
                 float trebleCorrection = 1 + (i / 4.0f);
 
                 float val = _visualData[i] * baseScale * trebleCorrection;
@@ -110,7 +131,7 @@ namespace XP3.Controls
 
                 if (barHeight > 0)
                 {
-                    // Vamos fazer um degradê bonito (Verde em baixo, Amarelo no meio, Vermelho no topo)
+                    // Vamos fazer um degradï¿½ bonito (Verde em baixo, Amarelo no meio, Vermelho no topo)
                     Color barColor = Color.LimeGreen;
                     if (barHeight > height * 0.6) barColor = Color.Yellow;
                     if (barHeight > height * 0.9) barColor = Color.Red;
@@ -120,6 +141,45 @@ namespace XP3.Controls
                         g.FillRectangle(brush, i * barWidth, height - barHeight, Math.Max(1, barWidth - 1), barHeight);
                     }
                 }
+            }
+
+            // Etapa 6: titulo desenhado DEPOIS das barras (por cima do Spectrum).
+            DesenharTitulo(g);
+        }
+
+        // Etapa 6: desenha o nome da musica sobre o Spectrum, uma unica linha,
+        // cortada para caber (sem AutoEllipsis e sem quebra de linha).
+        private void DesenharTitulo(Graphics g)
+        {
+            if (string.IsNullOrEmpty(_tituloMusica))
+                return;
+
+            const int margemEsquerda = 8;
+            const int margemSuperior = 5;
+            int larguraMaxima = this.Width - margemEsquerda - 8;
+            if (larguraMaxima <= 0)
+                return;
+
+            if (_larguraTituloCache != larguraMaxima)
+            {
+                _larguraTituloCache = larguraMaxima;
+                _tituloMusicaExibicao = _tituloMusica;
+            }
+
+            using (var fonte = new Font("Segoe UI", 10f, FontStyle.Bold, GraphicsUnit.Point))
+            using (var brush = new SolidBrush(Color.White))
+            {
+                if (g.MeasureString(_tituloMusicaExibicao, fonte).Width > larguraMaxima)
+                {
+                    string texto = _tituloMusicaExibicao;
+                    while (texto.Length > 1 && g.MeasureString(texto, fonte).Width > larguraMaxima)
+                    {
+                        texto = texto.Substring(0, texto.Length - 1);
+                    }
+                    _tituloMusicaExibicao = texto;
+                }
+
+                g.DrawString(_tituloMusicaExibicao, fonte, brush, margemEsquerda, margemSuperior);
             }
         }
 

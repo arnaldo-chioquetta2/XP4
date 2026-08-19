@@ -30,12 +30,14 @@ namespace XP3.Services
         private List<Track> _playlist;
         private int _currentIndex = -1;
         private bool _isNextCallInitiated = false;
+        private bool _manualNextRequested = false;
         private bool _handlingPlaybackStopped = false;
         public bool AplicarRegraPularPulado { get; set; } = true;
 
         public event EventHandler<Track> TrackChanged;
         public event EventHandler<Track> TrackFinishedNaturally;
         public event Action<int, int> TrackVezAtualizada;
+        public event Action<int, DateTime> TrackHistoricoRegistrado;
         public event EventHandler<float[]> FftDataReceived;
         public event Action<int, double> TrackMaxVolMeasured;
         public event Action<string> StatusVolumeChanged;
@@ -89,7 +91,7 @@ namespace XP3.Services
             _fimNaturalDetectado = true;
             GravarLog($"[AUDIO/MAXVOL FLOW] MEDIA_ENDED currentTrackId={CurrentTrack?.Id.ToString() ?? "null"} trackIdMedindo={_trackIdMedindoMaxVol?.ToString() ?? "null"} maxMedido={_maxVolMedidoAtual:0.###}");
             //GravarLog("[NORM/MAXVOL] MediaEnded detectado; marcando fim natural.");
-            Next();
+            NextAutomatico();
         }
         public bool TemMedicaoMaxVolPendente => _medindoMaxVolAtual && _trackIdMedindoMaxVol.HasValue;
         public int? TrackIdMedicaoMaxVolPendente => _trackIdMedindoMaxVol;
@@ -114,7 +116,108 @@ namespace XP3.Services
             GravarMedicaoMaxVolAtualSeFimNatural();
             return true;
         }
-        public void SetPlaylist(List<Track> tracks) => _playlist = tracks ?? new List<Track>();
+
+        public bool RegistrarHistoricoMusicaSeFimNatural(string origem)
+        {
+            bool fimNaturalFlag = _fimNaturalDetectado;
+            bool fimNaturalPosicao = DetectarFimNaturalPorPosicao(null);
+            bool fimNaturalFinal = fimNaturalFlag || fimNaturalPosicao;
+            bool fimPorCutFim = CurrentTrack != null && CurrentTrack.CutFim > 0 && DetectarFimNaturalPorPosicao(null);
+            GravarLog($"[PLAY/PERSIST] FIM_DETECTADO trackId={CurrentTrack?.Id.ToString() ?? "null"} fimNaturalFlag={fimNaturalFlag} fimPorPosicao={fimNaturalPosicao} fimPorCutFim={fimPorCutFim} fimNaturalFinal={fimNaturalFinal} origem={origem}");
+            GravarLog($"[HISTORICO FLOW] FIM_DETECTADO trackId={CurrentTrack?.Id.ToString() ?? "null"} fimNaturalFinal={fimNaturalFinal} origem={origem}");
+            return RegistrarHistoricoSeFimNatural(CurrentTrack, fimNaturalFinal, origem);
+        }
+
+        private bool RegistrarHistoricoSeFimNatural(Track track, bool fimNaturalFinal, string origem)
+        {
+            if (!fimNaturalFinal)
+            {
+                GravarLog($"[HISTORICO FLOW] NAO_REGISTRAR motivo=FimNaoNatural origem={origem}");
+                return false;
+            }
+
+            if (track == null || track.Id <= 0)
+            {
+                GravarLog("[HISTORICO FLOW] NAO_REGISTRAR motivo=FaixaInvalida");
+                return false;
+            }
+
+            if (_historicoRegistradoNestaReproducao && _trackIdHistoricoReproducaoAtual == track.Id)
+            {
+                GravarLog($"[HISTORICO FLOW] DUPLICIDADE_EVITADA trackId={track.Id}");
+                return false;
+            }
+
+            int? listaId = _playlistIdHistoricoReproducaoAtual;
+            GravarLog($"[HISTORICO FLOW] REGISTRAR trackId={track.Id} lista={(listaId.HasValue ? listaId.Value.ToString() : "NULL")} origem={origem}");
+            GravarLog($"[PLAY/PERSIST] HIST_CHAMAR trackId={track.Id} listaId={(listaId.HasValue ? listaId.Value.ToString() : "NULL")} origem={origem}");
+            try
+            {
+                DateTime dataConclusao = DateTime.Now;
+                _trackRepo.RegistrarHistoricoMusicaTocada(track.Id, dataConclusao, listaId);
+                GravarLog($"[PLAY/PERSIST] HIST_OK trackId={track.Id}");
+                GravarLog($"[HIST/ULTIMA] REGISTRADA trackId={track.Id} dataConclusao={dataConclusao:yyyy-MM-dd HH:mm:ss}");
+                _historicoRegistradoNestaReproducao = true;
+                track.UltimaConclusaoEm = dataConclusao;
+                NotificarHistoricoRegistrado(track.Id, dataConclusao);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                GravarLog($"[PLAY/PERSIST] HIST_ERRO trackId={track.Id} ex={ex}");
+                return false;
+            }
+        }
+
+        private void RegistrarInicioReproducao(Track track, string origem)
+        {
+            if (track == null || track.Id <= 0)
+            {
+                GravarLog("[PLAY/PERSIST] TOCOU_ERRO motivo=FaixaInvalida");
+                return;
+            }
+
+            DateTime agora = DateTime.Now;
+            GravarLog($"[HIST/ULTIMA] Inicio reproducao nao altera UltimaConclusao trackId={track.Id} ultimaConclusaoAntes={(track.UltimaConclusaoEm.HasValue ? track.UltimaConclusaoEm.Value.ToString("yyyy-MM-dd HH:mm:ss") : "NULL")}");
+            GravarLog($"[PLAY/PERSIST] TOCOU_CHAMAR trackId={track.Id} origem={origem}");
+            try
+            {
+                int novaVez = _trackRepo.TocouRetornandoVez(track.Id, agora);
+                track.Vez = novaVez;
+                track.LastPlayedAt = agora;
+                NotificarTrackVezAtualizada(track.Id, novaVez);
+                GravarLog($"[PLAY/PERSIST] TOCOU_OK trackId={track.Id} vezNova={novaVez} ultima={agora:yyyy-MM-dd HH:mm:ss}");
+            }
+            catch (Exception ex)
+            {
+                GravarLog($"[PLAY/PERSIST] TOCOU_ERRO trackId={track.Id} ex={ex}");
+            }
+        }
+        public void SetPlaylist(List<Track> tracks)
+        {
+            _playlist = tracks ?? new List<Track>();
+            if (_playlist.Count == 0)
+            {
+                _currentIndex = -1;
+                _isNextCallInitiated = false;
+                _manualNextRequested = false;
+                _fimNaturalDetectado = false;
+                GravarLog("[AUDIO] Playlist interna vazia; CurrentTrack limpo.");
+            }
+        }
+
+        public void PararPorRemocaoManual(string origem)
+        {
+            Track track = CurrentTrack;
+            GravarLog($"[REMOVE FLOW] Parando player por remocao manual trackId={track?.Id.ToString() ?? "null"} origem={origem}");
+            _fimNaturalDetectado = false;
+            _isNextCallInitiated = false;
+            _manualNextRequested = false;
+            DescartarMedicaoMaxVolAtual("RemocaoManual");
+            GravarLog("[HISTORICO FLOW] NAO_REGISTRAR motivo=RemocaoManual");
+            Stop();
+            _currentIndex = -1;
+        }
 
         private readonly ProgrammingService _progService = new ProgrammingService();
 
@@ -137,6 +240,9 @@ namespace XP3.Services
         private DateTime _ultimaNotificacaoMaxVol = DateTime.MinValue;
         private DateTime _ultimaLogPeakRecebido = DateTime.MinValue;
         private bool _fimNaturalDetectado;
+        private bool _historicoRegistradoNestaReproducao;
+        private int? _trackIdHistoricoReproducaoAtual;
+        private int? _playlistIdHistoricoReproducaoAtual;
         private const double MaxVolInvalidLegacyThreshold = 10d;
 
         private bool ListaAtualEhAEscolher()
@@ -300,7 +406,7 @@ namespace XP3.Services
         public void Play(int index) => Play(index, false, true); // Atualizar esta linha
         public void PlayFromPosition(int index, TimeSpan position, bool isUserInitiated, bool resumePlaying)
         {
-            Play(index, false, isUserInitiated);
+            Play(index, false, isUserInitiated, false);
             if (_audioFile == null)
                 return;
 
@@ -338,10 +444,10 @@ namespace XP3.Services
                 return;
             }
 
-            Play(index, ignorarBloqueio24Horas, false);
+            Play(index, ignorarBloqueio24Horas, false, true);
         }
 
-        public void Play(int index, bool ignorarBloqueio24Horas = false, bool isUserInitiated = false) // Modificar esta linha
+        public void Play(int index, bool ignorarBloqueio24Horas = false, bool isUserInitiated = false, bool pularPuladoJaProcessado = false)
         {
             GravarLog($"[PLAY] Solicitado index={index}; ignorar24h={ignorarBloqueio24Horas}; usuario={isUserInitiated}; playlistCount={_playlist?.Count ?? 0}; currentIndex={_currentIndex}");
             GravarLog($"[AUDIO/MAXVOL FLOW] PLAY_START novoTrackId={(_playlist != null && index >= 0 && index < _playlist.Count ? _playlist[index].Id.ToString() : "null")} medicaoPendente={TemMedicaoMaxVolPendente} trackIdMedindo={TrackIdMedicaoMaxVolPendente?.ToString() ?? "null"} fimNaturalFlag={_fimNaturalDetectado}");
@@ -378,10 +484,13 @@ namespace XP3.Services
                 track.MaxVol = null;
 
             GravarLog($"[PLAY] Faixa selecionada indexReal={indiceTocavel}; ID={track.Id}; Titulo={track.Title}; Arquivo={track.FilePath}");
+            GravarLog($"[PLAY/PERSIST] START caminho=Play index={indiceTocavel} trackId={track.Id} nome={track.Title} playlistId={CurrentPlaylistId}");
             System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] CurrentTrack id={track.Id} titulo={track.Title} MaxVol={(track.MaxVol.HasValue ? track.MaxVol.Value.ToString("0.###") : "null")}");
 
+            GravarLog($"[PULAR FLOW] PlayCore trackId={track.Id} pularJaResolvido={pularPuladoJaProcessado}");
             bool bloqueiaPorPular = !isUserInitiated
                 && AplicarRegraPularPulado
+                && !pularPuladoJaProcessado
                 && track.Pular > 0
                 && track.Pulado < track.Pular;
             GravarLog($"[PULAR] Play origem={(isUserInitiated ? "manual" : "automatico")}; id={track.Id}; pular={track.Pular}; pulado={track.Pulado}; bloqueia={bloqueiaPorPular}");
@@ -407,6 +516,10 @@ namespace XP3.Services
 
             Stop();
             _currentIndex = indiceTocavel;
+            _historicoRegistradoNestaReproducao = false;
+            _trackIdHistoricoReproducaoAtual = track.Id;
+            _playlistIdHistoricoReproducaoAtual = CurrentPlaylistId > 0 ? (int?)CurrentPlaylistId : null;
+            GravarLog($"[HISTORICO FLOW] PLAY_START trackId={track.Id} listaHistorico={(_playlistIdHistoricoReproducaoAtual.HasValue ? _playlistIdHistoricoReproducaoAtual.Value.ToString() : "NULL")}");
 
             GravarLog($"Iniciando Play (WaveOut + AutoCue): {track.Title}");
 
@@ -491,8 +604,9 @@ namespace XP3.Services
                 _waveOut.PlaybackStopped += OnPlaybackStopped;
                 _waveOut.Play();
                 GravarLog("Playback Iniciado.");
-                int? listaHistorico = CurrentPlaylistId > 0 ? (int?)CurrentPlaylistId : null;
-                _trackRepo.RegistrarHistoricoMusicaTocada(track.Id, DateTime.Now, listaHistorico);
+                GravarLog($"[PLAY/PERSIST] WAVE_PLAY_OK trackId={track.Id}");
+                RegistrarInicioReproducao(track, "Play");
+                GravarLog("[HISTORICO] Removida gravacao no inicio do playback");
 
                 NotificarTrackChanged(track);
                 GravarLog($"[PLAY] TrackChanged notificado: ID={track.Id}; Posicao={_audioFile?.CurrentTime}; Total={_audioFile?.TotalTime}");
@@ -575,7 +689,17 @@ namespace XP3.Services
 
         public void Next()
         {
-            GravarLog($"[NEXT] Solicitado; playlistCount={_playlist?.Count ?? 0}; currentIndex={_currentIndex}; waveOutState={_waveOut?.PlaybackState.ToString() ?? "null"}");
+            AvancarParaProximaFaixa(false);
+        }
+
+        public void NextAutomatico()
+        {
+            AvancarParaProximaFaixa(true);
+        }
+
+        private void AvancarParaProximaFaixa(bool automatico)
+        {
+            GravarLog($"[NEXT] Solicitado automatico={automatico}; playlistCount={_playlist?.Count ?? 0}; currentIndex={_currentIndex}; waveOutState={_waveOut?.PlaybackState.ToString() ?? "null"}");
             if (_playlist == null || _playlist.Count == 0)
             {
                 GravarLog("[NEXT] Ignorado: playlist vazia ou nula.");
@@ -583,6 +707,7 @@ namespace XP3.Services
             }
             if (!_fimNaturalDetectado) DescartarMedicaoMaxVolAtual("Next");
             _isNextCallInitiated = true;
+            _manualNextRequested = !automatico;
 
             if (_waveOut != null)
             {
@@ -590,7 +715,14 @@ namespace XP3.Services
                 return;
             }
 
-            TocarProximaFaixaValida(_currentIndex + 1);
+            if (automatico)
+                TocarProximaFaixaValida(_currentIndex + 1);
+            else
+                Play(_currentIndex + 1, false, true, true);
+
+            // Sem WaveOut nao havera callback para limpar estas marcas.
+            _isNextCallInitiated = false;
+            _manualNextRequested = false;
         }
 
         // METODO: OnPlaybackStopped
@@ -611,6 +743,7 @@ namespace XP3.Services
                 bool fimNaturalFlag = _fimNaturalDetectado && e.Exception == null;
                 bool fimNaturalPosicao = DetectarFimNaturalPorPosicao(e);
                 bool fimNaturalFinal = fimNaturalFlag || fimNaturalPosicao;
+                RegistrarHistoricoSeFimNatural(CurrentTrack, fimNaturalFinal, "OnPlaybackStopped");
                 GravarLog($"[AUDIO/MAXVOL FLOW] STOPPED_ENTER currentTrackId={CurrentTrack?.Id.ToString() ?? "null"} trackIdMedindo={_trackIdMedindoMaxVol?.ToString() ?? "null"} medindo={_medindoMaxVolAtual} maxMedido={_maxVolMedidoAtual:0.###} fimNaturalFlag={fimNaturalFlag} fimNaturalPosicao={fimNaturalPosicao} fimNaturalFinal={fimNaturalFinal} vaiTrocarLista={_isNextCallInitiated}");
                 GravarLog($"[NORM/MAXVOL] OnPlaybackStopped fimNaturalFlag={fimNaturalFlag} fimNaturalPosicao={fimNaturalPosicao} fimNaturalFinal={fimNaturalFinal} isStopping={_isNextCallInitiated} exception={(e.Exception == null ? "null" : e.Exception.Message)}");
                 if (fimNaturalFinal) GravarMedicaoMaxVolAtualSeFimNatural();
@@ -646,12 +779,8 @@ namespace XP3.Services
                     finishedNaturally = Math.Abs((_audioFile.CurrentTime - intendedEndTime).TotalSeconds) <= 1;
                     GravarLog($"[STOPPED] Faixa={faixaFinalizada.Id}; atual={_audioFile.CurrentTime}; fimPrevisto={intendedEndTime}; natural={finishedNaturally}; next={_isNextCallInitiated}");
 
-                    if (finishedNaturally || _isNextCallInitiated)
+                    if (finishedNaturally)
                     {
-                        DateTime playedAt = DateTime.Now;
-                        int novaVez = _trackRepo.TocouRetornandoVez(faixaFinalizada.Id);
-                        NotificarTrackVezAtualizada(faixaFinalizada.Id, novaVez);
-                        faixaFinalizada.LastPlayedAt = playedAt;
                         NotificarTrackFinishedNaturally(faixaFinalizada);
                     }
                 }
@@ -728,7 +857,7 @@ namespace XP3.Services
 
                 // Fluxo normal caso não haja troca agendada ou override
                 // Substituir o if/else por TocarProximaFaixaValida para manter isUserInitiated=false
-                TocarProximaFaixaValidaComSeguranca(_currentIndex + 1);
+                TocarProximaFaixaValidaComSeguranca(_currentIndex + 1, _manualNextRequested);
             }
             catch (Exception ex)
             {
@@ -739,19 +868,23 @@ namespace XP3.Services
             finally
             {
                 _isNextCallInitiated = false;
+                _manualNextRequested = false;
                 GravarLog("[STOPPED] Saiu do callback.");
             }
         }
 
-        private void TocarProximaFaixaValidaComSeguranca(int indiceInicial)
+        private void TocarProximaFaixaValidaComSeguranca(int indiceInicial, bool manual = false)
         {
             Task.Run(async () =>
             {
                 try
                 {
                     await Task.Delay(120).ConfigureAwait(false);
-                    GravarLog($"[NEXT_SAFE] Iniciando proxima a partir do indice {indiceInicial}.");
-                    TocarProximaFaixaValida(indiceInicial);
+                    GravarLog($"[NEXT_SAFE] Iniciando proxima a partir do indice {indiceInicial}; manual={manual}.");
+                    if (manual)
+                        Play(indiceInicial, false, true, true);
+                    else
+                        TocarProximaFaixaValida(indiceInicial);
                 }
                 catch (Exception ex)
                 {
@@ -899,46 +1032,55 @@ namespace XP3.Services
                 return;
             }
 
-            if (!AplicarRegraPularPulado)
-            {
-                Play(indiceInicial, false, false);
-                return;
-            }
-
             int total = _playlist.Count;
             int inicio = indiceInicial < 0 ? 0 : indiceInicial % total;
+            GravarLog($"[PULAR FLOW] Inicio busca startIndex={indiceInicial} count={total} aplicar={AplicarRegraPularPulado}");
 
-            for (int i = 0; i < total; i++)
+            if (!AplicarRegraPularPulado)
             {
-                int candidato = (inicio + i) % total;
-                var track = _playlist[candidato];
-                if (track == null || string.IsNullOrWhiteSpace(track.FilePath) || !File.Exists(track.FilePath))
-                {
-                    continue;
-                }
-
-                GravarLog($"[PULAR] candidato id={track.Id}; titulo={track.Title}; pular={track.Pular}; pulado={track.Pulado}; aplicar={AplicarRegraPularPulado}");
-
-                if (DevePularPorPularPulado(track))
-                {
-                    int novoPulado = _trackRepo.IncrementarPulado(track.Id);
-                    AtualizarPuladoEmMemoria(track.Id, novoPulado);
-                    GravarLog($"[PULAR] pulando id={track.Id}; puladoAntes={track.Pulado}; puladoDepois={novoPulado}; pular={track.Pular}");
-                    continue;
-                }
-
-                if (track.Pular > 0 && track.Pulado >= track.Pular)
-                {
-                    int novoPulado = _trackRepo.ResetarPulado(track.Id);
-                    AtualizarPuladoEmMemoria(track.Id, novoPulado);
-                    GravarLog($"[PULAR] tocando id={track.Id}; resetando pulado para {novoPulado}; titulo={track.Title}");
-                }
-
-                Play(candidato, false, false);
+                GravarLog($"[PULAR FLOW] Escolhida index={inicio} trackId={_playlist[inicio]?.Id.ToString() ?? "null"}");
+                Play(inicio, false, false, true);
                 return;
             }
 
-            GravarLog("[NEXT] Nenhuma faixa elegível encontrada após varrer a playlist.");
+            // No maximo duas passadas: a primeira atualiza Pulado; a segunda
+            // encontra a faixa que acabou de atingir o limite e a libera.
+            for (int passada = 0; passada < 2; passada++)
+            {
+                for (int tentativa = 0; tentativa < total; tentativa++)
+                {
+                    int candidato = (inicio + tentativa) % total;
+                    Track track = _playlist[candidato];
+                    if (track == null || string.IsNullOrWhiteSpace(track.FilePath) || !File.Exists(track.FilePath))
+                        continue;
+
+                    GravarLog($"[PULAR FLOW] Avaliar index={candidato} trackId={track.Id} pular={track.Pular} pulado={track.Pulado}");
+
+                    if (DevePularPorPularPulado(track))
+                    {
+                        int puladoAntes = track.Pulado;
+                        int novoPulado = _trackRepo.IncrementarPulado(track.Id);
+                        AtualizarPuladoEmMemoria(track.Id, novoPulado);
+                        GravarLog($"[PULAR FLOW] Skip trackId={track.Id} puladoAntes={puladoAntes} puladoDepois={novoPulado}");
+                        continue;
+                    }
+
+                    if (track.Pular > 0 && track.Pulado >= track.Pular)
+                    {
+                        int novoPulado = _trackRepo.ResetarPulado(track.Id);
+                        AtualizarPuladoEmMemoria(track.Id, novoPulado);
+                        GravarLog($"[PULAR FLOW] Liberada trackId={track.Id} motivo=PuladoAtingiuPular puladoResetado={novoPulado}");
+                    }
+
+                    GravarLog($"[PULAR FLOW] Escolhida index={candidato} trackId={track.Id}");
+                    // A regra foi resolvida nesta varredura. PlayCore nao pode
+                    // reavaliar a mesma faixa e reiniciar a busca.
+                    Play(candidato, false, false, true);
+                    return;
+                }
+            }
+
+            GravarLog("[PULAR FLOW] Nenhuma tocavel apos varredura");
             Stop();
             NotificarPlaybackError(CurrentTrack, "[AUDIO] Nenhuma faixa elegível encontrada na playlist.");
         }
@@ -1259,6 +1401,18 @@ namespace XP3.Services
             catch (Exception ex)
             {
                 GravarLog($"Erro em TrackVezAtualizada: {ex.Message}");
+            }
+        }
+
+        private void NotificarHistoricoRegistrado(int trackId, DateTime dataConclusao)
+        {
+            try
+            {
+                TrackHistoricoRegistrado?.Invoke(trackId, dataConclusao);
+            }
+            catch (Exception ex)
+            {
+                GravarLog($"Erro em TrackHistoricoRegistrado: {ex.Message}");
             }
         }
 

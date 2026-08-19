@@ -33,6 +33,7 @@ namespace XP3.Forms
             this.btnScan = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
             this.btnNext = new System.Windows.Forms.Button();
+            this.btnMenos = new System.Windows.Forms.Button();
             this.btnPause = new System.Windows.Forms.Button();
             this.btnPlay = new System.Windows.Forms.Button();
             this.pnlHeader = new System.Windows.Forms.Panel();
@@ -113,6 +114,7 @@ namespace XP3.Forms
             this.pnlControls.Controls.Add(this.btnBandas);
             this.pnlControls.Controls.Add(this.btnScan);
             this.pnlControls.Controls.Add(this.lblStatus);
+            this.pnlControls.Controls.Add(this.btnMenos);
             this.pnlControls.Controls.Add(this.btnNext);
             this.pnlControls.Controls.Add(this.btnPlay);
             this.pnlControls.Dock = System.Windows.Forms.DockStyle.Bottom;
@@ -180,6 +182,20 @@ namespace XP3.Forms
             this.btnNext.Text = ">>";
             this.btnNext.UseVisualStyleBackColor = false;
             this.btnNext.Click += new System.EventHandler(this.btnNext_Click);
+            // 
+            // btnMenos
+            // 
+            this.btnMenos.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
+            this.btnMenos.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
+            this.btnMenos.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnMenos.ForeColor = System.Drawing.Color.White;
+            this.btnMenos.Location = new System.Drawing.Point(356, 15);
+            this.btnMenos.Name = "btnMenos";
+            this.btnMenos.Size = new System.Drawing.Size(30, 30);
+            this.btnMenos.TabIndex = 10;
+            this.btnMenos.Text = "-";
+            this.btnMenos.UseVisualStyleBackColor = false;
+            this.btnMenos.Click += new System.EventHandler(this.btnMenos_Click);
             // 
             // btnPause
             // 
@@ -320,6 +336,7 @@ namespace XP3.Forms
         private System.Windows.Forms.ColumnHeader colUltimaVez;
         private System.Windows.Forms.Panel pnlControls;
         private System.Windows.Forms.Button btnNext;
+        private System.Windows.Forms.Button btnMenos;
         private System.Windows.Forms.Button btnPause;
         private System.Windows.Forms.Button btnPlay;
         private System.Windows.Forms.Label lblStatus;

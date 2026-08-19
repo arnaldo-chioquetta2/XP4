@@ -24,9 +24,14 @@ namespace XP3.Models
         public bool TemEqualizacao => EqualizacaoAtiva && PossuiBandasEqualizacao;
         public int Vez { get; set; }
         public DateTime? LastPlayedAt { get; set; }
+        public DateTime? UltimaConclusaoEm { get; set; }
         public int Pular { get; set; }
         public int Pulado { get; set; }
         public double? MaxVol { get; set; }
+        public double FatorPosicaoLista { get; set; }
+        public double FatorExecucoesSemana { get; set; }
+        public double FatorOrdenacaoFinal { get; set; }
+        public int ExecucoesUltimos7Dias { get; set; }
 
         public double RandomTieBreaker { get; set; } = 0.0;
     }

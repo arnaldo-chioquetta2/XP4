@@ -332,7 +332,7 @@ namespace XP3.Data
                     DateTime limiteRepeticao = DateTime.Now.AddHours(-24);
 
                     // 2. ATUALIZAMOS O SELECT: IncluÃ­mos m.CutIni e m.CutFim no final
-                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.MaxVol, m.TocadoEmG";
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.MaxVol, m.TocadoEmG, hult.UltimaConclusaoEm AS UltimaConclusaoEm";
                     string sql;
 
                     if (usarOrdenacaoOriginal)
@@ -340,6 +340,11 @@ namespace XP3.Data
                         sql = $@"SELECT {colunas} FROM Musica m 
                         LEFT JOIN Banda b ON m.Banda = b.ID 
                         LEFT JOIN Pais p ON b.Pais = p.ID
+                        LEFT JOIN (
+                            SELECT Musica, MAX(DataHora) AS UltimaConclusaoEm
+                            FROM HistoricoMusicaTocada
+                            GROUP BY Musica
+                        ) hult ON hult.Musica = m.ID
                         JOIN LisMus lm ON m.ID = lm.Musica 
                         WHERE lm.Lista = @listaId
                         AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
@@ -351,6 +356,11 @@ namespace XP3.Data
                         sql = $@"SELECT {colunas} FROM Musica m 
                         LEFT JOIN Banda b ON m.Banda = b.ID 
                         LEFT JOIN Pais p ON b.Pais = p.ID
+                        LEFT JOIN (
+                            SELECT Musica, MAX(DataHora) AS UltimaConclusaoEm
+                            FROM HistoricoMusicaTocada
+                            GROUP BY Musica
+                        ) hult ON hult.Musica = m.ID
                         JOIN LisMus lm ON m.ID = lm.Musica 
                         WHERE lm.Lista = @listaId {filtroTempo}
                         AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @limiteRepeticao)
@@ -399,6 +409,7 @@ namespace XP3.Data
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
                                 t.MaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MaxVol"));
                                 t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
+                                t.UltimaConclusaoEm = LerDataHora(reader["UltimaConclusaoEm"]);
                                 if (total < 3)
                                 {
                                     Debug.WriteLine($"[DB/MAXVOL] Playlist trackId={t.Id} MaxVol={(t.MaxVol.HasValue ? t.MaxVol.Value.ToString("0.###") : "null")}");
@@ -442,11 +453,16 @@ namespace XP3.Data
                     DateTime dataLimite = DateTime.Now.AddMinutes(-config.TempoMudaLista);
                     DateTime limiteRepeticao = DateTime.Now.AddHours(-24);
 
-                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.MaxVol, m.TocadoEmG";
+                    string colunas = "m.ID, m.Nome, m.Lugar, m.Tempo, b.ID as BandId, b.Nome as BandName, p.ID as PaisId, p.Nome as PaisNome, m.CutIni, m.CutFim, m.VideoPath, COALESCE(m.Equalizacao, 0) as Equalizacao, COALESCE(m.EqualizacaoAtiva, 1) as EqualizacaoAtiva, COALESCE(m.EqMus0, 0) as EqMus0, COALESCE(m.EqMus1, 0) as EqMus1, COALESCE(m.EqMus2, 0) as EqMus2, COALESCE(m.EqMus3, 0) as EqMus3, COALESCE(m.EqMus4, 0) as EqMus4, COALESCE(m.EqMus5, 0) as EqMus5, COALESCE(m.EqMus6, 0) as EqMus6, COALESCE(m.EqMus7, 0) as EqMus7, COALESCE(m.EqMus8, 0) as EqMus8, COALESCE(m.EqMus9, 0) as EqMus9, COALESCE(m.vez, 0) as Vez, COALESCE(m.Pular, 0) as Pular, COALESCE(m.Pulado, 0) as Pulado, m.MaxVol, m.TocadoEmG, hult.UltimaConclusaoEm AS UltimaConclusaoEm";
                     string filtroTempo = config.ProgramacaoAtiva ? "AND (m.TocadoEmG IS NULL OR m.TocadoEmG <= @dataLimite)" : "";
                     string sql = $@"SELECT {colunas} FROM Musica m 
                         LEFT JOIN Banda b ON m.Banda = b.ID 
                         LEFT JOIN Pais p ON b.Pais = p.ID
+                        LEFT JOIN (
+                            SELECT Musica, MAX(DataHora) AS UltimaConclusaoEm
+                            FROM HistoricoMusicaTocada
+                            GROUP BY Musica
+                        ) hult ON hult.Musica = m.ID
                         WHERE m.Banda = @bandId {filtroTempo}
                         ORDER BY m.vez ASC, m.TocadoEmG ASC";
 
@@ -487,6 +503,7 @@ namespace XP3.Data
                                 t.Pulado = Convert.ToInt32(reader["Pulado"]);
                                 t.MaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MaxVol"));
                                 t.LastPlayedAt = LerDataHora(reader["TocadoEmG"]);
+                                t.UltimaConclusaoEm = LerDataHora(reader["UltimaConclusaoEm"]);
                                 if (total < 3)
                                 {
                                     Debug.WriteLine($"[DB/MAXVOL/BANDA] trackId={t.Id} banda={t.BandName} MaxVol={(t.MaxVol.HasValue ? t.MaxVol.Value.ToString("0.###") : "null")}");
@@ -760,7 +777,7 @@ namespace XP3.Data
             using (var conn = Database.GetConnection())
             {
                 conn.Open();
-                using (var cmd = new SQLiteCommand("SELECT ID, Nome, Lugar, Banda, VideoPath, COALESCE(Equalizacao, 0), COALESCE(EqualizacaoAtiva, 1), COALESCE(EqMus0, 0), COALESCE(EqMus1, 0), COALESCE(EqMus2, 0), COALESCE(EqMus3, 0), COALESCE(EqMus4, 0), COALESCE(EqMus5, 0), COALESCE(EqMus6, 0), COALESCE(EqMus7, 0), COALESCE(EqMus8, 0), COALESCE(EqMus9, 0), COALESCE(Vez, 0) as Vez, COALESCE(Pular, 0), COALESCE(Pulado, 0), MaxVol FROM Musica WHERE ID = @id", conn))
+                using (var cmd = new SQLiteCommand("SELECT m.ID, m.Nome, m.Lugar, m.Banda, m.VideoPath, COALESCE(m.Equalizacao, 0), COALESCE(m.EqualizacaoAtiva, 1), COALESCE(m.EqMus0, 0), COALESCE(m.EqMus1, 0), COALESCE(m.EqMus2, 0), COALESCE(m.EqMus3, 0), COALESCE(m.EqMus4, 0), COALESCE(m.EqMus5, 0), COALESCE(m.EqMus6, 0), COALESCE(m.EqMus7, 0), COALESCE(m.EqMus8, 0), COALESCE(m.EqMus9, 0), COALESCE(m.Vez, 0) as Vez, COALESCE(m.Pular, 0), COALESCE(m.Pulado, 0), m.MaxVol, hult.UltimaConclusaoEm AS UltimaConclusaoEm FROM Musica m LEFT JOIN (SELECT Musica, MAX(DataHora) AS UltimaConclusaoEm FROM HistoricoMusicaTocada GROUP BY Musica) hult ON hult.Musica = m.ID WHERE m.ID = @id", conn))
                 {
                     cmd.Parameters.AddWithValue("@id", id);
                     using (var reader = cmd.ExecuteReader())
@@ -780,7 +797,8 @@ namespace XP3.Data
                                 Vez = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
                                 Pular = reader.IsDBNull(18) ? 0 : reader.GetInt32(18),
                                 Pulado = reader.IsDBNull(19) ? 0 : reader.GetInt32(19),
-                                MaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MaxVol"))
+                                MaxVol = NormalizarMaxVolNullable(LerDoubleNullable(reader, "MaxVol")),
+                                UltimaConclusaoEm = LerDataHora(reader["UltimaConclusaoEm"]),
                             };
                         }
                     }
@@ -1036,13 +1054,16 @@ ON HistoricoMusicaTocada (Musica, DataHora, Lista);", conn))
                 using (var conn = Database.GetConnection())
                 {
                     conn.Open();
+                    Debug.WriteLine($"[DB/HIST] db={AppConfig.DatabasePath} trackId={trackId} listaId={(listaId.HasValue ? listaId.Value.ToString() : "NULL")} dataHora={dataHora:yyyy-MM-dd HH:mm:ss}");
                     using (var cmd = new SQLiteCommand(@"INSERT INTO HistoricoMusicaTocada (Musica, DataHora, Lista)
 VALUES (@musica, @dataHora, @lista);", conn))
                     {
                         cmd.Parameters.AddWithValue("@musica", trackId);
                         cmd.Parameters.AddWithValue("@dataHora", dataHora.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
                         cmd.Parameters.AddWithValue("@lista", listaId.HasValue ? (object)listaId.Value : DBNull.Value);
-                        cmd.ExecuteNonQuery();
+                        int linhas = cmd.ExecuteNonQuery();
+                        long ultimoId = conn.LastInsertRowId;
+                        Debug.WriteLine($"[DB/HIST] insertOk linhas={linhas} lastId={ultimoId}");
                     }
                 }
 
@@ -1050,7 +1071,8 @@ VALUES (@musica, @dataHora, @lista);", conn))
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[HISTORICO] ERRO ao inserir Musica={trackId} Lista={(listaId.HasValue ? listaId.Value.ToString() : "NULL")} erro={ex.Message}");
+                Debug.WriteLine($"[DB/HIST] ERRO trackId={trackId} listaId={(listaId.HasValue ? listaId.Value.ToString() : "NULL")} ex={ex}");
+                throw;
             }
         }
 
@@ -1094,6 +1116,68 @@ LIMIT @limite;", conn))
             Debug.WriteLine($"[HISTORICO] Consulta Musica={trackId} Limite={limite} Retornou={historico.Count}");
             return historico;
         }
+        public Dictionary<int, int> ObterContagemExecucoesUltimos7Dias(IEnumerable<int> trackIds)
+        {
+            return ObterContagemExecucoesUltimos7Dias(trackIds, DateTime.Now);
+        }
+
+        public Dictionary<int, int> ObterContagemExecucoesUltimos7Dias(IEnumerable<int> trackIds, DateTime agoraLocal)
+        {
+            var resultado = new Dictionary<int, int>();
+            if (trackIds == null) return resultado;
+            if (agoraLocal == DateTime.MinValue || agoraLocal == DateTime.MaxValue)
+                agoraLocal = DateTime.Now;
+
+            var ids = trackIds.Where(id => id > 0).Distinct().ToList();
+            if (ids.Count == 0) return resultado;
+
+            string dataInicio = agoraLocal.AddDays(-7).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            string dataFim = agoraLocal.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            Debug.WriteLine($"[HIST/FAT] intervalo inicio={dataInicio} fim={dataFim} trackIds={ids.Count}");
+            const int tamanhoLote = 900;
+
+            using (var conn = Database.GetConnection())
+            {
+                conn.Open();
+                for (int inicio = 0; inicio < ids.Count; inicio += tamanhoLote)
+                {
+                    int quantidade = Math.Min(tamanhoLote, ids.Count - inicio);
+                    var parametros = new List<string>(quantidade);
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        for (int i = 0; i < quantidade; i++)
+                        {
+                            string nomeParametro = "@id" + i;
+                            parametros.Add(nomeParametro);
+                            cmd.Parameters.AddWithValue(nomeParametro, ids[inicio + i]);
+                        }
+
+                        cmd.CommandText = @"SELECT Musica, COUNT(*) AS Total
+FROM HistoricoMusicaTocada
+WHERE Musica IN (" + string.Join(",", parametros) + @")
+  AND DataHora >= @dataInicio
+  AND DataHora <= @dataFim
+GROUP BY Musica;";
+                        cmd.Parameters.AddWithValue("@dataInicio", dataInicio);
+                        cmd.Parameters.AddWithValue("@dataFim", dataFim);
+
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                int trackId = Convert.ToInt32(reader["Musica"]);
+                                int total = Convert.ToInt32(reader["Total"]);
+                                resultado[trackId] = total;
+                                Debug.WriteLine($"[HIST/FAT] resultado trackId={trackId} execucoes={total}");
+                            }
+                        }
+                    }
+                }
+            }
+
+            return resultado;
+        }
+
         public void Tocou(int id)
         {
             AtualizarUltimaReproducao(id, DateTime.Now);
@@ -1101,7 +1185,12 @@ LIMIT @limite;", conn))
 
         public int TocouRetornandoVez(int trackId)
         {
-            return AtualizarUltimaReproducaoRetornandoVez(trackId, DateTime.Now);
+            return TocouRetornandoVez(trackId, DateTime.Now);
+        }
+
+        public int TocouRetornandoVez(int trackId, DateTime playedAt)
+        {
+            return AtualizarUltimaReproducaoRetornandoVez(trackId, playedAt);
         }
 
         public void AtualizarUltimaReproducao(int trackId, DateTime playedAt)
@@ -1111,6 +1200,7 @@ LIMIT @limite;", conn))
 
         private int AtualizarUltimaReproducaoRetornandoVez(int trackId, DateTime playedAt)
         {
+            Debug.WriteLine($"[DB/TOCOU] db={AppConfig.DatabasePath} trackId={trackId} agora={playedAt:yyyy-MM-dd HH:mm:ss}");
             using (var connection = Database.GetConnection())
             {
                 connection.Open();
@@ -1133,7 +1223,10 @@ LIMIT @limite;", conn))
                         depois.Parameters.AddWithValue("@ID", trackId);
                         object valor = depois.ExecuteScalar();
                         int vezDepois = valor == null || valor == DBNull.Value ? 0 : Convert.ToInt32(valor);
-                        Debug.WriteLine($"[PERSIST] IncrementarVez trackId={trackId} antes={vezAntes} depoisBanco={vezDepois} linhas={linhas}");
+                        Debug.WriteLine($"[DB/TOCOU] linhasAfetadas={linhas} trackId={trackId}");
+                        Debug.WriteLine($"[DB/TOCOU] select vez={vezDepois} ultima={playedAt:yyyy-MM-dd HH:mm:ss}");
+                        if (linhas == 0)
+                            throw new InvalidOperationException($"Nenhuma linha atualizada para trackId={trackId}");
                         return vezDepois;
                     }
                 }
