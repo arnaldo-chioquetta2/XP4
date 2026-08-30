@@ -6,8 +6,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{A1B2C3D4-E5F6-4789-8A9B-0C1D2E3F0000}</ProjectGuid>
     <OutputType>WinExe</OutputType>
-    <RootNamespace>XP3</RootNamespace>
-    <AssemblyName>XP3</AssemblyName>
+    <RootNamespace>XP31</RootNamespace>
+    <AssemblyName>XP31</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
@@ -210,7 +210,7 @@
     </Compile>
     <Compile Include="Forms\AppBarAPI.cs" />
     <Compile Include="Forms\AppBarVisualizer.cs">
-      <SubType>Form</SubType>
+      <SubType>Component</SubType>
     </Compile>
     <Compile Include="Forms\AppBarVisualizer.Designer.cs">
       <DependentUpon>AppBarVisualizer.cs</DependentUpon>
@@ -224,6 +224,21 @@
     <Compile Include="Models\ProgramacaoModel.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Controls\VisualizacaoCordasControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Controls\VisualizacaoMargaridasControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Controls\VisualizacaoAuroraControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Controls\VisualizacaoOsciloscopioTriploControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Controls\VisualizacaoOsciloscopioControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="Controls\SpectrumControl.cs">
       <SubType>UserControl</SubType>
     </Compile>

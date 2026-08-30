@@ -39,10 +39,13 @@ namespace XP3.Services
         public event Action<int, int> TrackVezAtualizada;
         public event Action<int, DateTime> TrackHistoricoRegistrado;
         public event EventHandler<float[]> FftDataReceived;
+        public event EventHandler<float[]> WaveformDataReceived;
+        public event EventHandler<StereoWaveformData> StereoWaveformDataReceived;
         public event Action<int, double> TrackMaxVolMeasured;
         public event Action<string> StatusVolumeChanged;
         public event EventHandler<Tuple<Track, string>> PlaybackError;
         private SampleAggregator _aggregator;
+        private bool _stereoVisualLogEmitido;
 
         private readonly ProgrammingRepository _progRepo;
         private bool _programacaoAtiva;
@@ -178,7 +181,6 @@ namespace XP3.Services
             }
 
             DateTime agora = DateTime.Now;
-            GravarLog($"[HIST/ULTIMA] Inicio reproducao nao altera UltimaConclusao trackId={track.Id} ultimaConclusaoAntes={(track.UltimaConclusaoEm.HasValue ? track.UltimaConclusaoEm.Value.ToString("yyyy-MM-dd HH:mm:ss") : "NULL")}");
             GravarLog($"[PLAY/PERSIST] TOCOU_CHAMAR trackId={track.Id} origem={origem}");
             try
             {
@@ -576,8 +578,14 @@ namespace XP3.Services
                 _aggregator = new SampleAggregator(_equalizerProvider, 256);
                 System.Diagnostics.Debug.WriteLine("[NORM/MAXVOL] SampleAggregator criado");
                 _aggregator.FftCalculated += (s, args) => NotificarFft(args.Result);
+                _aggregator.WaveformDataReceived += data => NotificarWaveform(data);
+                _aggregator.StereoWaveformDataReceived += data => NotificarStereoWaveform(data);
+                if (!_stereoVisualLogEmitido)
+                {
+                    _stereoVisualLogEmitido = true;
+                    System.Diagnostics.Debug.WriteLine($"[VISUAL/STEREO] channels={_aggregator.WaveFormat.Channels} modo={(_aggregator.WaveFormat.Channels > 1 ? "Stereo" : "Mono")}");
+                }
                 _aggregator.PeakMeasured += Aggregator_PeakMeasured;
-                System.Diagnostics.Debug.WriteLine("[NORM/MAXVOL] PeakMeasured assinado");
 
                 IniciarMedicaoMaxVolAtual(track);
 
@@ -1207,12 +1215,6 @@ namespace XP3.Services
         {
             try
             {
-                if ((DateTime.Now - _ultimaLogPeakRecebido).TotalSeconds >= 1)
-                {
-                    _ultimaLogPeakRecebido = DateTime.Now;
-                    System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Peak recebido peak={peak:0.###} medindo={_medindoMaxVolAtual} atual={_maxVolMedidoAtual:0.###}");
-                }
-
                 if (!_medindoMaxVolAtual || !_trackIdMedindoMaxVol.HasValue)
                     return;
 
@@ -1223,7 +1225,6 @@ namespace XP3.Services
                     return;
 
                 _maxVolMedidoAtual = peak;
-                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Maximo atualizado trackId={_trackIdMedindoMaxVol.Value} max={_maxVolMedidoAtual:0.###}");
 
                 DateTime agora = DateTime.Now;
                 if ((agora - _ultimaNotificacaoMaxVol).TotalMilliseconds < 250)
@@ -1231,7 +1232,6 @@ namespace XP3.Services
 
                 _ultimaNotificacaoMaxVol = agora;
                 string mensagem = $"Máximo detectado: {_maxVolMedidoAtual.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}";
-                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] Emitindo status='{mensagem}'");
                 NotificarStatusVolume(mensagem);
             }
             catch (Exception ex)
@@ -1370,7 +1370,6 @@ namespace XP3.Services
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL] NotificarStatusVolume='{mensagem ?? "null"}'");
                 StatusVolumeChanged?.Invoke(mensagem);
             }
             catch (Exception ex)
@@ -1378,6 +1377,18 @@ namespace XP3.Services
                 GravarLog($"Erro em StatusVolumeChanged: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"[NORM/MAXVOL ERRO] StatusVolumeChanged: {ex}");
             }
+        }
+
+        private void NotificarWaveform(float[] data)
+        {
+            try { WaveformDataReceived?.Invoke(this, data); }
+            catch (Exception ex) { GravarLog($"Erro em WaveformDataReceived: {ex.Message}"); }
+        }
+
+        private void NotificarStereoWaveform(StereoWaveformData data)
+        {
+            try { StereoWaveformDataReceived?.Invoke(this, data); }
+            catch (Exception ex) { GravarLog($"Erro em StereoWaveformDataReceived: {ex.Message}"); }
         }
 
         private void NotificarFft(float[] data)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using NAudio.Dsp;
 using NAudio.Wave;
 
@@ -10,6 +10,11 @@ namespace Mp3PlayerWinForms.Services
         private readonly ISampleProvider _source;
         private readonly Complex[] _fftBuffer;
         private readonly float[] _fftArgs;
+        private readonly float[] _waveformBuffer = new float[512];
+        private readonly float[] _leftWaveformBuffer = new float[512];
+        private readonly float[] _rightWaveformBuffer = new float[512];
+        private readonly float[] _mixWaveformBuffer = new float[512];
+        private int _waveformPos;
         private int _fftPos;
         private readonly int _fftLength;
         private readonly int _m; // log2(fftLength)
@@ -19,6 +24,8 @@ namespace Mp3PlayerWinForms.Services
         // Evento que avisa quando o cálculo está pronto
         public event EventHandler<FftEventArgs> FftCalculated;
         public event Action<float> PeakMeasured;
+        public event Action<float[]> WaveformDataReceived;
+        public event Action<StereoWaveformData> StereoWaveformDataReceived;
 
         public SampleAggregator(ISampleProvider source, int fftLength = 1024)
         {
@@ -35,16 +42,18 @@ namespace Mp3PlayerWinForms.Services
         {
             int samplesRead = _source.Read(buffer, offset, count);
             float peak = 0f;
-
-            for (int n = 0; n < samplesRead; n += _source.WaveFormat.Channels)
+            int channels = Math.Max(1, _source.WaveFormat.Channels);
+            for (int n = 0; n < samplesRead; n += channels)
             {
-                // Pega o sample (se for estéreo, soma os canais pra virar mono)
-                float sample = buffer[offset + n];
-                if (_source.WaveFormat.Channels == 2) sample += buffer[offset + n + 1];
-                sample /= _source.WaveFormat.Channels;
+                float left = buffer[offset + n];
+                float right = channels > 1 && n + 1 < samplesRead
+                    ? buffer[offset + n + 1]
+                    : left;
+                float sample = (left + right) / 2f;
                 peak = Math.Max(peak, Math.Abs(sample));
 
                 Add(sample);
+                AddWaveformSample(left, right, sample);
             }
 
             if ((DateTime.Now - _lastReadLog).TotalSeconds >= 1)
@@ -66,7 +75,33 @@ namespace Mp3PlayerWinForms.Services
 
             return samplesRead;
         }
+        private void AddWaveformSample(float left, float right, float mix)
+        {
+            _waveformBuffer[_waveformPos] = mix;
+            _leftWaveformBuffer[_waveformPos] = left;
+            _rightWaveformBuffer[_waveformPos] = right;
+            _mixWaveformBuffer[_waveformPos] = mix;
+            _waveformPos++;
+            if (_waveformPos < _waveformBuffer.Length)
+                return;
 
+            float[] copia = new float[_waveformBuffer.Length];
+            float[] esquerda = new float[_leftWaveformBuffer.Length];
+            float[] direita = new float[_rightWaveformBuffer.Length];
+            float[] geral = new float[_mixWaveformBuffer.Length];
+            Array.Copy(_waveformBuffer, copia, copia.Length);
+            Array.Copy(_leftWaveformBuffer, esquerda, esquerda.Length);
+            Array.Copy(_rightWaveformBuffer, direita, direita.Length);
+            Array.Copy(_mixWaveformBuffer, geral, geral.Length);
+            _waveformPos = 0;
+            WaveformDataReceived?.Invoke(copia);
+            StereoWaveformDataReceived?.Invoke(new StereoWaveformData
+            {
+                Left = esquerda,
+                Right = direita,
+                Mix = geral
+            });
+        }
         private void Add(float value)
         {
             if (_fftPos >= _fftLength)
@@ -97,6 +132,13 @@ namespace Mp3PlayerWinForms.Services
 
             FftCalculated?.Invoke(this, new FftEventArgs(_fftArgs));
         }
+    }
+
+    public class StereoWaveformData
+    {
+        public float[] Left { get; set; }
+        public float[] Right { get; set; }
+        public float[] Mix { get; set; }
     }
 
     public class FftEventArgs : EventArgs

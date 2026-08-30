@@ -1168,7 +1168,6 @@ GROUP BY Musica;";
                                 int trackId = Convert.ToInt32(reader["Musica"]);
                                 int total = Convert.ToInt32(reader["Total"]);
                                 resultado[trackId] = total;
-                                Debug.WriteLine($"[HIST/FAT] resultado trackId={trackId} execucoes={total}");
                             }
                         }
                     }
