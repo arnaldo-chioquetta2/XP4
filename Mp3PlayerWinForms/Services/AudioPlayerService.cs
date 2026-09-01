@@ -235,6 +235,7 @@ namespace XP3.Services
         // --- NOVIDADE: Variáveis de controle de agendamento ---
         private int? _lastKnownScheduledPlaylistId = null;
         private bool _userOverriddenProgrammedPlaylist = false;
+        private bool _retornoProgramacaoPendente;
         // ----------------------------------------------------
         private bool _medindoMaxVolAtual;
         private double _maxVolMedidoAtual;
@@ -273,6 +274,21 @@ namespace XP3.Services
 
         //public event Action<string> OnStatusCueChanged;
 
+        public void SolicitarRetornoProgramacao()
+        {
+            _retornoProgramacaoPendente = true;
+            _userOverriddenProgrammedPlaylist = false;
+            GravarLog("[PROGRAMACAO] retorno solicitado");
+        }
+
+        public void CancelarRetornoProgramacao()
+        {
+            if (!_retornoProgramacaoPendente)
+                return;
+
+            _retornoProgramacaoPendente = false;
+            GravarLog("[PROGRAMACAO] retorno pendente cancelado");
+        }
         public bool ProgramacaoAtiva
         {
             get => _programacaoAtiva;
@@ -469,6 +485,7 @@ namespace XP3.Services
 
             if (isUserInitiated)
             {
+                CancelarRetornoProgramacao();
                 _userOverriddenProgrammedPlaylist = true;
                 GravarLog("[PLAYER] Usuário iniciou playback. Programação automática temporariamente desativada.");
             }
@@ -791,6 +808,24 @@ namespace XP3.Services
                     {
                         NotificarTrackFinishedNaturally(faixaFinalizada);
                     }
+                }
+
+                if (finishedNaturally && _retornoProgramacaoPendente)
+                {
+                    _retornoProgramacaoPendente = false;
+                    var programacoesRetorno = _progRepo.ListarProgramacao();
+                    int? listaRetorno = _progService.SugerirPlaylistPorHorario(programacoesRetorno);
+                    if (listaRetorno.HasValue)
+                    {
+                        _userOverriddenProgrammedPlaylist = false;
+                        _lastKnownScheduledPlaylistId = listaRetorno.Value;
+                        GravarLog($"[PROGRAMACAO] retorno efetivado lista={listaRetorno.Value}");
+                        NotificarTrocaPlaylist(listaRetorno.Value);
+                        _handlingPlaybackStopped = false;
+                        return;
+                    }
+
+                    GravarLog("[PROGRAMACAO] retorno sem lista valida; seguindo comportamento atual");
                 }
 
                 // GATILHO DA PROGRAMAÇÃO (Requisito 2.1)

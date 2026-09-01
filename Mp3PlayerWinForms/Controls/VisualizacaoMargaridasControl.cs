@@ -14,6 +14,8 @@ namespace XP3.Controls
         private const int FloresMinimas = 24;
         private const int FloresMaximas = 48;
         private const float LimiarVisualEnergia = 0.04f;
+        private const int MaxRastrosPorFlor = 3;
+        private const float HistereseRastro = 3f;
         private readonly Random _rng = new Random();
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private readonly List<MargaridaEstado> _flores = new List<MargaridaEstado>();
@@ -93,6 +95,8 @@ namespace XP3.Controls
                     Nascer(flor, agora);
 
                 AtualizarFlor(flor, agora, dt);
+                TentarCriarRastro(flor, agora, energia);
+                AtualizarRastros(flor, agora, dt);
                 if (PrecisaRenovar(flor))
                     Renovar(flor, agora);
             }
@@ -242,6 +246,46 @@ namespace XP3.Controls
 
         }
 
+        private void TentarCriarRastro(MargaridaEstado flor, double agora, float energia)
+        {
+            if (!flor.Inicializada || energia < LimiarVisualEnergia || agora < flor.ProximoRastro)
+                return;
+
+            flor.ProximoRastro = agora + 0.25d;
+            float yNovo = CalcularYInicial(energia);
+            float yReferencia = flor.Y;
+            for (int i = 0; i < flor.Rastros.Count; i++)
+                yReferencia = Math.Min(yReferencia, flor.Rastros[i].Y);
+
+            if (yNovo >= yReferencia - HistereseRastro)
+                return;
+
+            while (flor.Rastros.Count >= MaxRastrosPorFlor)
+                flor.Rastros.RemoveAt(0);
+
+            MargaridaEstado rastro = new MargaridaEstado();
+            rastro.Indice = flor.Indice;
+            rastro.X = flor.X;
+            rastro.EnergiaAtual = energia;
+            rastro.EnergiaSemente = energia;
+            Nascer(rastro, agora);
+            rastro.X = flor.X;
+            flor.Rastros.Add(rastro);
+        }
+
+        private void AtualizarRastros(MargaridaEstado flor, double agora, double dt)
+        {
+            for (int i = flor.Rastros.Count - 1; i >= 0; i--)
+            {
+                MargaridaEstado rastro = flor.Rastros[i];
+                AtualizarFlor(rastro, agora, dt);
+                bool expirou = rastro.Escala <= 0.32f ||
+                               rastro.Idade >= 6d ||
+                               rastro.Y >= Math.Max(20f, ClientSize.Height - 5f);
+                if (expirou)
+                    flor.Rastros.RemoveAt(i);
+            }
+        }
         private float CalcularYInicial(float energia)
         {
             float areaTop = Math.Max(ClientSize.Height * 0.10f, string.IsNullOrEmpty(_tituloMusica) ? 4f : 23f);
@@ -294,8 +338,19 @@ namespace XP3.Controls
             for (int i = 0; i < _flores.Count; i++)
             {
                 MargaridaEstado flor = _flores[i];
+                for (int j = 0; j < flor.Rastros.Count; j++)
+                {
+                    MargaridaEstado rastro = flor.Rastros[j];
+                    if (!rastro.Inicializada) continue;
+                    float raioRastro = Math.Min(12f, Math.Max(4.8f, (width / (float)_flores.Count) * 0.27f)) * rastro.Escala;
+                    DesenharFlorRastro(e.Graphics, rastro, fundo, raioRastro);
+                }
+            }
+            for (int i = 0; i < _flores.Count; i++)
+            {
+                MargaridaEstado flor = _flores[i];
                 if (!flor.Inicializada || flor.EnergiaAtual < LimiarVisualEnergia) continue;
-                float raio = Math.Min(8f, Math.Max(3.2f, (width / (float)_flores.Count) * 0.18f)) * flor.Escala;
+                float raio = Math.Min(12f, Math.Max(4.8f, (width / (float)_flores.Count) * 0.27f)) * flor.Escala;
                 float centroY = flor.Y;
                 float centroX = flor.X;
                 using (Pen haste = new Pen(Color.FromArgb(90, 190, 85), Math.Max(1f, 1.5f * flor.Escala)))
@@ -311,7 +366,7 @@ namespace XP3.Controls
                     e.Graphics.FillEllipse(folha, centroX - 12f * flor.Escala, yFolhaEsquerda - 2.5f * flor.Escala, 13f * flor.Escala, 5f * flor.Escala);
                     e.Graphics.FillEllipse(folha, centroX + 1f * flor.Escala, yFolhaDireita - 2.5f * flor.Escala, 13f * flor.Escala, 5f * flor.Escala);
                 }
-                DesenharPetalas(e.Graphics, centroX, centroY, raio, flor.PetalasRestantes, flor.CorPetalas, flor.Escala);
+                DesenharPetalas(e.Graphics, centroX, centroY, raio, flor.PetalasRestantes, ObterCorPetalasPorIdade(flor.Idade, 7d), flor.Escala);
             }
 
             if (!string.IsNullOrEmpty(_tituloMusica))
@@ -322,6 +377,44 @@ namespace XP3.Controls
             }
         }
 
+        private static void DesenharFlorRastro(Graphics graphics, MargaridaEstado flor, float fundo, float raio)
+        {
+            float centroY = flor.Y;
+            float centroX = flor.X;
+            using (Pen haste = new Pen(Color.FromArgb(75, 155, 65), Math.Max(1f, 1.5f * flor.Escala)))
+            {
+                graphics.DrawLine(haste, centroX, fundo, centroX, centroY + raio * 0.45f);
+            }
+            using (SolidBrush folha = new SolidBrush(Color.FromArgb(60, 125, 55)))
+            {
+                float topoCaule = Math.Min(fundo, centroY + raio * 0.45f);
+                float comprimentoCaule = Math.Max(0f, fundo - topoCaule);
+                float yFolhaEsquerda = topoCaule + comprimentoCaule * 0.42f;
+                float yFolhaDireita = topoCaule + comprimentoCaule * 0.70f;
+                graphics.FillEllipse(folha, centroX - 12f * flor.Escala, yFolhaEsquerda - 2.5f * flor.Escala, 13f * flor.Escala, 5f * flor.Escala);
+                graphics.FillEllipse(folha, centroX + 1f * flor.Escala, yFolhaDireita - 2.5f * flor.Escala, 13f * flor.Escala, 5f * flor.Escala);
+            }
+            DesenharPetalas(graphics, centroX, centroY, raio, flor.PetalasRestantes, ObterCorPetalasPorIdade(flor.Idade, 6d), flor.Escala);
+        }
+        private static Color ObterCorPetalasPorIdade(double idade, double idadeMaxima)
+        {
+            float progresso = idadeMaxima <= 0d ? 1f : (float)(idade / idadeMaxima);
+            progresso = Limitar(progresso, 0f, 1f);
+            if (progresso <= 0.35f)
+                return InterpolarCor(Color.White, Color.FromArgb(255, 235, 190), progresso / 0.35f);
+            if (progresso <= 0.65f)
+                return InterpolarCor(Color.FromArgb(255, 235, 190), Color.FromArgb(235, 155, 70), (progresso - 0.35f) / 0.30f);
+            return InterpolarCor(Color.FromArgb(235, 155, 70), Color.FromArgb(180, 75, 15), (progresso - 0.65f) / 0.35f);
+        }
+
+        private static Color InterpolarCor(Color inicio, Color fim, float progresso)
+        {
+            progresso = Limitar(progresso, 0f, 1f);
+            return Color.FromArgb(
+                (int)(inicio.R + (fim.R - inicio.R) * progresso),
+                (int)(inicio.G + (fim.G - inicio.G) * progresso),
+                (int)(inicio.B + (fim.B - inicio.B) * progresso));
+        }
         private static void DesenharPetalas(Graphics graphics, float x, float y, float raio, int quantidade, Color cor, float escala)
         {
             if (quantidade <= 0) return;
@@ -364,6 +457,8 @@ namespace XP3.Controls
             public float VariacaoX;
             public Color CorPetalas;
             public bool Inicializada;
+            public readonly List<MargaridaEstado> Rastros = new List<MargaridaEstado>();
+            public double ProximoRastro;
         }
     }
 }

@@ -32,10 +32,10 @@ namespace XP3.Forms
             this.btnBandas = new System.Windows.Forms.Button();
             this.btnScan = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
-            this.btnNext = new System.Windows.Forms.Button();
             this.btnMenos = new System.Windows.Forms.Button();
-            this.btnPause = new System.Windows.Forms.Button();
+            this.btnNext = new System.Windows.Forms.Button();
             this.btnPlay = new System.Windows.Forms.Button();
+            this.btnPause = new System.Windows.Forms.Button();
             this.pnlHeader = new System.Windows.Forms.Panel();
             this.chkToggleProg = new System.Windows.Forms.CheckBox();
             this.button1 = new System.Windows.Forms.Button();
@@ -170,19 +170,6 @@ namespace XP3.Forms
             this.lblStatus.Size = new System.Drawing.Size(428, 27);
             this.lblStatus.TabIndex = 4;
             // 
-            // btnNext
-            // 
-            this.btnNext.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
-            this.btnNext.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnNext.ForeColor = System.Drawing.Color.White;
-            this.btnNext.Location = new System.Drawing.Point(93, 15);
-            this.btnNext.Name = "btnNext";
-            this.btnNext.Size = new System.Drawing.Size(75, 30);
-            this.btnNext.TabIndex = 2;
-            this.btnNext.Text = ">>";
-            this.btnNext.UseVisualStyleBackColor = false;
-            this.btnNext.Click += new System.EventHandler(this.btnNext_Click);
-            // 
             // btnMenos
             // 
             this.btnMenos.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
@@ -197,18 +184,18 @@ namespace XP3.Forms
             this.btnMenos.UseVisualStyleBackColor = false;
             this.btnMenos.Click += new System.EventHandler(this.btnMenos_Click);
             // 
-            // btnPause
+            // btnNext
             // 
-            this.btnPause.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
-            this.btnPause.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnPause.ForeColor = System.Drawing.Color.White;
-            this.btnPause.Location = new System.Drawing.Point(93, 15);
-            this.btnPause.Name = "btnPause";
-            this.btnPause.Size = new System.Drawing.Size(75, 30);
-            this.btnPause.TabIndex = 1;
-            this.btnPause.Text = "Pause";
-            this.btnPause.UseVisualStyleBackColor = false;
-            this.btnPause.Visible = false;
+            this.btnNext.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
+            this.btnNext.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnNext.ForeColor = System.Drawing.Color.White;
+            this.btnNext.Location = new System.Drawing.Point(93, 15);
+            this.btnNext.Name = "btnNext";
+            this.btnNext.Size = new System.Drawing.Size(75, 30);
+            this.btnNext.TabIndex = 2;
+            this.btnNext.Text = ">>";
+            this.btnNext.UseVisualStyleBackColor = false;
+            this.btnNext.Click += new System.EventHandler(this.btnNext_Click);
             // 
             // btnPlay
             // 
@@ -221,6 +208,19 @@ namespace XP3.Forms
             this.btnPlay.TabIndex = 0;
             this.btnPlay.Text = "Play";
             this.btnPlay.UseVisualStyleBackColor = false;
+            // 
+            // btnPause
+            // 
+            this.btnPause.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
+            this.btnPause.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnPause.ForeColor = System.Drawing.Color.White;
+            this.btnPause.Location = new System.Drawing.Point(93, 15);
+            this.btnPause.Name = "btnPause";
+            this.btnPause.Size = new System.Drawing.Size(75, 30);
+            this.btnPause.TabIndex = 1;
+            this.btnPause.Text = "Pause";
+            this.btnPause.UseVisualStyleBackColor = false;
+            this.btnPause.Visible = false;
             // 
             // pnlHeader
             // 
@@ -243,7 +243,7 @@ namespace XP3.Forms
             this.chkToggleProg.FlatAppearance.CheckedBackColor = System.Drawing.Color.DarkGreen;
             this.chkToggleProg.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.chkToggleProg.ForeColor = System.Drawing.Color.White;
-            this.chkToggleProg.Location = new System.Drawing.Point(12, 5);
+            this.chkToggleProg.Location = new System.Drawing.Point(89, 4);
             this.chkToggleProg.Name = "chkToggleProg";
             this.chkToggleProg.Size = new System.Drawing.Size(50, 30);
             this.chkToggleProg.TabIndex = 4;
@@ -257,7 +257,7 @@ namespace XP3.Forms
             this.button1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
             this.button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.button1.ForeColor = System.Drawing.Color.White;
-            this.button1.Location = new System.Drawing.Point(67, 5);
+            this.button1.Location = new System.Drawing.Point(3, 4);
             this.button1.Name = "button1";
             this.button1.Size = new System.Drawing.Size(80, 30);
             this.button1.TabIndex = 3;

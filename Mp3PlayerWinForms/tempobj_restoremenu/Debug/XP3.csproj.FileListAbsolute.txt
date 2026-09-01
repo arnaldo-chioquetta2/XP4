@@ -1,7 +1,0 @@
-D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\tempobj_restoremenu\Debug\XP3.csproj.AssemblyReference.cache
-D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\tempobj_restoremenu\Debug\XP3.Forms.Inicial.resources
-D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\tempobj_restoremenu\Debug\XP3.Programacao.resources
-D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\tempobj_restoremenu\Debug\XP3.Forms.ScannerForm.resources
-D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\tempobj_restoremenu\Debug\XP3.Forms.VisualizerForm.resources
-D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\tempobj_restoremenu\Debug\XP3.csproj.GenerateResource.cache
-D:\Prog\XP3\Mp3PlayerWinForms_Project\Mp3PlayerWinForms\tempobj_restoremenu\Debug\XP3.csproj.CoreCompileInputs.cache

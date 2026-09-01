@@ -89,7 +89,7 @@ namespace XP3.Forms
         private const int AlturaAppBar = 110;
         private const int AlturaMinimaAppBar = 70;
         private const int AlturaMaximaAppBar = 400;
-        private const int FaixaBordaSuperior = 6;
+        private const int FaixaBordaSuperior = 0;
 
         private bool _registrado;
         private bool _reposicionandoAppBar;

@@ -4784,6 +4784,7 @@ namespace XP3.Forms
         {
             try
             {
+                _player?.CancelarRetornoProgramacao();
                 // 1. Salva no INI que agora queremos ver esta playlist
                 _iniService.Write("Player", "LastPlaylistId", playlist.Id.ToString());
 
@@ -4908,6 +4909,7 @@ namespace XP3.Forms
 
             try
             {
+                _player?.CancelarRetornoProgramacao();
                 lblStatus.Text = $"Carregando banda: {banda.Name}...";
                 lblStatus.ForeColor = Color.LightGray;
 
@@ -5988,7 +5990,20 @@ namespace XP3.Forms
             // O 'set' da propriedade ProgramacaoAtiva no AudioPlayerService jÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ chama o _progRepo.SalvarEstadoProgramacao.
             if (_player != null)
             {
+                bool estavaEmProgramacao = _player.ProgramacaoAtiva;
                 _player.ProgramacaoAtiva = chkToggleProg.Checked;
+
+                if (chkToggleProg.Checked && !estavaEmProgramacao)
+                {
+                    if (_player.IsPlaying && _player.CurrentTrack != null)
+                        _player.SolicitarRetornoProgramacao();
+                    else
+                        _player.ForcarVerificacaoProgramacao();
+                }
+                else if (!chkToggleProg.Checked)
+                {
+                    _player.CancelarRetornoProgramacao();
+                }
             }
 
             // 2. Atualiza o visual do botÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o (Texto e Cor)
