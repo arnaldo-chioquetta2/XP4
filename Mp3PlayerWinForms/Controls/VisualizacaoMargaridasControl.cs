@@ -149,16 +149,24 @@ namespace XP3.Controls
         {
             float largura = Math.Max(1, ClientSize.Width);
             const float margemEsquerda = 4f;
-            float direitaOriginal = Math.Max(margemEsquerda, largura - 4f);
-            float larguraUtil = Math.Max(1f, direitaOriginal - margemEsquerda);
-            float espaco = larguraUtil / quantidade;
+            float direita = Math.Max(margemEsquerda, largura - 4f);
+            float larguraUtil = Math.Max(1f, direita - margemEsquerda);
+            int posicoesPorLado = Math.Max(1, quantidade / 2);
+            float espacamento = larguraUtil / (2f * posicoesPorLado);
+            float centroX = margemEsquerda + larguraUtil / 2f;
+
             for (int i = 0; i < _flores.Count; i++)
             {
                 MargaridaEstado flor = _flores[i];
-                float centro = margemEsquerda + (i + 0.5f) * espaco;
+                int distancia = i == 0 ? 0 : (i + 1) / 2;
+                bool direitaDoCentro = i > 0 && (i % 2) == 1;
+                float xBase = centroX + (direitaDoCentro ? distancia : -distancia) * espacamento;
                 float variacao = flor.Inicializada ? flor.VariacaoX : (_rng.Next(7) - 3);
                 flor.VariacaoX = variacao;
-                flor.X = Math.Max(margemEsquerda, Math.Min(direitaOriginal, centro + variacao));
+                flor.X = Math.Max(margemEsquerda, Math.Min(direita, xBase + variacao));
+
+                for (int j = 0; j < flor.Rastros.Count; j++)
+                    flor.Rastros[j].X = flor.X;
             }
         }
 
