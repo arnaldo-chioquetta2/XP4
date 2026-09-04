@@ -1,0 +1,775 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+
+namespace XP3.Controls
+{
+    public class VisualizacaoCristaisControl : UserControl
+    {
+        private const int MinBandas = 24;
+        private const int MaxBandas = 48;
+        private const int MaxCristaisTeto = 800;
+        private const int MaxNascimentosPorAtualizacao = 6;
+        private const float LimiarEnergia = 0.04f;
+        private const float FatorFft = 0.78f;
+        private const float PassoX = 8f;
+        private const float PassoY = 12f;
+        private const float VelocidadeSedimentacao = 10f;
+
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+        private readonly Random _rng = new Random();
+        private readonly List<FaixaEnergia> _faixas = new List<FaixaEnergia>();
+        private readonly List<FaixaEnergia> _faixasOrdenadas = new List<FaixaEnergia>();
+        private readonly List<PosicaoVisual> _posicoesVisuais = new List<PosicaoVisual>();
+        private readonly List<CristalEstado> _cristais = new List<CristalEstado>();
+        private readonly Dictionary<long, Pen> _cachePens = new Dictionary<long, Pen>();
+        private readonly List<List<CristalEstado>> _cristaisPorColuna = new List<List<CristalEstado>>();
+        private readonly Color[] _cores =
+        {
+            Color.FromArgb(110, 220, 255),
+            Color.FromArgb(90, 190, 255),
+            Color.FromArgb(120, 255, 230),
+            Color.FromArgb(180, 140, 255),
+            Color.FromArgb(220, 150, 255),
+            Color.FromArgb(120, 170, 255)
+        };
+
+        private double _ultimoTempo;
+        private int _ultimaLargura = -1;
+        private int _colunasIndexadas;
+        private int _proximaPosicaoNascimento;
+        private bool _morroInicializado;
+        private string _titulo = string.Empty;
+
+        public event EventHandler DoubleClicked;
+
+        public VisualizacaoCristaisControl()
+        {
+            BackColor = Color.Black;
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            _ultimoTempo = _clock.Elapsed.TotalSeconds;
+        }
+
+        public string TituloMusica
+        {
+            get { return _titulo; }
+            set
+            {
+                _titulo = value ?? string.Empty;
+                Invalidate();
+            }
+        }
+
+        public void UpdateData(float[] fftData)
+        {
+            double agora = _clock.Elapsed.TotalSeconds;
+            double dt = agora - _ultimoTempo;
+            _ultimoTempo = agora;
+            if (dt < 0d) dt = 0d;
+            if (dt > 0.1d) dt = 0.1d;
+
+            GarantirFaixas(QuantidadeBandas(ClientSize.Width), agora);
+            AtualizarEnergias(fftData);
+            GarantirPosicoesVisuais();
+            AtualizarCristais((float)dt);
+            AtualizarPerfilVisual();
+
+            if (!_morroInicializado && ClientSize.Width > 0 && ClientSize.Height > 0)
+            {
+                InicializarMorro();
+                _morroInicializado = true;
+                ReconstruirIndiceEspacial();
+                AtualizarPerfilVisual();
+            }
+
+            ReconstruirIndiceEspacial();
+            PreencherDeficits(agora);
+            Invalidate();
+        }
+
+        protected override void OnDoubleClick(EventArgs e)
+        {
+            base.OnDoubleClick(e);
+            if (DoubleClicked != null) DoubleClicked(this, e);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            GarantirFaixas(QuantidadeBandas(ClientSize.Width), _clock.Elapsed.TotalSeconds);
+            GarantirPosicoesVisuais();
+            AtualizarPerfilVisual();
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            Graphics g = e.Graphics;
+            g.Clear(Color.Black);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            for (int i = 0; i < _cristais.Count; i++)
+            {
+                DesenharCristal(g, _cristais[i]);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_titulo))
+            {
+                using (Brush brush = new SolidBrush(Color.FromArgb(210, Color.White)))
+                {
+                    g.DrawString(_titulo, Font, brush, 8f, 3f);
+                }
+            }
+        }
+
+        private static int QuantidadeBandas(int largura)
+        {
+            return Math.Max(MinBandas, Math.Min(MaxBandas, largura <= 0 ? MinBandas : largura / 24));
+        }
+
+        private int QuantidadePosicoesVisuais()
+        {
+            return Math.Max(1, (int)Math.Ceiling(Math.Max(1f, ClientSize.Width) / PassoX));
+        }
+
+        private void GarantirFaixas(int quantidade, double agora)
+        {
+            if (_faixas.Count == quantidade && _ultimaLargura == ClientSize.Width)
+            {
+                return;
+            }
+
+            while (_faixas.Count < quantidade)
+            {
+                _faixas.Add(new FaixaEnergia());
+            }
+            while (_faixas.Count > quantidade)
+            {
+                _faixas.RemoveAt(_faixas.Count - 1);
+            }
+
+            for (int i = _cristais.Count - 1; i >= 0; i--)
+            {
+                if (_cristais[i].IndiceFaixa >= _faixas.Count)
+                {
+                    _cristais.RemoveAt(i);
+                }
+            }
+
+            _ultimaLargura = ClientSize.Width;
+            AtualizarPosicoesHorizontais();
+        }
+
+        private void AtualizarPosicoesHorizontais()
+        {
+            float esquerda = 4f;
+            float direita = Math.Max(esquerda, ClientSize.Width - 4f);
+            float largura = Math.Max(1f, direita - esquerda);
+            float centro = esquerda + largura / 2f;
+            int quantidadeLateral = Math.Max(1, _faixas.Count / 2);
+            float espacamento = largura / (2f * quantidadeLateral);
+
+            for (int i = 0; i < _faixas.Count; i++)
+            {
+                int distancia = i == 0 ? 0 : (i + 1) / 2;
+                bool direitaDoCentro = i > 0 && (i % 2) == 1;
+                float x = centro + (direitaDoCentro ? distancia : -distancia) * espacamento;
+                _faixas[i].X = Math.Max(esquerda, Math.Min(direita, x));
+            }
+
+            for (int i = 0; i < _cristais.Count; i++)
+            {
+                CristalEstado cristal = _cristais[i];
+                if (cristal.IndiceFaixa < _faixas.Count)
+                {
+                    cristal.X = _faixas[cristal.IndiceFaixa].X;
+                }
+            }
+        }
+
+        private void GarantirPosicoesVisuais()
+        {
+            int quantidade = QuantidadePosicoesVisuais();
+            while (_posicoesVisuais.Count < quantidade)
+            {
+                _posicoesVisuais.Add(new PosicaoVisual());
+            }
+            while (_posicoesVisuais.Count > quantidade)
+            {
+                _posicoesVisuais.RemoveAt(_posicoesVisuais.Count - 1);
+            }
+
+            float esquerda = 4f;
+            float direita = Math.Max(esquerda, ClientSize.Width - 4f);
+            float passo = quantidade <= 1 ? 0f : (direita - esquerda) / (quantidade - 1);
+            for (int i = 0; i < quantidade; i++)
+            {
+                _posicoesVisuais[i].X = quantidade <= 1 ? esquerda : esquerda + i * passo;
+            }
+            if (_proximaPosicaoNascimento >= quantidade)
+            {
+                _proximaPosicaoNascimento = 0;
+            }
+        }
+
+        private void AtualizarEnergias(float[] fftData)
+        {
+            float[] energias = CalcularEnergiasPorFaixa(fftData, _faixas.Count);
+            for (int i = 0; i < _faixas.Count; i++)
+            {
+                _faixas[i].Energia = _faixas[i].Energia * 0.7f + energias[i] * 0.3f;
+            }
+        }
+
+        private float[] CalcularEnergiasPorFaixa(float[] fftData, int quantidade)
+        {
+            float[] energias = new float[quantidade];
+            if (fftData == null || fftData.Length == 0 || quantidade == 0)
+            {
+                return energias;
+            }
+
+            int fimFaixaUtil = Math.Max(1, (int)(fftData.Length * FatorFft));
+            for (int i = 0; i < quantidade; i++)
+            {
+                float t0 = i / (float)quantidade;
+                float t1 = (i + 1) / (float)quantidade;
+                int inicio = Math.Min(fimFaixaUtil - 1, (int)(t0 * t0 * fimFaixaUtil));
+                int fim = (int)(t1 * t1 * fimFaixaUtil);
+                if (fim <= inicio) fim = Math.Min(fimFaixaUtil, inicio + 1);
+                if (fim > fftData.Length) fim = fftData.Length;
+
+                float soma = 0f;
+                int contador = 0;
+                for (int j = inicio; j < fim; j++)
+                {
+                    float valor = fftData[j];
+                    if (!float.IsNaN(valor) && !float.IsInfinity(valor) && valor >= 0f)
+                    {
+                        soma += valor;
+                        contador++;
+                    }
+                }
+
+                float media = contador == 0 ? 0f : soma / contador;
+                energias[i] = Limitar((float)Math.Sqrt(Math.Min(1f, media * 0.25f)), 0f, 1f);
+            }
+            return energias;
+        }
+
+        private void AtualizarPerfilVisual()
+        {
+            _faixasOrdenadas.Clear();
+            for (int i = 0; i < _faixas.Count; i++)
+            {
+                FaixaEnergia faixa = _faixas[i];
+                int pos = _faixasOrdenadas.Count;
+                while (pos > 0 && _faixasOrdenadas[pos - 1].X > faixa.X)
+                {
+                    pos--;
+                }
+                _faixasOrdenadas.Insert(pos, faixa);
+            }
+
+            for (int i = 0; i < _posicoesVisuais.Count; i++)
+            {
+                PosicaoVisual posicao = _posicoesVisuais[i];
+                posicao.EnergiaInterpolada = InterpolarEnergiaPorX(posicao.X);
+                posicao.EnergiaVisual = Limitar((float)Math.Pow(posicao.EnergiaInterpolada, 0.6), 0f, 1f);
+                float baseY = ClientSize.Height * 0.94f;
+                float topoY = ClientSize.Height * 0.08f;
+                posicao.AlturaAlvo = posicao.EnergiaVisual * Math.Max(0f, baseY - topoY);
+                posicao.AlturaAtual = CalcularAlturaAtual(posicao.X);
+                posicao.Deficit = Math.Max(0f, posicao.AlturaAlvo - posicao.AlturaAtual);
+            }
+        }
+
+        private float InterpolarEnergiaPorX(float x)
+        {
+            if (_faixasOrdenadas.Count == 0) return 0f;
+            if (x <= _faixasOrdenadas[0].X) return _faixasOrdenadas[0].Energia;
+            int ultimo = _faixasOrdenadas.Count - 1;
+            if (x >= _faixasOrdenadas[ultimo].X) return _faixasOrdenadas[ultimo].Energia;
+
+            for (int i = 1; i < _faixasOrdenadas.Count; i++)
+            {
+                FaixaEnergia direita = _faixasOrdenadas[i];
+                if (x <= direita.X)
+                {
+                    FaixaEnergia esquerda = _faixasOrdenadas[i - 1];
+                    float intervalo = Math.Max(1f, direita.X - esquerda.X);
+                    float t = Limitar((x - esquerda.X) / intervalo, 0f, 1f);
+                    return esquerda.Energia + (direita.Energia - esquerda.Energia) * t;
+                }
+            }
+            return _faixasOrdenadas[ultimo].Energia;
+        }
+
+        private int PreencherDeficits(double agora)
+        {
+            int nascimentos = 0;
+            int quantidade = _posicoesVisuais.Count;
+            if (quantidade == 0) return 0;
+
+            for (int deslocamento = 0; deslocamento < quantidade && nascimentos < MaxNascimentosPorAtualizacao; deslocamento++)
+            {
+                int indice = (_proximaPosicaoNascimento + deslocamento) % quantidade;
+                PosicaoVisual posicao = _posicoesVisuais[indice];
+                if (posicao.EnergiaInterpolada < LimiarEnergia ||
+                    posicao.Deficit <= Math.Max(1f, PassoY * 0.35f) ||
+                    agora < posicao.ProximoNascimento)
+                {
+                    continue;
+                }
+
+
+                CriarCristal(posicao);
+                posicao.ProximoNascimento = agora + 0.18d + _rng.NextDouble() * 0.27d;
+                posicao.AlturaAtual += Math.Max(1f, posicao.EnergiaVisual * PassoY);
+                posicao.Deficit = Math.Max(0f, posicao.AlturaAlvo - posicao.AlturaAtual);
+                nascimentos++;
+            }
+
+            _proximaPosicaoNascimento = (_proximaPosicaoNascimento + Math.Max(1, nascimentos)) % quantidade;
+            return nascimentos;
+        }
+
+        private void AtualizarCristais(float dt)
+        {
+            for (int i = _cristais.Count - 1; i >= 0; i--)
+            {
+                CristalEstado cristal = _cristais[i];
+                cristal.Idade += dt;
+                cristal.Y += VelocidadeSedimentacao * dt;
+                if (cristal.Y - cristal.Altura / 2f > ClientSize.Height + 5f ||
+                    cristal.Idade > cristal.IdadeMaxima)
+                {
+                    _cristais.RemoveAt(i);
+                }
+            }
+
+            ReconstruirIndiceEspacial();
+            CompactarMorro(dt);
+        }
+
+        private int LimiteCristais()
+        {
+            int colunas = Math.Max(1, (int)Math.Ceiling(Math.Max(1f, ClientSize.Width) / PassoX));
+            int linhas = Math.Max(1, (int)Math.Ceiling(Math.Max(1f, ClientSize.Height * 0.86f) / PassoY));
+            return Math.Min(MaxCristaisTeto, Math.Max(180, colunas * Math.Min(4, linhas)));
+        }
+
+        private void ReconstruirIndiceEspacial()
+        {
+            int quantidade = QuantidadePosicoesVisuais();
+            while (_cristaisPorColuna.Count < quantidade)
+            {
+                _cristaisPorColuna.Add(new List<CristalEstado>());
+            }
+            for (int i = 0; i < _cristaisPorColuna.Count; i++)
+            {
+                _cristaisPorColuna[i].Clear();
+            }
+            _colunasIndexadas = quantidade;
+            for (int i = 0; i < _cristais.Count; i++)
+            {
+                CristalEstado cristal = _cristais[i];
+                cristal.ColunaVisual = ObterColunaVisual(cristal.X);
+                _cristaisPorColuna[cristal.ColunaVisual].Add(cristal);
+            }
+        }
+
+        private int ObterColunaVisual(float x)
+        {
+            if (_colunasIndexadas <= 1) return 0;
+            int coluna = (int)((x - 4f) / Math.Max(1f, PassoX));
+            return Math.Max(0, Math.Min(_colunasIndexadas - 1, coluna));
+        }
+
+        private float CalcularYDeApoio(float x, float superficie, float altura)
+        {
+            CristalEstado suporte = EncontrarSuporteParaNascimento(x, superficie);
+            if (suporte == null)
+            {
+                return ClientSize.Height * 0.94f - altura / 2f;
+            }
+
+            float topoSuporte = suporte.Y - suporte.Altura / 2f;
+            return topoSuporte - altura / 2f + 1f;
+        }
+
+        private CristalEstado EncontrarSuporteParaNascimento(float x, float superficie)
+        {
+            int coluna = ObterColunaVisual(x);
+            CristalEstado suporte = null;
+            float menorY = float.MaxValue;
+            for (int deslocamento = -5; deslocamento <= 5; deslocamento++)
+            {
+                int indice = coluna + deslocamento;
+                if (indice < 0 || indice >= _cristaisPorColuna.Count) continue;
+                List<CristalEstado> candidatos = _cristaisPorColuna[indice];
+                for (int i = 0; i < candidatos.Count; i++)
+                {
+                    CristalEstado candidato = candidatos[i];
+                    if (candidato.Y < superficie - 2f ||
+                        Math.Abs(candidato.X - x) > candidato.Largura / 2f + 5f) continue;
+                    if (candidato.Y < menorY)
+                    {
+                        menorY = candidato.Y;
+                        suporte = candidato;
+                    }
+                }
+            }
+            return suporte;
+        }
+
+        private CristalEstado EncontrarSuporteAbaixo(CristalEstado cristal)
+        {
+            int coluna = ObterColunaVisual(cristal.X);
+            CristalEstado suporte = null;
+            float menorY = float.MaxValue;
+            for (int deslocamento = -5; deslocamento <= 5; deslocamento++)
+            {
+                int indice = coluna + deslocamento;
+                if (indice < 0 || indice >= _cristaisPorColuna.Count) continue;
+                List<CristalEstado> candidatos = _cristaisPorColuna[indice];
+                for (int i = 0; i < candidatos.Count; i++)
+                {
+                    CristalEstado candidato = candidatos[i];
+                    if (candidato == cristal || candidato.Y <= cristal.Y ||
+                        candidato.Y - cristal.Y > PassoY * 2.2f ||
+                        !SobrepoeHorizontalmente(cristal, candidato)) continue;
+                    if (candidato.Y < menorY)
+                    {
+                        menorY = candidato.Y;
+                        suporte = candidato;
+                    }
+                }
+            }
+            return suporte;
+        }
+
+        private static bool SobrepoeHorizontalmente(CristalEstado primeiro, CristalEstado segundo)
+        {
+            float distancia = Math.Abs(primeiro.X - segundo.X);
+            return distancia <= primeiro.Largura / 2f + segundo.Largura / 2f + 1.5f;
+        }
+
+        private void CompactarMorro(float dt)
+        {
+            float baseY = ClientSize.Height * 0.94f;
+            for (int passagem = 0; passagem < 2; passagem++)
+            {
+                for (int i = 0; i < _cristais.Count; i++)
+                {
+                    CristalEstado cristal = _cristais[i];
+                    if (cristal.Y + cristal.Altura / 2f >= baseY - PassoY)
+                    {
+                        cristal.Y = Math.Min(cristal.Y, baseY - cristal.Altura / 2f);
+                        continue;
+                    }
+
+                    CristalEstado suporte = EncontrarSuporteAbaixo(cristal);
+                    if (suporte != null)
+                    {
+                        float alvo = suporte.Y - suporte.Altura / 2f - cristal.Altura / 2f + 1f;
+                        if (alvo > cristal.Y + 1f)
+                        {
+                            cristal.Y += Math.Min(3f, (alvo - cristal.Y) * 0.35f);
+                        }
+                    }
+                    else
+                    {
+                        cristal.Y += Math.Min(3f, 18f * dt);
+                    }
+                }
+            }
+        }
+
+        private void InicializarMorro()
+        {
+            float baseY = Math.Max(6f, ClientSize.Height * 0.94f);
+            for (int i = 0; i < _posicoesVisuais.Count && _cristais.Count < LimiteCristais(); i++)
+            {
+                PosicaoVisual posicao = _posicoesVisuais[i];
+                float superficie = CalcularSuperficie(posicao.X);
+                for (int camada = 0; camada < 2 && _cristais.Count < LimiteCristais(); camada++)
+                {
+                    float energia = 0.35f + (float)_rng.NextDouble() * 0.3f;
+
+                    float y = baseY - camada * PassoY + Variar(-1.2f, 1.2f);
+                    if (y <= superficie + 2f) break;
+                    int indiceFaixa = EncontrarFaixaMaisProxima(posicao.X);
+                    CristalEstado cristal = CriarEstado(indiceFaixa, posicao.X + Variar(-0.8f, 0.8f), y, energia);
+                    cristal.Idade = 1.2f + camada * 0.55f;
+                    _cristais.Add(cristal);
+                }
+            }
+        }
+
+        private void CriarCristal(PosicaoVisual posicao)
+        {
+            if (_cristais.Count >= LimiteCristais())
+            {
+                RemoverCristalMaisBaixo();
+                ReconstruirIndiceEspacial();
+            }
+
+            float energia = Limitar(posicao.EnergiaVisual, 0f, 1f);
+            float altura = 12f + energia * 8f;
+            float y = CalcularYDeApoio(posicao.X, CalcularSuperficie(posicao.X), altura);
+            int indiceFaixa = EncontrarFaixaMaisProxima(posicao.X);
+            CristalEstado cristal = CriarEstado(indiceFaixa, posicao.X, y, energia);
+            _cristais.Add(cristal);
+        }
+
+        private CristalEstado CriarEstado(int indiceFaixa, float x, float y, float energia)
+        {
+            CristalEstado cristal = new CristalEstado();
+            cristal.IndiceFaixa = indiceFaixa;
+            cristal.X = x;
+            cristal.Y = y;
+            cristal.Largura = 14f + energia * 8f;
+            cristal.Altura = 12f + energia * 8f;
+            cristal.IdadeMaxima = 10f + (float)_rng.NextDouble() * 3f;
+            cristal.CorBase = _cores[_rng.Next(_cores.Length)];
+            cristal.Rotacao = Variar(-12f, 12f);
+            cristal.PontosLocais = CriarForma(cristal.Largura, cristal.Altura);
+            cristal.PontosRender = new PointF[cristal.PontosLocais.Length];
+            cristal.Facetas = 1 + _rng.Next(2);
+            return cristal;
+        }
+
+        private void RemoverCristalMaisBaixo()
+        {
+            int indice = -1;
+            float maiorY = float.MinValue;
+            for (int i = 0; i < _cristais.Count; i++)
+            {
+                if (_cristais[i].Y > maiorY)
+                {
+                    maiorY = _cristais[i].Y;
+                    indice = i;
+                }
+            }
+            if (indice >= 0) _cristais.RemoveAt(indice);
+        }
+
+        private float CalcularSuperficie(float x)
+        {
+            float baseY = ClientSize.Height * 0.94f;
+            float topoY = ClientSize.Height * 0.08f;
+            float energia = EnergiaVisualPorX(x);
+            return baseY - energia * Math.Max(0f, baseY - topoY);
+        }
+
+        private float EnergiaVisualPorX(float x)
+        {
+            if (_posicoesVisuais.Count == 0) return 0f;
+            int ultimo = _posicoesVisuais.Count - 1;
+            if (ultimo == 0) return _posicoesVisuais[0].EnergiaVisual;
+            float inicio = _posicoesVisuais[0].X;
+            float passo = Math.Max(1f, (_posicoesVisuais[ultimo].X - inicio) / ultimo);
+            float indiceReal = (x - inicio) / passo;
+            if (indiceReal <= 0f) return _posicoesVisuais[0].EnergiaVisual;
+            if (indiceReal >= ultimo) return _posicoesVisuais[ultimo].EnergiaVisual;
+            int indice = (int)indiceReal;
+            float t = indiceReal - indice;
+            PosicaoVisual esquerda = _posicoesVisuais[indice];
+            PosicaoVisual direita = _posicoesVisuais[indice + 1];
+            return esquerda.EnergiaVisual + (direita.EnergiaVisual - esquerda.EnergiaVisual) * t;
+        }
+
+        private float CalcularAlturaAtual(float x)
+        {
+            float baseY = ClientSize.Height * 0.94f;
+            float topo = baseY;
+            int coluna = ObterColunaVisual(x);
+            for (int deslocamento = -5; deslocamento <= 5; deslocamento++)
+            {
+                int indice = coluna + deslocamento;
+                if (indice < 0 || indice >= _cristaisPorColuna.Count) continue;
+                List<CristalEstado> candidatos = _cristaisPorColuna[indice];
+                for (int i = 0; i < candidatos.Count; i++)
+                {
+                    CristalEstado cristal = candidatos[i];
+                    if (Math.Abs(cristal.X - x) <= cristal.Largura / 2f + 1.5f)
+                    {
+                        topo = Math.Min(topo, cristal.Y - cristal.Altura / 2f);
+                    }
+                }
+            }
+            return Math.Max(0f, baseY - topo);
+        }
+
+        private int EncontrarFaixaMaisProxima(float x)
+        {
+            int indice = 0;
+            float distancia = float.MaxValue;
+            for (int i = 0; i < _faixas.Count; i++)
+            {
+                float atual = Math.Abs(_faixas[i].X - x);
+                if (atual < distancia)
+                {
+                    distancia = atual;
+                    indice = i;
+                }
+            }
+            return indice;
+        }
+
+        private PointF[] CriarForma(float largura, float altura)
+        {
+            return new PointF[]
+            {
+                new PointF(-largura * Variar(0.32f, 0.48f), altura * Variar(0.10f, 0.30f)),
+                new PointF(-largura * Variar(0.44f, 0.55f), -altura * Variar(0.05f, 0.25f)),
+                new PointF(-largura * Variar(0.14f, 0.28f), -altura * Variar(0.38f, 0.52f)),
+                new PointF(largura * Variar(0.12f, 0.34f), -altura * Variar(0.30f, 0.50f)),
+                new PointF(largura * Variar(0.43f, 0.55f), -altura * Variar(0.02f, 0.25f)),
+                new PointF(largura * Variar(0.28f, 0.48f), altura * Variar(0.20f, 0.48f)),
+                new PointF(-largura * Variar(0.08f, 0.24f), altura * Variar(0.32f, 0.52f))
+            };
+        }
+
+        private void DesenharCristal(Graphics g, CristalEstado cristal)
+        {
+            float profundidade = CalcularProfundidade(cristal);
+            float envelhecimento = Limitar(cristal.Idade / cristal.IdadeMaxima, 0f, 1f);
+            float cinza = Limitar(Math.Max(profundidade, envelhecimento * 0.7f), 0f, 1f);
+            Color cor = Lerp(cristal.CorBase, Color.FromArgb(100, 104, 110), cinza);
+            int alpha = (int)(255f - profundidade * 55f);
+            PointF[] pontos = Transformar(cristal);
+
+            float espessura = envelhecimento < 0.5f ? 1.4f : 1f;
+            Pen pen = ObterPen(Color.FromArgb(alpha, cor), espessura);
+            bool primeiraCamada = EstaNaPrimeiraCamada(cristal);
+            for (int i = 0; i < pontos.Length; i++)
+            {
+                int proximo = (i + 1) % pontos.Length;
+                if (primeiraCamada && (i == 5 || i == 6)) continue;
+                g.DrawLine(pen, pontos[i], pontos[proximo]);
+            }
+
+            if (!primeiraCamada && cristal.Facetas >= 1)
+            {
+                g.DrawLine(pen, pontos[1], pontos[5]);
+            }
+            if (!primeiraCamada && cristal.Facetas >= 2)
+            {
+                g.DrawLine(pen, pontos[2], pontos[6]);
+            }
+        }
+
+        private bool EstaNaPrimeiraCamada(CristalEstado cristal)
+        {
+            float baseY = ClientSize.Height * 0.94f;
+            return cristal.Y + cristal.Altura / 2f >= baseY - 2f;
+        }
+
+        private Pen ObterPen(Color cor, float espessura)
+        {
+            long chave = ((long)cor.ToArgb() << 32) | (uint)(int)(espessura * 100f);
+            Pen pen;
+            if (_cachePens.TryGetValue(chave, out pen)) return pen;
+            if (_cachePens.Count >= 256)
+            {
+                foreach (Pen existente in _cachePens.Values) existente.Dispose();
+                _cachePens.Clear();
+            }
+            pen = new Pen(cor, espessura);
+            _cachePens.Add(chave, pen);
+            return pen;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (Pen pen in _cachePens.Values) pen.Dispose();
+                _cachePens.Clear();
+            }
+            base.Dispose(disposing);
+        }
+
+        private PointF[] Transformar(CristalEstado cristal)
+        {
+            PointF[] pontos = cristal.PontosRender;
+            float seno = (float)Math.Sin(cristal.Rotacao * Math.PI / 180d);
+            float cosseno = (float)Math.Cos(cristal.Rotacao * Math.PI / 180d);
+            for (int i = 0; i < cristal.PontosLocais.Length; i++)
+            {
+                PointF local = cristal.PontosLocais[i];
+                pontos[i] = new PointF(
+                    cristal.X + local.X * cosseno - local.Y * seno,
+                    cristal.Y + local.X * seno + local.Y * cosseno);
+            }
+            return pontos;
+        }
+
+        private float CalcularProfundidade(CristalEstado cristal)
+        {
+            float superficie = CalcularSuperficie(cristal.X);
+            float baseY = ClientSize.Height * 0.94f;
+            return Limitar((cristal.Y - superficie) / Math.Max(1f, baseY - superficie), 0f, 1f);
+        }
+
+        private float Variar(float minimo, float maximo)
+        {
+            return minimo + (float)_rng.NextDouble() * (maximo - minimo);
+        }
+
+        private static float Limitar(float valor, float minimo, float maximo)
+        {
+            return Math.Max(minimo, Math.Min(maximo, valor));
+        }
+
+        private static Color Lerp(Color a, Color b, float t)
+        {
+            return Color.FromArgb(
+                (int)(a.R + (b.R - a.R) * t),
+                (int)(a.G + (b.G - a.G) * t),
+                (int)(a.B + (b.B - a.B) * t));
+        }
+
+        private sealed class FaixaEnergia
+        {
+            public float X;
+            public float Energia;
+        }
+
+        private sealed class PosicaoVisual
+        {
+            public float X;
+            public float EnergiaInterpolada;
+            public float EnergiaVisual;
+            public float AlturaAlvo;
+            public float AlturaAtual;
+            public float Deficit;
+            public double ProximoNascimento;
+        }
+
+        private sealed class CristalEstado
+        {
+            public int IndiceFaixa;
+            public int ColunaVisual;
+            public float X;
+            public float Y;
+            public float Largura;
+            public float Altura;
+            public float Idade;
+            public float IdadeMaxima;
+            public float Rotacao;
+            public int Facetas;
+            public PointF[] PontosLocais;
+            public PointF[] PontosRender;
+            public Color CorBase;
+        }
+    }
+}
