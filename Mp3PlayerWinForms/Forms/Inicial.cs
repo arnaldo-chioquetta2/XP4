@@ -1,4 +1,4 @@
-using Mp3PlayerWinForms.Services;
+﻿using Mp3PlayerWinForms.Services;
 using SQLitePCL;
 using System;
 using System.Collections.Generic;
@@ -142,6 +142,7 @@ namespace XP3.Forms
         private VisualizacaoOsciloscopioTriploControl visualizacaoOsciloscopioTriplo;
         private VisualizacaoAuroraControl visualizacaoAurora;
         private VisualizacaoMargaridasControl visualizacaoMargaridas;
+        private VisualizacaoCristaisControl visualizacaoCristais;
         private ContextMenuStrip _menuVisualizador;
         private ToolStripMenuItem _menuSpectrum;
         private ToolStripMenuItem _menuCordas;
@@ -149,11 +150,13 @@ namespace XP3.Forms
         private ToolStripMenuItem _menuOsciloscopioTriplo;
         private ToolStripMenuItem _menuAurora;
         private ToolStripMenuItem _menuMargaridas;
+        private ToolStripMenuItem _menuCristais;
         private bool _visualizacaoCordasAtiva;
         private bool _visualizacaoOsciloscopioAtiva;
         private bool _visualizacaoOsciloscopioTriploAtiva;
         private bool _visualizacaoAuroraAtiva;
         private bool _visualizacaoMargaridasAtiva;
+        private bool _visualizacaoCristaisAtiva;
         private readonly object _margaridasFftLock = new object();
         private float[] _ultimoFftMargaridas;
         private bool _atualizacaoMargaridasAgendada;
@@ -1268,6 +1271,13 @@ namespace XP3.Forms
                 visualizacaoMargaridas.ContextMenuStrip = _menuVisualizador;
             }
 
+            if (visualizacaoCristais == null)
+            {
+                visualizacaoCristais = new VisualizacaoCristaisControl();
+                visualizacaoCristais.DoubleClicked += Spectrum_DoubleClicked;
+                visualizacaoCristais.ContextMenuStrip = _menuVisualizador;
+            }
+
             spectrum.setaFator(1.0f);
         }
 
@@ -1296,7 +1306,8 @@ namespace XP3.Forms
                 && !string.Equals(tipo, "Osciloscopio", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(tipo, "OsciloscopioTriplo", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(tipo, "Aurora", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(tipo, "Margaridas", StringComparison.OrdinalIgnoreCase))
+                && !string.Equals(tipo, "Margaridas", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(tipo, "Cristais", StringComparison.OrdinalIgnoreCase))
             {
                 Debug.WriteLine("[VISUAL/PREF] Valor invalido='" + salvo + "' fallback=Spectrum");
                 tipo = "Spectrum";
@@ -1313,6 +1324,8 @@ namespace XP3.Forms
                 restaurada = SubstituirVisualizadorAtivo(visualizacaoAurora, "Aurora", false);
             else if (string.Equals(tipo, "Margaridas", StringComparison.OrdinalIgnoreCase))
                 restaurada = SubstituirVisualizadorAtivo(visualizacaoMargaridas, "Margaridas", false);
+            else if (string.Equals(tipo, "Cristais", StringComparison.OrdinalIgnoreCase))
+                restaurada = SubstituirVisualizadorAtivo(visualizacaoCristais, "Cristais", false);
 
             if (restaurada || string.Equals(tipo, "Spectrum", StringComparison.OrdinalIgnoreCase))
                 Debug.WriteLine("[VISUAL/PREF] Restaurada=" + tipo);
@@ -1326,11 +1339,13 @@ namespace XP3.Forms
             _menuOsciloscopioTriplo = new ToolStripMenuItem("OsciloscÃƒÂ³pio Triplo");
             _menuAurora = new ToolStripMenuItem("Aurora");
             _menuMargaridas = new ToolStripMenuItem("Margaridas");
+            _menuCristais = new ToolStripMenuItem("Cristais");
             _menuOsciloscopio.Enabled = true;
             _menuOsciloscopio.Click += (s, e) => SelecionarVisualizacaoOsciloscopio();
             _menuOsciloscopioTriplo.Click += (s, e) => SelecionarVisualizacaoOsciloscopioTriplo();
             _menuAurora.Click += (s, e) => SelecionarVisualizacaoAurora();
             _menuMargaridas.Click += (s, e) => SelecionarVisualizacaoMargaridas();
+            _menuCristais.Click += (s, e) => SelecionarVisualizacaoCristais();
 
             _menuSpectrum.Click += (s, e) => SelecionarVisualizacaoSpectrum();
             _menuCordas.Click += (s, e) => SelecionarVisualizacaoCordas();
@@ -1341,6 +1356,7 @@ namespace XP3.Forms
             _menuVisualizador.Items.Add(_menuOsciloscopioTriplo);
             _menuVisualizador.Items.Add(_menuAurora);
             _menuVisualizador.Items.Add(_menuMargaridas);
+            _menuVisualizador.Items.Add(_menuCristais);
             _menuVisualizador.Opening += MenuVisualizador_Opening;
         }
 
@@ -1353,6 +1369,7 @@ namespace XP3.Forms
             bool osciloscopioTriploAtivo = ativo == visualizacaoOsciloscopioTriplo;
             bool auroraAtiva = ativo == visualizacaoAurora;
             bool margaridasAtiva = ativo == visualizacaoMargaridas;
+            bool cristaisAtivo = ativo == visualizacaoCristais;
 
             if (_menuSpectrum != null)
                 _menuSpectrum.Checked = spectrumAtivo;
@@ -1366,15 +1383,17 @@ namespace XP3.Forms
                 _menuAurora.Checked = auroraAtiva;
             if (_menuMargaridas != null)
                 _menuMargaridas.Checked = margaridasAtiva;
+            if (_menuCristais != null)
+                _menuCristais.Checked = cristaisAtivo;
 
             Debug.WriteLine("[VISUAL/MENU] Aberto ativo="
-                + (spectrumAtivo ? "Spectrum" : cordasAtivo ? "Cordas" : osciloscopioAtivo ? "Osciloscopio" : osciloscopioTriploAtivo ? "OsciloscopioTriplo" : auroraAtiva ? "Aurora" : margaridasAtiva ? "Margaridas" : "Desconhecido"));
+                + (spectrumAtivo ? "Spectrum" : cordasAtivo ? "Cordas" : osciloscopioAtivo ? "Osciloscopio" : osciloscopioTriploAtivo ? "OsciloscopioTriplo" : auroraAtiva ? "Aurora" : margaridasAtiva ? "Margaridas" : cristaisAtivo ? "Cristais" : "Desconhecido"));
         }
 
         private void SelecionarVisualizacaoSpectrum()
         {
             Debug.WriteLine("[VISUAL/MENU] Selecionado=Spectrum");
-            if (!_visualizacaoCordasAtiva && !_visualizacaoOsciloscopioAtiva && !_visualizacaoOsciloscopioTriploAtiva && !_visualizacaoAuroraAtiva && !_visualizacaoMargaridasAtiva)
+            if (!_visualizacaoCordasAtiva && !_visualizacaoOsciloscopioAtiva && !_visualizacaoOsciloscopioTriploAtiva && !_visualizacaoAuroraAtiva && !_visualizacaoMargaridasAtiva && !_visualizacaoCristaisAtiva)
                 return;
 
             SubstituirVisualizadorAtivo(spectrum, "Spectrum", true);
@@ -1425,6 +1444,14 @@ namespace XP3.Forms
             SubstituirVisualizadorAtivo(visualizacaoMargaridas, "Margaridas", true);
         }
 
+        private void SelecionarVisualizacaoCristais()
+        {
+            Debug.WriteLine("[VISUAL] Selecionado Cristais");
+            if (_visualizacaoCristaisAtiva)
+                return;
+            SubstituirVisualizadorAtivo(visualizacaoCristais, "Cristais", true);
+        }
+
         private void Spectrum_Clicked(object sender, MouseEventArgs e)
         {
             this.FazSpectrum = true;
@@ -1442,6 +1469,8 @@ namespace XP3.Forms
                 return visualizacaoAurora;
             if (_visualizacaoMargaridasAtiva)
                 return visualizacaoMargaridas;
+            if (_visualizacaoCristaisAtiva)
+                return visualizacaoCristais;
             return spectrum;
         }
 
@@ -1476,7 +1505,8 @@ namespace XP3.Forms
                 : atual is VisualizacaoOsciloscopioControl ? "Osciloscopio"
                 : atual is VisualizacaoOsciloscopioTriploControl ? "OsciloscopioTriplo"
                 : atual is VisualizacaoAuroraControl ? "Aurora"
-                : atual is VisualizacaoMargaridasControl ? "Margaridas" : "Spectrum";
+                : atual is VisualizacaoMargaridasControl ? "Margaridas"
+                : atual is VisualizacaoCristaisControl ? "Cristais" : "Spectrum";
 
             Debug.WriteLine("[VISUAL/LAYOUT] atual=" + nomeAtual
                 + " parent=" + hostAtual.Name
@@ -1520,6 +1550,7 @@ namespace XP3.Forms
             _visualizacaoOsciloscopioTriploAtiva = proximo == visualizacaoOsciloscopioTriplo;
             _visualizacaoAuroraAtiva = proximo == visualizacaoAurora;
             _visualizacaoMargaridasAtiva = proximo == visualizacaoMargaridas;
+            _visualizacaoCristaisAtiva = proximo == visualizacaoCristais;
             Debug.WriteLine("[VISUAL/LAYOUT] novo=" + nomeNovo
                 + " parent=" + hostAtual.Name
                 + " dock=" + proximo.Dock
@@ -1684,7 +1715,11 @@ namespace XP3.Forms
                     {
                         EncaminharFftMargaridas(data);
                     }
-                    else if (!_visualizacaoOsciloscopioAtiva && !_visualizacaoOsciloscopioTriploAtiva && !_visualizacaoAuroraAtiva && !_visualizacaoMargaridasAtiva && spectrum != null && !spectrum.IsDisposed)
+                    else if (_visualizacaoCristaisAtiva && visualizacaoCristais != null && !visualizacaoCristais.IsDisposed)
+                    {
+                        ExecutarNoControleQuandoPronto(visualizacaoCristais, () => visualizacaoCristais.UpdateData(data));
+                    }
+                    else if (!_visualizacaoOsciloscopioAtiva && !_visualizacaoOsciloscopioTriploAtiva && !_visualizacaoAuroraAtiva && !_visualizacaoMargaridasAtiva && !_visualizacaoCristaisAtiva && spectrum != null && !spectrum.IsDisposed)
                     {
                         ExecutarNoControleQuandoPronto(spectrum, () => spectrum.UpdateData(data));
                     }
@@ -6320,6 +6355,8 @@ namespace XP3.Forms
                 visualizacaoAurora.TituloMusica = titulo;
             if (visualizacaoMargaridas != null && !visualizacaoMargaridas.IsDisposed)
                 visualizacaoMargaridas.TituloMusica = titulo;
+            if (visualizacaoCristais != null && !visualizacaoCristais.IsDisposed)
+                visualizacaoCristais.TituloMusica = titulo;
         }
         private void BtnConfiguracaoLegado_Click(object sender, EventArgs e)
         {
